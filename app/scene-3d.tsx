@@ -424,8 +424,10 @@ export default function CafeScene({
       pointer = new THREE.Vector2(),
       markerPosition = new THREE.Vector3();
     try {
+      // No canvas MSAA: the outline pass antialiases its own render target and only draws a
+      // full-screen quad here.
       renderer = new THREE.WebGLRenderer({
-        antialias: true,
+        antialias: false,
         alpha: false,
         powerPreference: 'high-performance',
       });
@@ -592,8 +594,17 @@ export default function CafeScene({
     );
     visibility.observe(container);
     const loader = new GLTFLoader();
+    // Luna and the walk paths download alongside the café instead of after it.
+    const characters = Promise.all([
+      fetch('/models/cafe-navigation-v1.json').then((r) => {
+        if (!r.ok) throw new Error('Navigation unavailable');
+        return r.json() as Promise<CafePathData>;
+      }),
+      loader.loadAsync('/models/luna-ps1.glb?v=6'),
+    ]);
+    characters.catch(() => {});
     void loader
-      .loadAsync('/models/winds-space-new.glb?v=1')
+      .loadAsync('/models/winds-space-new.glb?v=2')
       .then(async (gltf) => {
         if (disposed) return;
         const model = gltf.scene;
@@ -1026,18 +1037,13 @@ export default function CafeScene({
           lastInteractionAt = performance.now();
         };
         try {
-          const [navData, luna] = await Promise.all([
-            fetch('/models/cafe-navigation-v1.json').then((r) => {
-              if (!r.ok) throw new Error('Navigation unavailable');
-              return r.json() as Promise<CafePathData>;
-            }),
-            loader.loadAsync('/models/luna-ps1.glb?v=5'),
-          ]);
+          const [navData, luna] = await characters;
           if (disposed) return;
           prepareCafeBarWorkspace(model);
           addCafeWalkSurfaces(model);
           people = placeCafePeople(model, cafePaths(model, navData), luna.scene);
           addedMaterials.push(...toonify(people.root));
+          toonOutline.addHull(luna.scene);
           assetRoot!.add(people.root);
           assetRoot!.updateMatrixWorld(true);
           people.updateActivity(viewRef.current.activity);

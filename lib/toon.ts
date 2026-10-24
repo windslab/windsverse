@@ -9,7 +9,14 @@
 // The test uses the second difference of 1/depth, which is zero on any flat surface whatever
 // its angle, so floors and walls seen at grazing angles stay clean. No second scene pass is
 // needed, which keeps the cost close to a plain render on phones.
+//
+// Character hull: depth steps miss parts that touch (an arm against the vest, the vest against
+// the shirt), and on small phone screens those lines are what make Luna readable. `addHull`
+// gives each mesh a back-facing copy pushed out by a fixed number of screen pixels. It writes
+// alpha 0, which the outline pass turns into exactly the line colour after tone mapping, so the
+// hull matches the depth lines by day, by night and in every scene.
 import * as THREE from 'three';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const TOON_OUTLINE_COLOR = '#3b2a20';
 
@@ -123,15 +130,45 @@ const outlineShader = {
       if (texture2D(tDepth, vUv).x < 1.0) {
         #include <tonemapping_fragment>
       }
-      gl_FragColor.rgb = mix(gl_FragColor.rgb, lineColor, edge);
+      // Opaque materials always write alpha 1; only the character hull writes 0.
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, lineColor, max(edge, 1.0 - base.a));
       #include <colorspace_fragment>
     }`,
 };
 
+const hullShader = {
+  vertexShader: /* glsl */ `
+    uniform vec2 resolution;
+    uniform float width;
+    void main() {
+      vec4 clip = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      // Push along the smoothed normal as seen on screen, by \`width\` drawing-buffer pixels.
+      vec2 dir = (projectionMatrix * vec4(normalize(normalMatrix * normal), 0.0)).xy * resolution;
+      float len = length(dir);
+      if (len > 1e-6) clip.xy += dir / len * width * 2.0 / resolution * clip.w;
+      gl_Position = clip;
+    }`,
+  fragmentShader: /* glsl */ `
+    uniform vec3 lineColor;
+    void main() {
+      gl_FragColor = vec4(lineColor, 0.0);
+    }`,
+};
+
+/** Hull geometry: positions only, welded so corner normals average and the shell has no gaps. */
+function hullGeometry(source: THREE.BufferGeometry) {
+  const positions = new THREE.BufferGeometry();
+  positions.setAttribute('position', source.getAttribute('position'));
+  if (source.index) positions.setIndex(source.index);
+  const welded = mergeVertices(positions, 1e-4);
+  welded.computeVertexNormals();
+  return welded;
+}
+
 /** Renders `scene` with toon outlines. Call `render` instead of `renderer.render`. */
 export function createToonOutline(
   renderer: THREE.WebGLRenderer,
-  { color = TOON_OUTLINE_COLOR, strength = 1, samples = 4 } = {},
+  { color = TOON_OUTLINE_COLOR, strength = 1, samples = 4, hullWidth = 1.25 } = {},
 ) {
   const size = new THREE.Vector2();
   const depthTexture = new THREE.DepthTexture(1, 1);
@@ -163,7 +200,48 @@ export function createToonOutline(
   const quadScene = new THREE.Scene();
   quadScene.add(quad);
   const quadCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const hullMaterial = new THREE.ShaderMaterial({
+    ...hullShader,
+    uniforms: {
+      resolution: { value: new THREE.Vector2(1, 1) },
+      width: { value: 1 },
+      lineColor: { value: material.uniforms.lineColor.value },
+    },
+    side: THREE.BackSide,
+  });
+  const hullGeometries = new Set<THREE.BufferGeometry>();
   return {
+    /**
+     * Outlines every mesh under `root` with a screen-space hull (for characters). Meshes are
+     * assumed to stay put relative to their parent (only joints animate, as in Luna), so the
+     * hulls of siblings merge into one draw call per joint.
+     */
+    addHull(root: THREE.Object3D) {
+      const groups = new Map<THREE.Object3D, THREE.Mesh[]>();
+      root.traverse((node) => {
+        const mesh = node as THREE.Mesh;
+        if (!mesh.isMesh || !mesh.parent) return;
+        const siblings = groups.get(mesh.parent) ?? [];
+        siblings.push(mesh);
+        groups.set(mesh.parent, siblings);
+      });
+      for (const [parent, meshes] of groups) {
+        const parts = meshes.map((mesh) => {
+          mesh.updateMatrix();
+          return hullGeometry(mesh.geometry).applyMatrix4(mesh.matrix);
+        });
+        const geometry = parts.length > 1 ? mergeGeometries(parts) : parts[0];
+        if (parts.length > 1) parts.forEach((part) => part.dispose());
+        if (!geometry) continue;
+        hullGeometries.add(geometry);
+        const hull = new THREE.Mesh(geometry, hullMaterial);
+        // Not named after its meshes, so name lookups (e.g. Luna's feet) never match it.
+        hull.name = 'toon-hull';
+        hull.castShadow = hull.receiveShadow = false;
+        hull.raycast = () => {};
+        parent.add(hull);
+      }
+    },
     render(scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
       renderer.getDrawingBufferSize(size);
       if (target.width !== size.x || target.height !== size.y) target.setSize(size.x, size.y);
@@ -173,6 +251,8 @@ export function createToonOutline(
       u.cameraFar.value = camera.far;
       // About 1.5 CSS pixels wide: thin, but readable on every screen density.
       u.thickness.value = Math.max(2, Math.round(renderer.getPixelRatio() * 1.5));
+      hullMaterial.uniforms.resolution.value.copy(size);
+      hullMaterial.uniforms.width.value = Math.max(1, renderer.getPixelRatio() * hullWidth);
       const previous = renderer.getRenderTarget();
       renderer.setRenderTarget(target);
       renderer.render(scene, camera);
@@ -184,6 +264,8 @@ export function createToonOutline(
       depthTexture.dispose();
       material.dispose();
       quad.geometry.dispose();
+      hullMaterial.dispose();
+      hullGeometries.forEach((geometry) => geometry.dispose());
     },
   };
 }

@@ -117,6 +117,24 @@ commit `3d22a88`).
   satu render target MSAA + satu pass layar penuh; pengatur kualitas otomatis yang sudah ada tetap
   menurunkan resolusi bila FPS < 35.
 
+## 7. Performa mobile dan outline Luna (24 Okt 2026, masih branch `luna-ps1`)
+
+- `public/models/winds-space-new.glb`: 63 tekstur PNG diubah ke WebP (kualitas 88, `EXT_texture_webp`)
+  dengan `@gltf-transform/cli@4.1.1 webp`. 7,24 MB → 4,12 MB. Geometri, nama node/mesh/material
+  tidak berubah (175 node, 172 mesh, 98 material dibandingkan sebelum dan sesudah). Cache `?v=2`.
+- `app/scene-3d.tsx`: Luna dan `cafe-navigation-v1.json` diunduh bersamaan dengan model café, bukan
+  sesudahnya. Canvas tanpa MSAA (`antialias: false`), karena pass outline sudah memakai MSAA di
+  render target dan ke layar hanya menggambar satu quad.
+- `lib/toon.ts`: `toonOutline.addHull(root)` memberi Luna garis tepi "inverted hull" selebar ±1,25 px
+  CSS. Garis antar-bagian yang bersentuhan (lengan–rompi, rompi–kaus, celana) kini selalu terlihat,
+  juga di layar HP. Warnanya persis #3b2a20 setelah tone mapping, jadi sama di café, studio, siang
+  dan malam. Hull digabung per joint: +12 draw call untuk Luna (bukan +79).
+- `app/luna/viewer.tsx`: studio memakai hull yang sama dan canvas tanpa MSAA.
+- Cache Luna dinaikkan ke `?v=6` (GLB dan poster).
+- Verifikasi: `/luna` di viewport 375×812 (diam dan "Sapa Luna"), café memuat ketiga file paralel,
+  `typecheck`, `format:check`, `build` lulus; lint tidak bertambah (17 masalah lama di file yang sama).
+  Belum diverifikasi: FPS di HP sungguhan dan tampilan close-up Luna di dalam café.
+
 ## Deploy ke Sites
 
 Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses project `appgprj_6ac7d63cb4f48191a187a55fc5239204`. Lalu: `npm ci` → `npm run build` → simpan versi → deploy ke project yang sama → cek `/` dan `/luna`. Tidak ada migrasi database.

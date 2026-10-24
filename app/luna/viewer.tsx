@@ -48,7 +48,9 @@ export default function LunaViewer({
     camera.position.copy(defaultCamera);
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'low-power' });
+      // No canvas MSAA: the outline pass antialiases its own render target and only draws a
+      // full-screen quad here.
+      renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'low-power' });
     } catch {
       setState('error');
       return;
@@ -114,7 +116,7 @@ export default function LunaViewer({
     resize.observe(container);
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
     void new GLTFLoader()
-      .loadAsync('/models/luna-ps1.glb?v=5')
+      .loadAsync('/models/luna-ps1.glb?v=6')
       .then((gltf) => {
         if (disposed) {
           disposeModel(gltf.scene);
@@ -122,6 +124,7 @@ export default function LunaViewer({
         }
         model = gltf.scene;
         toonify(model);
+        toonOutline.addHull(model);
         // The studio camera is framed for a 2.5-unit character standing on y = 0.
         const bounds = new THREE.Box3().setFromObject(model);
         model.scale.setScalar(2.5 / Math.max(bounds.max.y - bounds.min.y, 0.01));
@@ -183,7 +186,7 @@ export default function LunaViewer({
         <>
           <img
             className={styles.poster}
-            src="/models/luna-ps1-preview.webp?v=5"
+            src="/models/luna-ps1-preview.webp?v=6"
             alt="Luna mengenakan kaus pink, rompi abu-abu, cargo, dan sneakers krem"
           />
           <div className={styles.status} role="status">
@@ -193,7 +196,7 @@ export default function LunaViewer({
               <>
                 Pratinjau 3D belum tersedia di perangkat ini.
                 <br />
-                <a href="/models/luna-ps1.glb?v=5" download>
+                <a href="/models/luna-ps1.glb?v=6" download>
                   Unduh model Luna
                 </a>
               </>
