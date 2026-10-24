@@ -6,18 +6,12 @@
 import * as THREE from 'three';
 
 const PAL = {
-  hair: ['#8a5236', '#7f4a30', '#965b3b', '#703f28'],
   skin: '#f4cba5',
   skinShade: '#e8b690',
   ear: '#eebf98',
-  earIn: '#d99f7d',
   blush: '#f0a49a',
   eye: '#3a2217',
   eyeLow: '#5a3322',
-  eyeLight: '#6e4630',
-  lash: '#24140d',
-  brow: '#8a5a3c',
-  nose: '#e6a08a',
   mouth: '#b9634f',
   shirt: ['#c97ba3', '#d388ad', '#bc6f97', '#b4668e'],
   vest: ['#3a3533', '#332e2c', '#423c39', '#2b2725', '#4a4340'],
@@ -218,22 +212,22 @@ function buildTextures() {
     noise(g, w, h, PAL.pocket.slice(1), 2);
     px(g, 0, 3, '#33241e', 8, 1);
   });
-  // Hair: chunky 2-px blocks with lighter streaks; vertex colours add the top-to-bottom shading.
+  // Hair (first version): vertical strand stripes with a few darker flecks.
   T.hair = canvasTexture(16, 16, (g, w, h) => {
-    noise(g, w, h, PAL.hair, 2);
-    for (let i = 0; i < 6; i++) px(g, Math.floor(rand() * 8) * 2, Math.floor(rand() * 6) * 2, '#a26641', 2, 4);
+    for (let x = 0; x < w; x++) {
+      const col = HAIR_V1_PAL[(x * 7 + (x >> 1)) % 3];
+      for (let y = 0; y < h; y++) px(g, x, y, rand() < 0.12 ? HAIR_V1_PAL[3] : col);
+    }
   });
-  T.hair.wrapS = T.hair.wrapT = THREE.RepeatWrapping;
   T.shoe = canvasTexture(16, 8, (g, w, h) => {
     noise(g, w, h, PAL.shoe, 2);
     px(g, 0, 4, PAL.shoeGrey, 5, 4); // heel panel
     px(g, 11, 4, PAL.shoeGrey, 5, 4); // toe panel
     px(g, 6, 0, PAL.shoeGrey, 4, 2); // tongue
   });
-  // Ear: rounded with a darker C-shaped fold.
-  T.ear = canvasTexture(8, 8, (g) => {
-    px(g, 0, 0, PAL.ear, 8, 8);
-    px(g, 2, 2, PAL.earIn, 3, 4); // inner fold
+  T.ear = canvasTexture(4, 4, (g) => {
+    px(g, 0, 0, PAL.ear, 4, 4);
+    px(g, 1, 1, '#d99f7d', 2, 2);
   });
   T.bow = canvasTexture(8, 8, (g, w, h) => {
     noise(g, w, h, ['#4a4340', '#423c39', '#554d49', '#3a3533'], 2);
@@ -258,215 +252,92 @@ function buildTextures() {
       ),
     );
   });
-  // Face, wrapped around the head (48 px = the front half of the head, 32 px = y 0.30 → 0.00 in head
-  // space): tall oval eyes with a dark lash line and an outer flick, thin brows, a nose dot,
-  // a small smile and blush under the outer corner of each eye.
-  T.face = canvasTexture(48, 32, (g, w, h) => {
+  // Face: simple dark oval eyes with one glint, soft blush under the eyes and a small smile.
+  T.face = canvasTexture(32, 32, (g, w, h) => {
     px(g, 0, 0, PAL.skin, w, h);
-    for (const side of [-1, 1]) {
-      const x0 = side > 0 ? 29 : 14; // eye columns x0 … x0+4
-      const outer = side > 0 ? x0 + 5 : x0 - 1; // just outside the outer corner
-      px(g, x0 + 1, 15, PAL.lash, 3, 1); // rounded lash line
-      px(g, x0, 16, PAL.lash, 5, 1);
-      px(g, outer, 15, PAL.lash, 1, 1); // outer flick
-      px(g, x0, 17, PAL.eye, 5, 4);
-      px(g, x0, 21, PAL.eyeLow, 5, 2);
-      px(g, x0 + 1, 23, PAL.eyeLow, 3, 1);
-      px(g, side > 0 ? x0 + 1 : x0 + 3, 17, PAL.eyeLight, 1, 2); // soft highlight
-      px(g, x0, 10, PAL.brow, 4, 1); // brow, a short arc
-      px(g, side > 0 ? x0 + 4 : x0 - 1, 11, PAL.brow, 1, 1);
-      px(g, side > 0 ? x0 + 3 : x0 - 3, 24, PAL.blush, 5, 2); // blush
+    for (const x0 of [9, 19]) {
+      px(g, x0 + 1, 14, PAL.eye, 2, 1);
+      px(g, x0, 15, PAL.eye, 4, 5);
+      px(g, x0 + 1, 20, PAL.eye, 2, 1);
+      px(g, x0 + 1, 18, PAL.eyeLow, 2, 2);
+      px(g, x0 + 2, 15, '#fff8ee', 1, 2); // glint
+      px(g, x0 - 2 + (x0 > 16 ? 5 : 0), 21, PAL.blush, 3, 2);
     }
-    px(g, 23, 23, PAL.nose, 2, 1); // nose
-    px(g, 20, 25, PAL.mouth, 1, 1); // smile
-    px(g, 21, 26, PAL.mouth, 6, 1);
-    px(g, 27, 25, PAL.mouth, 1, 1);
-    px(g, 0, 30, PAL.skinShade, 48, 2); // under the jaw
+    px(g, 14, 24, PAL.mouth, 1, 1); // smile
+    px(g, 15, 25, PAL.mouth, 2, 1);
+    px(g, 17, 24, PAL.mouth, 1, 1);
+    px(g, 0, 31, PAL.skinShade, 32, 1); // jaw shade
   });
   return T;
 }
 
-// ---------- head ----------
-// Low-poly head, measured from the concept (head space, y up from the chin, z forward): wide
-// cheeks, rounded chin. The face texture wraps around the front half (u = 0.5 + φ/π), so the
-// eyes still read in profile the way they do in the side view of the concept.
-const HEAD_RINGS = [
-  // y, half-width, front depth, back depth
-  [0.012, 0.05, 0.1, 0.06],
-  [0.05, 0.106, 0.134, 0.11],
-  [0.11, 0.135, 0.148, 0.14],
-  [0.17, 0.14, 0.148, 0.15],
-  [0.23, 0.134, 0.136, 0.15],
-  [0.29, 0.11, 0.1, 0.125],
-  [0.33, 0.062, 0.05, 0.072],
-];
-function headMesh(faceMaterial) {
-  const N = 14,
-    pos = [],
-    uv = [];
-  // The front half is a superellipse so the face is a broad, fairly flat plane (as in the concept)
-  // and both eyes stay readable in a 3/4 view; the back of the skull stays round.
-  const ringPoint = ([y, rx, zf, zb], phi) => {
-    const sn = Math.sin(phi),
-      cs = Math.cos(phi),
-      e = cs > 0 ? 2 / 3 : 1;
-    return [Math.sign(sn) * Math.pow(Math.abs(sn), e) * rx, y, Math.sign(cs) * Math.pow(Math.abs(cs), e) * (cs > 0 ? zf : zb)];
-  };
-  const uvOf = (p, phi) => [0.5 + phi / Math.PI, p[1] / 0.3];
-  const tri = (...verts) => {
-    for (const [p, phi] of verts) {
-      pos.push(...p);
-      uv.push(...uvOf(p, phi));
+// ---------- hair (from the first PS1 version) ----------
+// Winds preferred the first version's hair: a rounded dome, a flared bob of chunky strands, side
+// locks and straight layered bangs. It is kept exactly as it was built then (same box helper and
+// texture) and fitted onto the current, slightly smaller head with one transform.
+const HAIR_V1_PAL = ['#6e4128', '#7d4c2f', '#8a5634', '#5c3520'];
+function shapedBoxV1(w, h, d, { seg = [1, 1, 1], round = 0, taperBottom = 1 } = {}) {
+  const geo = new THREE.BoxGeometry(w, h, d, ...seg);
+  const p = geo.attributes.position,
+    v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const t = (v.y + h / 2) / h;
+    const s = taperBottom + (1 - taperBottom) * t;
+    v.x *= s;
+    v.z *= s;
+    if (round) {
+      const n = new THREE.Vector3(v.x / (w / 2), v.y / (h / 2), v.z / (d / 2));
+      const e = n
+        .clone()
+        .divideScalar(n.length() || 1)
+        .multiply(new THREE.Vector3(w / 2, h / 2, d / 2));
+      e.x *= s;
+      e.z *= s;
+      v.lerp(e, round);
     }
-  };
-  const bottom = [0, 0.0, 0.03],
-    top = [0, 0.345, -0.005];
-  for (let k = 0; k < N; k++) {
-    const p0 = -Math.PI + (k / N) * Math.PI * 2,
-      p1 = -Math.PI + ((k + 1) / N) * Math.PI * 2,
-      pm = (p0 + p1) / 2;
-    tri([bottom, pm], [ringPoint(HEAD_RINGS[0], p1), p1], [ringPoint(HEAD_RINGS[0], p0), p0]);
-    for (let r = 0; r < HEAD_RINGS.length - 1; r++) {
-      const a0 = ringPoint(HEAD_RINGS[r], p0),
-        a1 = ringPoint(HEAD_RINGS[r], p1),
-        b0 = ringPoint(HEAD_RINGS[r + 1], p0),
-        b1 = ringPoint(HEAD_RINGS[r + 1], p1);
-      tri([a0, p0], [a1, p1], [b1, p1]);
-      tri([a0, p0], [b1, p1], [b0, p0]);
-    }
-    const last = HEAD_RINGS[HEAD_RINGS.length - 1];
-    tri([ringPoint(last, p0), p0], [ringPoint(last, p1), p1], [top, pm]);
+    p.setXYZ(i, v.x, v.y, v.z);
   }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(geo, faceMaterial);
-  mesh.name = 'Luna_Head_face';
-  return mesh;
+  return facet(geo);
 }
-
-// ---------- hair ----------
-// Every strand starts at the crown, follows a dome down to the "equator" and then hangs as a
-// skirt to its own hem. Each strand is three columns wide (inner edge, raised ridge, outer edge)
-// and ends in a point, so the hem breaks into the chunky tips of the concept.
-const HAIR = { apexY: 0.42, eqY: 0.2, cz: -0.03, rx: 0.2, rzFront: 0.22, rzBack: 0.225, shear: -0.025, domeR: 0.21, top: 1.15, tex: 0.36 };
-const hairRadius = (phi) => {
-  const rz = Math.cos(phi) > 0 ? HAIR.rzFront : HAIR.rzBack;
-  return 1 / Math.hypot(Math.sin(phi) / HAIR.rx, Math.cos(phi) / rz);
-};
-// Strands for the wearer's left side (φ > 0); the right side is mirrored. hem = [inner, tip, outer]
-// heights in head space; out = how far the tip flares (>1) or hugs the face (<1); layer alternates
-// so neighbouring strands overlap instead of z-fighting.
-const STRANDS = [
-  // Fringe: narrow strands with pointed tips of different lengths, down to the top of the eyes.
-  { phi: 0.15, w: 0.09, hem: [0.186, 0.17, 0.19], out: 0.97, bulge: 0.02, hug: 0.92, layer: 1, sweep: 0.02 },
-  { phi: 0.3, w: 0.09, hem: [0.2, 0.176, 0.21], out: 0.97, bulge: 0.02, hug: 0.91, layer: 2, sweep: 0.04 },
-  // Curtain cut on a slant so the forehead and the brows show through.
-  { phi: 0.47, w: 0.11, hem: [0.272, 0.256, 0.246], out: 1, hug: 0.88, layer: 1, sweep: 0.05 },
-  { phi: 0.68, w: 0.12, hem: [0.246, 0.226, 0.21], out: 1, hug: 0.88, layer: 2, sweep: 0.05 },
-  { phi: 0.88, w: 0.11, hem: [0.21, 0.19, 0.178], out: 0.97, hug: 0.9, layer: 1, sweep: 0.03 },
-  // Locks framing the cheeks: one long one hugging the face, a shorter one in front of the ear.
-  { phi: 1.05, w: 0.11, hem: [0.07, 0.025, 0.08], out: 0.82, bulge: 0.02, layer: 2 },
-  { phi: 1.22, w: 0.09, hem: [0.15, 0.118, 0.16], out: 0.92, layer: 1 },
-  // Above and behind the ear.
-  { phi: 1.43, w: 0.14, hem: [0.18, 0.166, 0.186], out: 1.0, layer: 2 },
-  { phi: 1.68, w: 0.14, hem: [0.165, 0.1, 0.075], out: 1.18, bulge: 0.02, layer: 1 },
-  // Outer tier of the bob: long at the sides, a little shorter at the back, flaring out.
-  { phi: 1.92, w: 0.14, hem: [0.055, 0.0, 0.05], out: 1.28, bulge: 0.03, layer: 2 },
-  { phi: 2.17, w: 0.14, hem: [0.08, 0.035, 0.085], out: 1.24, bulge: 0.035, layer: 1 },
-  { phi: 2.42, w: 0.14, hem: [0.1, 0.06, 0.095], out: 1.25, bulge: 0.035, layer: 2 },
-  { phi: 2.67, w: 0.14, hem: [0.11, 0.07, 0.115], out: 1.25, bulge: 0.035, layer: 1 },
-  { phi: 2.92, w: 0.14, hem: [0.115, 0.075, 0.11], out: 1.25, bulge: 0.035, layer: 2 },
-  // Under tier peeking out below the outer tier at the nape.
-  { phi: 2.05, w: 0.16, hem: [0.035, -0.02, 0.04], out: 1.1, layer: -2 },
-  { phi: 2.35, w: 0.16, hem: [0.04, -0.012, 0.035], out: 1.1, layer: -2 },
-  { phi: 2.65, w: 0.16, hem: [0.035, -0.022, 0.04], out: 1.1, layer: -2 },
-  { phi: 2.95, w: 0.16, hem: [0.04, -0.008, 0.035], out: 1.1, layer: -2 },
-];
-const CENTRE_STRANDS = [
-  { phi: 0, w: 0.09, hem: [0.182, 0.162, 0.182], out: 0.97, bulge: 0.02, hug: 0.92, layer: 2 },
-  { phi: Math.PI, w: 0.14, hem: [0.115, 0.07, 0.115], out: 1.25, bulge: 0.035, layer: 1 },
-  { phi: Math.PI, w: 0.16, hem: [0.035, -0.018, 0.035], out: 1.1, layer: -2 },
-];
-function hairStrands(material) {
-  const ROWS = 8,
-    pos = [],
-    uv = [],
-    col = [];
-  const strands = [...CENTRE_STRANDS];
-  for (const st of STRANDS) {
-    strands.push(st);
-    strands.push({ ...st, phi: -st.phi, sweep: -(st.sweep || 0), mirrored: true });
+function hairV1(material) {
+  // The first version's skull was 0.32 × 0.29 × 0.285 centred at (0, 0.165, 0.006); the current
+  // one is 0.30 × 0.27 × 0.27 centred at (0, 0.14, 0.004).
+  const S = new THREE.Vector3(0.3 / 0.32, 0.27 / 0.29, 0.27 / 0.285);
+  const hair = new THREE.Group();
+  hair.name = 'Luna_Head_hair';
+  hair.scale.copy(S);
+  hair.position.set(0, 0.14 - 0.165 * S.y, 0.004 - 0.006 * S.z);
+  part(hair, 'Luna_Head_hair_dome', shapedBoxV1(0.36, 0.2, 0.33, { seg: [4, 3, 4], round: 0.85 }), material, [0, 0.29, -0.01]);
+  part(hair, 'Luna_Head_hair_back', shapedBoxV1(0.3, 0.17, 0.12, { seg: [3, 2, 2], round: 0.5, taperBottom: 1.1 }), material, [0, 0.2, -0.105]);
+  const strands = 15;
+  for (let i = 0; i < strands; i++) {
+    const a = THREE.MathUtils.lerp(1.0, Math.PI * 2 - 1.0, i / (strands - 1)); // cheek → back → cheek
+    const len = 0.225 + ((i * 5) % 3) * 0.014 - Math.abs(Math.cos(a)) * 0.012;
+    const r = 0.158;
+    part(
+      hair,
+      'Luna_Head_hair_bob',
+      shapedBoxV1(0.072, len, 0.055, { taperBottom: 0.7, round: 0.15 }),
+      material,
+      [Math.sin(a) * r, 0.29 - len / 2, Math.cos(a) * r - 0.012],
+      [-0.2, a, 0],
+      'YXZ',
+    );
   }
-  for (const st of strands) {
-    const shade = 0.84 + rand() * 0.13 - (st.layer === 1 ? 0.05 : 0) - (st.layer < 0 ? 0.1 : 0);
-    const uOff = rand() * 4,
-      vOff = rand() * 4;
-    // Column c = 0 (φ - w), 1 (ridge), 2 (φ + w). For the mirrored side the inner edge is c = 2.
-    const hemOf = (c) => {
-      if (c === 1) return st.hem[1];
-      const corner = (c === 0) !== !!st.mirrored ? st.hem[0] : st.hem[2];
-      return st.hem[1] + (corner - st.hem[1]) * 0.75; // tips a little blunter than drawn
-    };
-    const columns = [0, 1, 2].map((c) => {
-      const phi0 = st.phi + (c - 1) * st.w;
-      const hem = hemOf(c);
-      const thetaEnd = hem >= HAIR.eqY ? Math.acos(Math.min(1, (hem - HAIR.eqY) / (HAIR.apexY - HAIR.eqY))) : Math.PI / 2;
-      const domeLen = thetaEnd * HAIR.domeR,
-        skirtLen = Math.max(0, HAIR.eqY - hem),
-        total = domeLen + skirtLen;
-      const pts = [];
-      for (let i = 0; i < ROWS; i++) {
-        const a = i / (ROWS - 1),
-          L = a * total;
-        const phi = phi0 + (c === 1 ? (st.sweep || 0) * a * a : 0);
-        // `hug` pulls the end of a strand in toward the face (curtain over the brows, fringe).
-        const hug = 1 + ((st.hug || 1) - 1) * THREE.MathUtils.smoothstep(a, 0.45, 1);
-        const R = (hairRadius(phi) * (1 + 0.012 * st.layer) + (c === 1 ? 0.006 : 0)) * hug;
-        let x, y, z;
-        if (L <= domeLen) {
-          const th = L / HAIR.domeR,
-            r = R * Math.pow(Math.sin(th), HAIR.top);
-          y = HAIR.eqY + Math.cos(th) * (HAIR.apexY - HAIR.eqY);
-          x = Math.sin(phi) * r;
-          z = HAIR.cz + Math.cos(phi) * r + HAIR.shear * Math.cos(th);
-        } else {
-          const t = skirtLen ? (L - domeLen) / skirtLen : 1;
-          const r = R * (1 + (st.out - 1) * t + (st.bulge || 0) * Math.sin(Math.PI * t));
-          y = HAIR.eqY + (hem - HAIR.eqY) * t;
-          x = Math.sin(phi) * r;
-          z = HAIR.cz + Math.cos(phi) * r;
-        }
-        pts.push({ p: [x, y, z], v: L / HAIR.tex + vOff, r: Math.hypot(x, z - HAIR.cz) });
-      }
-      return { pts, c };
-    });
-    const k = (p, c) => {
-      const g = 0.62 + 0.38 * THREE.MathUtils.clamp(p[1] / HAIR.apexY, 0, 1);
-      return Math.min(1.1, g * shade * (c === 1 ? 1.06 : 1));
-    };
-    const push = (c, i) => {
-      const q = columns[c].pts[i];
-      pos.push(...q.p);
-      uv.push(uOff + ((c - 1) * st.w * q.r) / HAIR.tex, q.v);
-      const kk = k(q.p, c);
-      col.push(kk, kk, kk);
-    };
-    for (let c = 0; c < 2; c++)
-      for (let i = 0; i < ROWS - 1; i++) {
-        push(c, i), push(c, i + 1), push(c + 1, i + 1);
-        push(c, i), push(c + 1, i + 1), push(c + 1, i);
-      }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(geo, material);
-  mesh.name = 'Luna_Head_hair';
-  return mesh;
+  for (const s of [-1, 1])
+    part(hair, 'Luna_Head_hair_sidelock', shapedBoxV1(0.056, 0.22, 0.05, { taperBottom: 0.55 }), material, [s * 0.148, 0.16, 0.078], [-0.1, s * 0.12, s * 0.04], 'YXZ');
+  const bangs = [
+    [-0.118, 0.1, 0.062],
+    [-0.072, 0.12, 0.07],
+    [-0.022, 0.105, 0.064],
+    [0.026, 0.125, 0.072],
+    [0.075, 0.11, 0.066],
+    [0.118, 0.095, 0.058],
+  ];
+  for (const [x, len, w] of bangs)
+    part(hair, 'Luna_Head_hair_bangs', shapedBoxV1(w, len, 0.038, { taperBottom: 0.45 }), material, [x, 0.312 - len / 2, 0.142 - x * x * 1.8], [-0.22, x * 1.2, -x * 0.6], 'YXZ');
+  return hair;
 }
 
 // ---------- model ----------
@@ -480,7 +351,7 @@ export function buildLuna() {
     skin: flat('Luna skin', PAL.skin),
     ear: mat('Luna ears', T.ear),
     face: mat('Luna face', T.face),
-    hair: mat('Luna hair', T.hair, { side: THREE.DoubleSide, vertexColors: true }),
+    hair: mat('Luna hair', T.hair),
     shirt: mat('Luna pink shirt', T.shirt),
     sleeve: mat('Luna pink sleeve', T.sleeve),
     vestFront: mat('Luna vest front', T.vestFront),
@@ -511,11 +382,11 @@ export function buildLuna() {
   part(body, 'Luna_Body_hips', shapedBox(0.25, 0.06, 0.16, { round: 0.2 }), M.pants, [0, -0.01, 0]);
   part(body, 'Luna_Body_shirt', shapedBox(0.21, 0.24, 0.145, { seg: [4, 3, 1], taperTop: 0.9, round: 0.12, shift: shoulderSlope(0.21, 0.04) }), M.shirt, [0, 0.12, 0]);
   const vestW = 0.24,
-    vestH = 0.26,
+    vestH = 0.235,
     vestD = 0.17,
-    vestY = 0.097,
+    vestY = 0.108,
     vestTop = 0.9,
-    vestBottom = 1.13;
+    vestBottom = 1.06;
   const vest = new THREE.Mesh(
     shapedBox(vestW, vestH, vestD, { seg: [4, 3, 2], taperTop: vestTop, taperBottom: vestBottom, shift: shoulderSlope(vestW, 0.03) }),
     [M.vest, M.vest, M.vest, M.vest, M.vestFront, M.vestBack],
@@ -564,9 +435,8 @@ export function buildLuna() {
     part(body, 'Luna_Body_pen_cap', shapedBox(0.009, 0.01, 0.009), M.penCap, [x, 0.17 + h - 0.012, z]);
   }
   // Big 3D bow on the back of the vest.
-  const bowZ = -vestFront(0.055) - 0.006;
-  const bow = joint(body, 'Luna_Body_bow', [0, 0.055, bowZ]);
-  bow.scale.set(1.3, 1.1, 1.2);
+  const bowZ = -vestFront(0.13) - 0.006;
+  const bow = joint(body, 'Luna_Body_bow', [0, 0.13, bowZ]);
   part(bow, 'Luna_Body_bow_knot', shapedBox(0.03, 0.028, 0.02, { round: 0.3 }), M.vestDark);
   for (const s of [-1, 1]) {
     part(
@@ -586,32 +456,29 @@ export function buildLuna() {
       [0, 0, s * 0.3],
     );
   }
-  part(body, 'Luna_Body_neck', shapedBox(0.06, 0.03, 0.06), M.skin, [0, 0.235, 0]);
+  part(body, 'Luna_Body_neck', shapedBox(0.06, 0.04, 0.06), M.skin, [0, 0.25, 0]);
 
   // ----- head (pivot at the base of the neck) -----
-  // Chin sits just above the shoulders and the bob's tips reach the shoulder line, as in the concept.
-  const head = joint(body, 'Luna_Head', [0, 0.232, 0]);
-  head.add(headMesh(M.face));
-  // Ears: big and rounded, turned a little forward, sitting just under the hair line.
+  const head = joint(body, 'Luna_Head', [0, 0.25, 0]);
+  const skull = new THREE.Mesh(
+    shapedBox(0.3, 0.27, 0.27, { seg: [4, 4, 4], round: 0.62, taperBottom: 0.86 }),
+    [M.skin, M.skin, M.skin, M.skin, M.face, M.skin],
+  );
+  skull.name = 'Luna_Head_face';
+  skull.position.set(0, 0.14, 0.004);
+  head.add(skull);
   for (const s of [-1, 1])
-    part(
-      head,
-      'Luna_Head_ear',
-      shapedBox(0.03, 0.072, 0.06, { seg: [1, 2, 2], round: 0.62 }),
-      M.ear,
-      [s * 0.15, 0.118, -0.014],
-      [0, s * 0.35, s * -0.18],
-    );
-  // Hair: overlapping strands that meet at the crown (see hairStrands).
-  head.add(hairStrands(M.hair));
+    part(head, 'Luna_Head_ear', shapedBox(0.036, 0.062, 0.044, { round: 0.45 }), M.ear, [s * 0.158, 0.125, 0.014], [0, 0, s * -0.16]);
+
+  head.add(hairV1(M.hair));
 
   // ----- arms: short, slightly open, round fists -----
   for (const [side, s] of [
     ['L', 1],
     ['R', -1],
   ]) {
-    const arm = joint(body, 'Luna_Arm_' + side, [s * 0.128, 0.215, 0], [0, 0, s * 0.33]);
-    part(arm, `Luna_Arm_${side}_sleeve`, shapedBox(0.094, 0.108, 0.096, { taperTop: 0.8, taperBottom: 1.06, round: 0.38, seg: [2, 3, 2] }), M.sleeve, [s * 0.016, -0.046, 0]);
+    const arm = joint(body, 'Luna_Arm_' + side, [s * 0.128, 0.215, 0], [0, 0, s * 0.2]);
+    part(arm, `Luna_Arm_${side}_sleeve`, shapedBox(0.09, 0.094, 0.094, { taperTop: 0.82, taperBottom: 1.04, round: 0.55, seg: [3, 3, 3] }), M.sleeve, [s * 0.016, -0.036, 0]);
     part(arm, `Luna_Arm_${side}_upper`, shapedBox(0.054, 0.05, 0.054), M.skin, [s * 0.016, -0.085, 0]);
     const elbow = joint(arm, 'Luna_Elbow_' + side, [s * 0.016, -0.105, 0]);
     part(elbow, `Luna_Elbow_${side}_forearm`, shapedBox(0.052, 0.07, 0.052, { taperBottom: 0.94 }), M.skin, [0, -0.033, 0]);
@@ -627,12 +494,10 @@ export function buildLuna() {
     ['R', -1],
   ]) {
     const leg = joint(root, 'Luna_Leg_' + side, [s * 0.072, 0.25, 0]);
-    // Baggy legs that widen toward the ankle and stack in two folds over the sneakers.
-    part(leg, `Luna_Leg_${side}_pants`, shapedBox(0.15, 0.19, 0.16, { seg: [2, 4, 2], round: 0.2, taperTop: 0.9, taperBottom: 1.12 }), M.pants, [s * 0.008, -0.085, 0]);
-    part(leg, `Luna_Leg_${side}_fold`, shapedBox(0.176, 0.034, 0.184, { seg: [2, 2, 2], round: 0.5 }), M.pants, [s * 0.01, -0.142, 0.002]);
-    part(leg, `Luna_Leg_${side}_cuff`, shapedBox(0.184, 0.05, 0.196, { round: 0.45, seg: [2, 2, 2], taperBottom: 0.97 }), M.cuff, [s * 0.01, -0.178, 0.006]);
-    part(leg, `Luna_Leg_${side}_cargo_pocket`, shapedBox(0.03, 0.086, 0.086, { round: 0.15 }), M.cargo, [s * 0.088, -0.112, 0.006], [0, 0, s * 0.05]);
-    part(leg, `Luna_Leg_${side}_cargo_flap`, shapedBox(0.036, 0.024, 0.092), M.cargoFlap, [s * 0.091, -0.07, 0.006], [0, 0, s * 0.05]);
+    part(leg, `Luna_Leg_${side}_pants`, shapedBox(0.14, 0.2, 0.15, { seg: [2, 3, 2], round: 0.18, taperTop: 0.92, taperBottom: 1.08 }), M.pants, [s * 0.006, -0.1, 0]);
+    part(leg, `Luna_Leg_${side}_cuff`, shapedBox(0.166, 0.045, 0.178, { round: 0.25, seg: [2, 1, 2], taperBottom: 1.04 }), M.cuff, [s * 0.006, -0.188, 0.004]);
+    part(leg, `Luna_Leg_${side}_cargo_pocket`, shapedBox(0.026, 0.075, 0.078), M.cargo, [s * 0.083, -0.125, 0.004], [0, 0, s * 0.04]);
+    part(leg, `Luna_Leg_${side}_cargo_flap`, shapedBox(0.032, 0.022, 0.084), M.cargoFlap, [s * 0.086, -0.088, 0.004], [0, 0, s * 0.04]);
     part(leg, `Luna_Leg_${side}_sneaker`, shapedBox(0.118, 0.056, 0.196, { seg: [2, 2, 3], round: 0.42, taperTop: 0.8 }), M.shoe, [s * 0.004, -0.193, 0.028]);
     part(leg, `Luna_Leg_${side}_midsole`, shapedBox(0.126, 0.02, 0.204, { round: 0.15, seg: [2, 1, 2] }), M.midsole, [s * 0.004, -0.224, 0.028]);
     part(leg, `Luna_Leg_${side}_sole`, shapedBox(0.124, 0.016, 0.2, { round: 0.12, seg: [2, 1, 2] }), M.sole, [s * 0.004, -0.242, 0.028]);
@@ -644,8 +509,7 @@ export function buildLuna() {
 
   root.traverse((n) => {
     if (n.isMesh) {
-      // The hair doesn't cast shadows so it never darkens the face (the concept is evenly lit).
-      n.castShadow = n.name !== 'Luna_Head_hair';
+      n.castShadow = true;
       n.receiveShadow = true;
     }
   });

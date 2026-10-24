@@ -18,11 +18,11 @@ Luna dibuat ulang mengikuti konsep "LUNA — PS1 style concept" dari owner (24 O
 |---|---|
 | `scripts/luna-ps1/model.js` | Sumber model. Ubah proporsi, warna, dan tekstur di sini. |
 | `scripts/build-luna-ps1.mjs` | Alat development untuk menghasilkan GLB dan preview. Butuh Playwright Chromium; tidak dipakai saat build Sites. |
-| `public/models/luna-ps1.glb` | Model baru, 397 KB (yang lama 1,7 MB), 2.800 segitiga, 57 mesh. |
+| `public/models/luna-ps1.glb` | Model baru, 311 KB (yang lama 1,7 MB), 2.092 segitiga, 79 mesh. |
 | `public/models/luna-ps1-preview.webp` | Poster untuk halaman `/luna`. |
 | `app/scene-3d.tsx` | Café memuat `luna-ps1.glb`. |
 | `app/luna/cafe-rig.ts` | Skala seragam. Faktor penyempitan 0.78/0.85 untuk model lama dihapus. |
-| `app/luna/viewer.tsx`, `studio.tsx` | Studio memakai model dan poster baru, dengan skala ke tinggi kamera studio. Cache versi `?v=4`. |
+| `app/luna/viewer.tsx`, `studio.tsx` | Studio memakai model dan poster baru, dengan skala ke tinggi kamera studio. Cache versi `?v=5`. |
 
 Nama sambungan tetap sama (`Luna_Body`, `Luna_Head`, `Luna_Arm_L/R`, `Luna_Elbow_L/R`, `Luna_Wrist_L/R`, `Luna_Leg_L/R`). Animasi sapa, pose barista, dan deteksi sepatu (`Luna_Leg_*_sole/sneaker`) berjalan tanpa perubahan logika.
 
@@ -90,6 +90,32 @@ tinggi rambut, posisi telinga) lalu dibandingkan berdampingan dari 4 sudut.
   identik dengan model sumber; café (sol 0,8206 vs lantai Cube066 0,8150; kasir di
   floor_bar_staff_aisle); studio `/luna` + tombol "Sapa Luna"; `npm run typecheck`, `format:check`,
   `build` lulus.
+
+## 6. Luna gabungan + toon shader dan outline (24 Okt 2026, masih branch `luna-ps1`)
+
+Pilihan Winds setelah membandingkan 4 versi: badan dan kepala Versi 3 (commit `1bf2564`), rambut
+Versi 1 (commit `c53b23b`). Revisi detail di bagian 5 tidak dipakai (masih ada di riwayat git,
+commit `3d22a88`).
+
+- `scripts/luna-ps1/model.js`: isi Versi 3 dengan rambut Versi 1 (`hairV1`). Rambut dibangun persis
+  seperti di Versi 1 (helper kotak dan tekstur garis-garis yang sama), lalu satu transform
+  menyesuaikannya ke kepala Versi 3 yang sedikit lebih kecil.
+- `lib/toon.ts` (baru):
+  - `toonify(root)`: mengganti MeshStandard/MeshPhysical menjadi MeshToonMaterial dengan 2 tingkat
+    bayangan; warna, tekstur, vertex color, dan cahaya emissive tetap. Kaca, air, dan material
+    tembus pandang tidak diubah.
+  - `createToonOutline(renderer)`: scene dirender sekali ke render target (MSAA 4×, depth texture),
+    lalu satu pass layar penuh menggambar garis coklat tua (#3b2a20) ±1,5 piksel CSS di sisi depan
+    setiap lompatan kedalaman. Memakai selisih kedua 1/kedalaman, jadi lantai/dinding datar tidak
+    bergaris. Garis memudar di dekat batas jarak pandang. Latar tidak ikut di-tone-map.
+- `app/scene-3d.tsx`: model café, orang-orang (termasuk Luna), kendaraan, dan lantai memakai toon;
+  `renderer.render` diganti `toonOutline.render`; dibuang saat unmount.
+- `app/luna/viewer.tsx`: studio `/luna` memakai toon + outline; lantai bayangan tidak menulis depth
+  supaya tepinya tidak bergaris.
+- Verifikasi: render studio dan café (jauh, dekat, siang, malam) di Chromium headless (SwiftShader);
+  `npm run typecheck`, `format:check`, `build` lulus. Belum diukur: FPS di HP sungguhan. Biayanya
+  satu render target MSAA + satu pass layar penuh; pengatur kualitas otomatis yang sudah ada tetap
+  menurunkan resolusi bila FPS < 35.
 
 ## Deploy ke Sites
 

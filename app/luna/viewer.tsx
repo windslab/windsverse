@@ -6,6 +6,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import styles from './studio.module.css';
 import { createLunaAnimation } from './animation';
+import { createToonOutline, toonify } from '@/lib/toon';
 
 function disposeModel(root: THREE.Object3D) {
   const geometries = new Set<THREE.BufferGeometry>(),
@@ -64,6 +65,7 @@ export default function LunaViewer({
     );
     renderer.domElement.tabIndex = 0;
     container.appendChild(renderer.domElement);
+    const toonOutline = createToonOutline(renderer);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 1.25, 0);
     controls.enablePan = false;
@@ -94,7 +96,8 @@ export default function LunaViewer({
     scene.add(rim);
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(200, 200),
-      new THREE.ShadowMaterial({ color: '#826e5b', opacity: 0.16 }),
+      // depthWrite off so the outline pass doesn't trace the floor's far edge.
+      new THREE.ShadowMaterial({ color: '#826e5b', opacity: 0.16, depthWrite: false }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = -0.017;
@@ -111,13 +114,14 @@ export default function LunaViewer({
     resize.observe(container);
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
     void new GLTFLoader()
-      .loadAsync('/models/luna-ps1.glb?v=4')
+      .loadAsync('/models/luna-ps1.glb?v=5')
       .then((gltf) => {
         if (disposed) {
           disposeModel(gltf.scene);
           return;
         }
         model = gltf.scene;
+        toonify(model);
         // The studio camera is framed for a 2.5-unit character standing on y = 0.
         const bounds = new THREE.Box3().setFromObject(model);
         model.scale.setScalar(2.5 / Math.max(bounds.max.y - bounds.min.y, 0.01));
@@ -126,8 +130,7 @@ export default function LunaViewer({
         model.traverse((object) => {
           const mesh = object as THREE.Mesh;
           if (mesh.isMesh) {
-            // Hair shadows would darken the face; the concept art is evenly lit.
-            mesh.castShadow = mesh.name !== 'Luna_Head_hair';
+            mesh.castShadow = true;
             mesh.receiveShadow = true;
           }
         });
@@ -152,7 +155,7 @@ export default function LunaViewer({
           }
           animation.update(delta, values.current.moving, reduced.matches);
           controls.update();
-          renderer.render(scene, camera);
+          toonOutline.render(scene, camera);
         };
         animate();
       })
@@ -168,6 +171,7 @@ export default function LunaViewer({
       floor.geometry.dispose();
       (floor.material as THREE.Material).dispose();
       key.shadow.dispose();
+      toonOutline.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     };
@@ -179,7 +183,7 @@ export default function LunaViewer({
         <>
           <img
             className={styles.poster}
-            src="/models/luna-ps1-preview.webp?v=4"
+            src="/models/luna-ps1-preview.webp?v=5"
             alt="Luna mengenakan kaus pink, rompi abu-abu, cargo, dan sneakers krem"
           />
           <div className={styles.status} role="status">
@@ -189,7 +193,7 @@ export default function LunaViewer({
               <>
                 Pratinjau 3D belum tersedia di perangkat ini.
                 <br />
-                <a href="/models/luna-ps1.glb?v=4" download>
+                <a href="/models/luna-ps1.glb?v=5" download>
                   Unduh model Luna
                 </a>
               </>

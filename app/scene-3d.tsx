@@ -15,6 +15,7 @@ import { prepareCafeBarWorkspace } from '@/lib/cafe-bar-workspace';
 import { addCafeWalkSurfaces } from '@/lib/cafe-walk-surfaces';
 import { placeCafePeople } from './scene-people';
 import { EMPTY_CAFE_ACTIVITY, type CafeActivity } from '@/lib/cafe-activity';
+import { createToonOutline, toonGradient, toonify } from '@/lib/toon';
 
 function objectByModelName(root: THREE.Object3D, name: string) {
   return (
@@ -460,6 +461,8 @@ export default function CafeScene({
     );
     renderer.domElement.tabIndex = 0;
     container.appendChild(renderer.domElement);
+    // Toon look: cel-shaded materials (see toonify below) and thin outlines drawn in one pass.
+    const toonOutline = createToonOutline(renderer);
     const ambient = new THREE.HemisphereLight('#fff5e5', '#9b8572', 1.8);
     scene.add(ambient);
     const sun = new THREE.DirectionalLight('#ffe5bb', 2.1);
@@ -484,7 +487,7 @@ export default function CafeScene({
       nightGround = new THREE.Color('#252b34');
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(200, 200),
-      new THREE.MeshStandardMaterial({ color: '#e9ded0', roughness: 1 }),
+      new THREE.MeshToonMaterial({ color: '#e9ded0', gradientMap: toonGradient() }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = -0.08;
@@ -594,6 +597,7 @@ export default function CafeScene({
       .then(async (gltf) => {
         if (disposed) return;
         const model = gltf.scene;
+        addedMaterials.push(...toonify(model));
         model.updateMatrixWorld(true);
         const fitObjects = [
           'floor lantai 1',
@@ -902,6 +906,7 @@ export default function CafeScene({
             for (const vehicle of [car, truck]) {
               vehicle.scale.setScalar(vehicleScale);
               vehicle.rotation.y = Math.atan2(start.x - end.x, start.z - end.z);
+              toonify(vehicle);
               scene.add(vehicle);
               trafficModels.push(vehicle);
             }
@@ -1026,12 +1031,13 @@ export default function CafeScene({
               if (!r.ok) throw new Error('Navigation unavailable');
               return r.json() as Promise<CafePathData>;
             }),
-            loader.loadAsync('/models/luna-ps1.glb?v=4'),
+            loader.loadAsync('/models/luna-ps1.glb?v=5'),
           ]);
           if (disposed) return;
           prepareCafeBarWorkspace(model);
           addCafeWalkSurfaces(model);
           people = placeCafePeople(model, cafePaths(model, navData), luna.scene);
+          addedMaterials.push(...toonify(people.root));
           assetRoot!.add(people.root);
           assetRoot!.updateMatrixWorld(true);
           people.updateActivity(viewRef.current.activity);
@@ -1219,7 +1225,7 @@ export default function CafeScene({
           const night = modeRef.current === 'night',
             blend = reduced ? 1 : 1 - Math.exp(-delta * 2.4);
           (scene.background as THREE.Color).lerp(night ? nightSky : daySky, blend);
-          (floor.material as THREE.MeshStandardMaterial).color.lerp(
+          (floor.material as THREE.MeshToonMaterial).color.lerp(
             night ? nightGround : dayGround,
             blend,
           );
@@ -1412,7 +1418,7 @@ export default function CafeScene({
             }
             if (visibleTV) cssRenderer.render(cssScene, camera);
           }
-          renderer.render(scene, camera);
+          toonOutline.render(scene, camera);
           if (debugPerf) {
             perfFrames++;
             perfCpu += performance.now() - perfStart;
@@ -1521,6 +1527,7 @@ export default function CafeScene({
       floor.geometry.dispose();
       (floor.material as THREE.Material).dispose();
       addedMaterials.forEach((m) => m.dispose());
+      toonOutline.dispose();
       renderer?.dispose();
       renderer?.forceContextLoss();
       renderer?.domElement.remove();
