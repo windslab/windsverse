@@ -913,7 +913,8 @@ export function apply(
     assert(!paid || paymentMethod !== 'tunai' || cashPaid >= total, 'Uang tunai kurang.');
     const orderType = z.enum(['dine_in', 'takeaway']).parse(p.orderType);
     let tableId = '';
-    if (orderType === 'dine_in') {
+    // A table is optional for dine-in: without one, guests pick a free seat themselves.
+    if (orderType === 'dine_in' && p.tableId) {
       const table = find(s, 'tables', p.tableId);
       if (!historical) {
         assert(['kosong', 'terisi'].includes(table.status), 'Meja tidak tersedia.');
@@ -947,6 +948,12 @@ export function apply(
       status: historical ? 'selesai' : paid ? 'diproses' : 'menunggu_pembayaran',
       orderType,
       tableId,
+      customerName: z
+        .string()
+        .trim()
+        .max(40)
+        .default('')
+        .parse(p.customerName ?? ''),
       historicalEntry: historical,
     };
     s.orders.push(order);

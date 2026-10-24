@@ -149,7 +149,11 @@ export default function PublicDashboard() {
       if (!res.ok) throw Error(data.error || 'Status pesanan belum dapat dimuat.');
       setTracking(data.found ? data : null);
       if (!data.found)
-        setTrackError('Nomor pesanan tidak ditemukan. Periksa kembali nomor pada struk.');
+        setTrackError(
+          /^WS-/i.test(orderNo.trim())
+            ? 'Nomor pesanan tidak ditemukan. Periksa kembali nomor pada struk.'
+            : 'Belum ada pesanan hari ini dengan nama itu. Coba ejaan lain atau nomor struk.',
+        );
     } catch (e: any) {
       setTrackError(e.message || 'Status pesanan belum dapat dimuat.');
     } finally {
@@ -274,7 +278,7 @@ export default function PublicDashboard() {
             <div className="track-content">
               <span className="landing-kicker">PESANANMU</span>
               <h2>Sudah siap?</h2>
-              <p>Masukkan nomor pesanan dari struk untuk melihat status terbaru.</p>
+              <p>Ketik namamu atau nomor pesanan dari struk untuk melihat status terbaru.</p>
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -282,16 +286,17 @@ export default function PublicDashboard() {
                 }}
               >
                 <label className="sr-only" htmlFor="tracking-number">
-                  Nomor pesanan
+                  Nama atau nomor pesanan
                 </label>
                 <input
                   id="tracking-number"
                   autoComplete="off"
-                  placeholder="Contoh: WS-20261010-A1B2C3D4"
+                  placeholder="Nama (mis. Rina) atau WS-20261010-A1B2C3D4"
                   value={number}
                   maxLength={40}
                   onChange={(e) => {
-                    setNumber(e.target.value.toUpperCase());
+                    const v = e.target.value;
+                    setNumber(/^ws-/i.test(v) ? v.toUpperCase() : v);
                     setTracking(null);
                     setTrackError('');
                   }}
@@ -310,7 +315,32 @@ export default function PublicDashboard() {
                   {trackError}
                 </p>
               )}
-              {tracking?.found && (
+              {tracking?.found &&
+                tracking.matches?.map((m: any, i: number) => (
+                  <div
+                    key={i}
+                    className={'track-result ' + (m.status === 'siap_disajikan' ? 'ready' : '')}
+                  >
+                    <span className="track-pulse" />
+                    <div>
+                      <strong>
+                        {m.name} · {statusText[m.status] || 'Status diperbarui'}
+                      </strong>
+                      <small>
+                        {m.queue ? 'Antrean ke-' + m.queue + ' · ' : ''}
+                        {m.orderType === 'dine_in' ? 'Makan di tempat' : 'Bawa pulang'}
+                      </small>
+                    </div>
+                    <span className="track-status">
+                      {m.status === 'siap_disajikan' ? (
+                        <Utensils size={18} />
+                      ) : (
+                        <Coffee size={18} />
+                      )}
+                    </span>
+                  </div>
+                ))}
+              {tracking?.found && !tracking.matches && (
                 <div
                   className={
                     'track-result ' + (tracking.status === 'siap_disajikan' ? 'ready' : '')

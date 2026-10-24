@@ -202,3 +202,50 @@ test('several customers reserve different seats and never take the staff aisle',
       assert.ok(!(p.y < 1.5 && p.x > -4.53 && p.x < -2.14 && p.z > 2.94 && p.z < 4.96));
   f.people.dispose();
 });
+test('one order with several drinks brings a group that sits together and is served in one trip', async () => {
+  const state = blank();
+  state.categories = [
+    { id: 'kopi', name: 'kopi', sortOrder: 0 },
+    { id: 'makanan', name: 'makanan', sortOrder: 1 },
+  ];
+  state.products = [
+    { id: 'latte', category: 'kopi' },
+    { id: 'toast', category: 'makanan' },
+  ] as any;
+  state.orders = [
+    {
+      id: 'group-order',
+      createdAt: new Date().toISOString(),
+      paid: true,
+      status: 'sedang_dibuat',
+      orderType: 'dine_in',
+      tableId: '',
+      items: [
+        { productId: 'latte', quantity: 3 },
+        { productId: 'toast', quantity: 2 },
+      ],
+    },
+  ] as any;
+  const visitors = await sceneVisitors(state);
+  assert.equal(visitors.length, 3);
+  assert.equal(new Set(visitors.map((v) => v.group)).size, 1);
+  const f = await fixture();
+  f.people.updateActivity({ ...empty, active: 1, making: 1, visitors });
+  f.advance(110);
+  let guests = f.people
+    .inspect()
+    .people.slice(1)
+    .filter((p) => p.key);
+  assert.equal(guests.length, 3);
+  assert.ok(guests.every((p) => p.phase === 'sitting'));
+  for (const a of guests) for (const b of guests) assert.ok(a.seat!.distanceTo(b.seat!) < 3);
+  const done = visitors.map((v) => ({ ...v, status: 'selesai' as const, finishedAt: Date.now() }));
+  f.people.updateActivity({ ...empty, visitors: done });
+  f.advance(70);
+  guests = f.people
+    .inspect()
+    .people.slice(1)
+    .filter((p) => p.key);
+  assert.ok(guests.every((p) => p.delivered));
+  f.people.dispose();
+});

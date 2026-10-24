@@ -257,6 +257,7 @@ export default function Cafe({ name }: { name: string }) {
     [cashPaid, setCashPaid] = useState(''),
     [orderType, setOrderType] = useState('takeaway'),
     [tableId, setTableId] = useState(''),
+    [customerName, setCustomerName] = useState(''),
     [audit, setAudit] = useState<any[]>([]);
   const revision = useRef(0),
     mutation = useRef(false),
@@ -944,7 +945,8 @@ export default function Cafe({ name }: { name: string }) {
         paymentMethod,
         cashPaid: Number(cashPaid || 0),
         orderType,
-        tableId,
+        tableId: orderType === 'dine_in' ? tableId : '',
+        customerName,
         paid,
       },
       'Pesanan tercatat',
@@ -953,6 +955,7 @@ export default function Cafe({ name }: { name: string }) {
       setCart([]);
       setDiscount(0);
       setCashPaid('');
+      setCustomerName('');
       if (result.id) setReceipt(result);
     }
   };
@@ -1579,6 +1582,16 @@ export default function Cafe({ name }: { name: string }) {
                 Hubungi admin untuk memastikan kamu tercantum pada jadwal shift tanggal transaksi.
               </small>
             )}
+            <label>
+              Nama pemesan (opsional, untuk lacak pesanan)
+              <input
+                value={customerName}
+                maxLength={40}
+                autoComplete="off"
+                placeholder="Contoh: Rina"
+                onChange={(e) => setCustomerName(e.target.value)}
+              />
+            </label>
             <Choice
               label="Jenis pesanan"
               value={orderType}
@@ -1594,7 +1607,7 @@ export default function Cafe({ name }: { name: string }) {
                 value={tableId}
                 onChange={setTableId}
                 options={[
-                  { value: '', label: 'Pilih meja' },
+                  { value: '', label: 'Tanpa nomor meja (tamu pilih kursi)' },
                   ...s.tables
                     .filter((t) => ['kosong', 'terisi'].includes(t.status))
                     .map((t) => ({ value: t.id, label: 'Meja ' + t.number + ' · ' + t.zone })),
@@ -1755,7 +1768,10 @@ export default function Cafe({ name }: { name: string }) {
                   {dateTime(o.createdAt)} · {shiftName(o.shiftId)} ·{' '}
                   {o.orderType === 'takeaway'
                     ? 'Bawa pulang'
-                    : 'Meja ' + s.tables.find((t) => t.id === o.tableId)?.number}
+                    : o.tableId
+                      ? 'Meja ' + s.tables.find((t) => t.id === o.tableId)?.number
+                      : 'Makan di tempat'}
+                  {o.customerName ? ' · ' + o.customerName : ''}
                 </small>
                 {hasMissingHpp(o) && (
                   <div className="notice warning">

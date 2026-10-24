@@ -144,3 +144,19 @@ commit `3d22a88`).
 ## Deploy ke Sites
 
 Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses project `appgprj_6ac7d63cb4f48191a187a55fc5239204`. Lalu: `npm ci` → `npm run build` → simpan versi → deploy ke project yang sama → cek `/` dan `/luna`. Tidak ada migrasi database.
+
+## 8. Pelanggan per minuman, rombongan, bersih-bersih, dan lacak nama (24 Okt 2026, branch `luna-ps1`)
+
+- Kasir: kolom "Nama pemesan" (opsional, maks. 40 huruf) dan meja tidak wajib untuk makan di tempat
+  ("Tanpa nomor meja"). `order.create` menyimpan `customerName`; `tableId` boleh kosong.
+- Lacak di halaman depan: bisa pakai nama. `GET /api/public?track=<nama>` hanya mengembalikan pesanan
+  lunas hari ini yang cocok: nama depan, status, nomor antrean, dan jenis pesanan. Tanpa harga atau isi.
+  Batas pencarian sama dengan pencarian nomor struk (30 per menit per IP).
+- Animasi (`lib/cafe-visitors.ts`, `app/scene-people.ts`): satu pelanggan per minuman (makanan tidak
+  dihitung, minimal 1, maks. 4 per pesanan, maks. 8 di layar). Satu pesanan = satu rombongan yang duduk
+  berdekatan; tanpa meja, rombongan memilih area acak tapi tetap. Barista mengantar sekali untuk satu
+  rombongan, lalu mengelap bar ±6 detik (dihentikan bila ada pesanan baru).
+- `scripts/cafe-model-source.ts`: alat tes/bake kini bisa membaca GLB yang dikompres meshopt.
+- Tes: tes baru untuk rombongan; `people.test` 8/8, `engine.test` 21/25 (4 gagal lama, sama seperti
+  sebelumnya), `typecheck`, `format:check`, `build` lulus.
+- Belum dicek di browser: layar kasir dan lacak nama (database lokal kosong).
