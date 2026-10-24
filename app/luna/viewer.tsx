@@ -111,7 +111,7 @@ export default function LunaViewer({
     resize.observe(container);
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
     void new GLTFLoader()
-      .loadAsync('/models/luna-ps1.glb?v=1')
+      .loadAsync('/models/luna-ps1.glb?v=2')
       .then((gltf) => {
         if (disposed) {
           disposeModel(gltf.scene);
@@ -178,7 +178,7 @@ export default function LunaViewer({
         <>
           <img
             className={styles.poster}
-            src="/models/luna-ps1-preview.webp?v=1"
+            src="/models/luna-ps1-preview.webp?v=2"
             alt="Luna mengenakan kaus pink, rompi abu-abu, cargo, dan sneakers krem"
           />
           <div className={styles.status} role="status">
@@ -188,7 +188,7 @@ export default function LunaViewer({
               <>
                 Pratinjau 3D belum tersedia di perangkat ini.
                 <br />
-                <a href="/models/luna-ps1.glb?v=1" download>
+                <a href="/models/luna-ps1.glb?v=2" download>
                   Unduh model Luna
                 </a>
               </>

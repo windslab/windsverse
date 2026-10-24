@@ -18,11 +18,11 @@ Luna dibuat ulang mengikuti konsep "LUNA — PS1 style concept" dari owner (24 O
 |---|---|
 | `scripts/luna-ps1/model.js` | Sumber model. Ubah proporsi, warna, dan tekstur di sini. |
 | `scripts/build-luna-ps1.mjs` | Alat development untuk menghasilkan GLB dan preview. Butuh Playwright Chromium; tidak dipakai saat build Sites. |
-| `public/models/luna-ps1.glb` | Model baru, 174 KB (yang lama 1,7 MB), 1.100 segitiga, 61 mesh. |
+| `public/models/luna-ps1.glb` | Model baru, 403 KB (yang lama 1,7 MB), 2.450 segitiga, 91 mesh. |
 | `public/models/luna-ps1-preview.webp` | Poster untuk halaman `/luna`. |
 | `app/scene-3d.tsx` | Café memuat `luna-ps1.glb`. |
 | `app/luna/cafe-rig.ts` | Skala seragam. Faktor penyempitan 0.78/0.85 untuk model lama dihapus. |
-| `app/luna/viewer.tsx`, `studio.tsx` | Studio memakai model dan poster baru, dengan skala ke tinggi kamera studio. |
+| `app/luna/viewer.tsx`, `studio.tsx` | Studio memakai model dan poster baru, dengan skala ke tinggi kamera studio. Cache versi `?v=2`. |
 
 Nama sambungan tetap sama (`Luna_Body`, `Luna_Head`, `Luna_Arm_L/R`, `Luna_Elbow_L/R`, `Luna_Wrist_L/R`, `Luna_Leg_L/R`). Animasi sapa, pose barista, dan deteksi sepatu (`Luna_Leg_*_sole/sneaker`) berjalan tanpa perubahan logika.
 
@@ -35,6 +35,19 @@ Verifikasi lokal (database lokal kosong, bukan produksi):
 Belum diverifikasi: FPS di perangkat sungguhan, tampilan di HP, dan persetujuan visual owner.
 
 `luna-chibi.glb` dan `luna-chibi-preview.webp` lama tidak dihapus. Keduanya tidak lagi dimuat; hapus setelah owner menyetujui Luna baru.
+
+## 3. Luna revisi detail (24 Okt 2026, masih branch `luna-ps1`)
+
+Mengikuti 7 poin yang disetujui owner:
+1. Rambut: kubah bersegi, potongan helai di mahkota, bob berbentuk lonceng dari helai runcing yang mengembang, poni bergerigi, gradasi terang di atas–gelap di ujung (vertex color).
+2. Wajah: mata oval gelap dengan satu titik kilau, wajah lebih bulat, telinga terlihat (rambut samping dimulai di belakang telinga).
+3. Proporsi chibi: kepala + rambut ±45 % tinggi, rompi berakhir di 0,24, kaki lebih pendek.
+4. Celana cargo baggy menumpuk di atas sepatu, kantong samping 3D dengan penutup.
+5. Sepatu tebal: upper krem, midsole terang, sol gelap.
+6. Tangan kepalan bulat dengan ibu jari, lengan sedikit terbuka.
+7. Rompi: 4 kantong 3D berpenutup, 2 pena menonjol, name tag, pita 3D besar di punggung.
+
+Verifikasi: render 4 sudut, café (diam dan kasir, sol 5,5 mm di atas lantai seperti sebelumnya), `/luna` + "Sapa Luna", `typecheck`, `format:check`, `build`.
 
 ## Deploy ke Sites
 
