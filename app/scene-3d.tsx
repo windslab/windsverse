@@ -18,6 +18,7 @@ import { placeCafePeople } from './scene-people';
 import { EMPTY_CAFE_ACTIVITY, type CafeActivity } from '@/lib/cafe-activity';
 import { createToonOutline, toonGradient, toonify } from '@/lib/toon';
 import { createCafeSky, SKY_PHASES, type SkyPhase } from '@/lib/cafe-sky';
+import { createCafeWorld } from '@/lib/cafe-world';
 
 function objectByModelName(root: THREE.Object3D, name: string) {
   return (
@@ -410,9 +411,10 @@ export default function CafeScene({
     const scene = new THREE.Scene();
     // Windstronout's sky (atmosphere, clouds, stars, moon) with fog toward its horizon colour.
     scene.background = new THREE.Color('#05070c');
-    const sky = createCafeSky();
+    const sky = createCafeSky(150);
+    let world: ReturnType<typeof createCafeWorld> | undefined;
     scene.add(sky.group);
-    scene.fog = new THREE.Fog('#aeb39a', 22, 85);
+    scene.fog = new THREE.Fog('#aeb39a', 40, 240);
     let lastShadowSun = new THREE.Vector3(),
       lastShadowAt = -Infinity,
       lastPhase = '';
@@ -428,7 +430,7 @@ export default function CafeScene({
       SKY_NIGHT = new THREE.Color('#51627f'),
       GROUND_DAY = new THREE.Color('#9b8572'),
       GROUND_NIGHT = new THREE.Color('#1d2230');
-    const camera = new THREE.PerspectiveCamera(60, 1, 0.03, 100),
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.03, 170),
       overviewTarget = new THREE.Vector3(-0.35, 1, 0.15),
       overviewCamera = overviewTarget
         .clone()
@@ -951,6 +953,9 @@ export default function CafeScene({
           neonPanels.push(panel);
         }
         const road = objectByModelName(model, 'jalan poros');
+        let roadLayout:
+          | { origin: THREE.Vector3; direction: THREE.Vector3; halfWidth: number }
+          | undefined;
         const trafficLanes: TrafficLane[] = [];
         if (road) {
           // The road's geometry runs from -1 to +1 on its local Z axis.
@@ -988,6 +993,13 @@ export default function CafeScene({
           });
           const left = road.localToWorld(new THREE.Vector3(-1, 0, 0));
           const right = road.localToWorld(new THREE.Vector3(1, 0, 0));
+          roadLayout = {
+            origin: road.localToWorld(new THREE.Vector3(0, 0, 0)),
+            direction: road
+              .localToWorld(new THREE.Vector3(0, 0, 1))
+              .sub(road.localToWorld(new THREE.Vector3(0, 0, 0))),
+            halfWidth: left.distanceTo(right) / 2,
+          };
           const vehicleScale = (left.distanceTo(right) * 0.3) / 0.82;
           for (const [index, laneX] of [-0.45, 0.45].entries()) {
             // Increasing local Z moves left across the dashboard's initial camera view.
@@ -1023,6 +1035,20 @@ export default function CafeScene({
           }
         }
         // The library anchor uses the reading-corner shelf in the exported cafe.
+        // The world from the Windstronout panorama replaces the plain floor: hills, river,
+        // karst towers, trees and the observatory, all toon-shaded like the café.
+        {
+          const cafeBounds = new THREE.Box3();
+          (fitObjects.length ? fitObjects : [model]).forEach((o) =>
+            cafeBounds.union(new THREE.Box3().setFromObject(o)),
+          );
+          world = createCafeWorld(
+            { bounds: cafeBounds, groundY: floor.position.y, road: roadLayout },
+            windTime,
+          );
+          scene.add(world.group);
+          floor.visible = false;
+        }
         shelf = objectByModelName(model, 'Rak buku');
         const decorativeBooks = objectByModelName(model, 'WS_Decorative_Books');
         if (decorativeBooks) shelfParts.add(decorativeBooks);
@@ -1685,6 +1711,7 @@ export default function CafeScene({
       addedMaterials.forEach((m) => m.dispose());
       toonOutline.dispose();
       sky.dispose();
+      world?.dispose();
       renderer?.dispose();
       renderer?.forceContextLoss();
       renderer?.domElement.remove();

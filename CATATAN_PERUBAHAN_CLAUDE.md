@@ -253,3 +253,15 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Dicek di browser: semua waktu (fajar–malam, bintang malam, awan sore/senja), tampilan depan, alur
   klik ilustrasi. `typecheck`, `format:check`, `build` lulus; `people.test` 8/8, `engine.test` 21/25.
 - Belum diukur: FPS di HP sungguhan dengan langit baru.
+
+## 14. Dunia 3D dari panorama Windstronout (25 Okt 2026, branch `luna-ps1`)
+
+- `lib/cafe-world.ts`: lantai krem polos diganti dunia 3D bergaya panorama — tanah berbukit (noise
+  deterministik, vertex color rumput rendah/sedang/tinggi), halaman rata di sekitar kafe dan koridor jalan
+  yang memanjang (aspal + tepi tanah), sungai berkelok di lembah seberang jalan (pita air dengan garis
+  arus bergerak), 16 bukit karst di cakrawala (satu mesh gabungan), 140 pohon (instanced, ikut angin),
+  dan menara observatorium di atas bukit.
+- `app/scene-3d.tsx`: dunia dibuat setelah kafe & jalan diketahui (`floor` lama disembunyikan); langit
+  radius 150, kamera far 170, kabut 40–240 supaya bukit jauh tetap terlihat berkabut.
+- Diukur di emulasi HP: 60 fps, ±154 ribu segitiga (sebelumnya ±96 ribu), ±552 draw call.
+- `typecheck`, `format:check`, `build` lulus; `engine.test` 21/25 seperti sebelumnya.
