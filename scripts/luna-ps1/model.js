@@ -110,6 +110,9 @@ function shapedBox(
   if (top) geo.translate(0, -h / 2, 0);
   return facet(geo);
 }
+// Slopes the top outer corners down so shoulders read round instead of square.
+const shoulderSlope = (w, drop) => (t, v) =>
+  new THREE.Vector3(0, -Math.max(0, t - 0.55) / 0.45 * Math.pow(Math.abs(v.x) / (w / 2), 1.6) * drop, 0);
 function part(parent, name, geometry, material, [x, y, z] = [0, 0, 0], rot, order = 'XYZ') {
   const m = new THREE.Mesh(geometry, material);
   m.name = name;
@@ -215,6 +218,7 @@ function buildTextures() {
     noise(g, w, h, PAL.hair, 2);
     for (let i = 0; i < 6; i++) px(g, Math.floor(rand() * 8) * 2, Math.floor(rand() * 6) * 2, '#ad7048', 2, 4);
   });
+  T.hair.wrapS = T.hair.wrapT = THREE.RepeatWrapping;
   T.shoe = canvasTexture(16, 8, (g, w, h) => {
     noise(g, w, h, PAL.shoe, 2);
     px(g, 0, 4, PAL.shoeGrey, 5, 4); // heel panel
@@ -267,6 +271,81 @@ function buildTextures() {
   return T;
 }
 
+// ---------- hair ----------
+const HAIR = { cx: 0, cy: 0.2, cz: -0.012, rx: 0.212, rzFront: 0.15, rzBack: 0.205, top: 0.185 };
+// Hem height (head space) and hem in/out factor for a direction φ (0 = front, ±π = back).
+function hairHem(phi, k) {
+  const a = Math.abs(phi),
+    odd = k % 2 === 1;
+  if (a < 0.8) return { y: 0.172 - (odd ? 0.022 : 0) - (a < 0.12 ? 0.012 : 0), out: [0.99, 0.98, 0.97] };
+  if (a < 1.12) return { y: 0.08 - (odd ? 0.03 : 0), out: [0.96, 0.9, 0.85] };
+  if (a < 1.68) return { y: 0.158 - (odd ? 0.012 : 0), out: [1.02, 1.04, 1.04] };
+  return { y: 0.045 - (odd ? 0.035 : 0) + (a > 2.9 ? 0.0 : 0.01), out: [1.05, 1.12, 1.1] };
+}
+function hairShell(material) {
+  const N = 26,
+    DOME = 4,
+    SKIRT = 3;
+  const pos = [],
+    uv = [];
+  const ring = (phi) => {
+    const rz = Math.cos(phi) > 0 ? HAIR.rzFront : HAIR.rzBack;
+    return 1 / Math.hypot(Math.sin(phi) / HAIR.rx, Math.cos(phi) / rz);
+  };
+  // Deterministic lumpiness so the shell reads as chunky clumps, not a smooth helmet.
+  const lump = [];
+  for (let k = 0; k < N; k++) lump.push([0, ...Array.from({ length: DOME + SKIRT }, () => (rand() - 0.5) * 0.016)]);
+  const cols = [];
+  for (let k = 0; k < N; k++) {
+    const phi = -Math.PI + (k / N) * Math.PI * 2;
+    const R = ring(phi),
+      hem = hairHem(phi, k);
+    const col = [];
+    for (let j = 0; j <= DOME; j++) {
+      const th = (j / DOME) * (Math.PI / 2);
+      const r = Math.sin(th) * (R + lump[k][j]);
+      col.push([HAIR.cx + Math.sin(phi) * r, HAIR.cy + Math.cos(th) * HAIR.top, HAIR.cz + Math.cos(phi) * r]);
+    }
+    for (let j = 1; j <= SKIRT; j++) {
+      const t = j / SKIRT,
+        r = R * hem.out[j - 1] + lump[k][DOME + j];
+      col.push([HAIR.cx + Math.sin(phi) * r, HAIR.cy + (hem.y - HAIR.cy) * t, HAIR.cz + Math.cos(phi) * r]);
+    }
+    cols.push(col);
+  }
+  const rows = DOME + SKIRT;
+  for (let k = 0; k < N; k++) {
+    const a = cols[k],
+      b = cols[(k + 1) % N];
+    const u0 = (k / N) * 6,
+      u1 = ((k + 1) / N) * 6;
+    for (let j = 0; j < rows; j++) {
+      const v0 = 2 - (2 * j) / rows,
+        v1 = 2 - (2 * (j + 1)) / rows;
+      const quad = [
+        [a[j], u0, v0],
+        [a[j + 1], u0, v1],
+        [b[j + 1], u1, v1],
+        [b[j], u1, v0],
+      ];
+      // Outward-facing winding (counter-clockwise seen from outside).
+      for (const [i0, i1, i2] of j === 0 ? [[0, 1, 2]] : [[0, 1, 2], [0, 2, 3]]) {
+        for (const i of [i0, i1, i2]) {
+          pos.push(...quad[i][0]);
+          uv.push(quad[i][1], quad[i][2]);
+        }
+      }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.name = 'Luna_Head_hair';
+  return mesh;
+}
+
 // ---------- model ----------
 // Measured from the concept front view (character ≈ 530 px tall → 0.91 units):
 // head + hair ≈ 45 % of the height, hair ≈ 0.52 wide, vest hem at 0.24, baggy legs, chunky shoes.
@@ -278,7 +357,7 @@ export function buildLuna() {
     skin: flat('Luna skin', PAL.skin),
     ear: mat('Luna ears', T.ear),
     face: mat('Luna face', T.face),
-    hair: mat('Luna hair', T.hair),
+    hair: mat('Luna hair', T.hair, { side: THREE.DoubleSide }),
     shirt: mat('Luna pink shirt', T.shirt),
     sleeve: mat('Luna pink sleeve', T.sleeve),
     vestFront: mat('Luna vest front', T.vestFront),
@@ -307,7 +386,7 @@ export function buildLuna() {
   // ----- torso (pivot at the waist; head and arms hang from here, legs are siblings) -----
   const body = joint(root, 'Luna_Body', [0, 0.25, 0]);
   part(body, 'Luna_Body_hips', shapedBox(0.25, 0.06, 0.16, { round: 0.2 }), M.pants, [0, -0.01, 0]);
-  part(body, 'Luna_Body_shirt', shapedBox(0.21, 0.24, 0.145, { taperTop: 0.92 }), M.shirt, [0, 0.12, 0]);
+  part(body, 'Luna_Body_shirt', shapedBox(0.21, 0.24, 0.145, { seg: [4, 3, 1], taperTop: 0.9, round: 0.12, shift: shoulderSlope(0.21, 0.04) }), M.shirt, [0, 0.12, 0]);
   const vestW = 0.24,
     vestH = 0.235,
     vestD = 0.17,
@@ -315,7 +394,7 @@ export function buildLuna() {
     vestTop = 0.9,
     vestBottom = 1.06;
   const vest = new THREE.Mesh(
-    shapedBox(vestW, vestH, vestD, { seg: [2, 2, 2], taperTop: vestTop, taperBottom: vestBottom }),
+    shapedBox(vestW, vestH, vestD, { seg: [4, 3, 2], taperTop: vestTop, taperBottom: vestBottom, shift: shoulderSlope(vestW, 0.03) }),
     [M.vest, M.vest, M.vest, M.vest, M.vestFront, M.vestBack],
   );
   vest.name = 'Luna_Body_vest';
@@ -332,7 +411,7 @@ export function buildLuna() {
   };
   // Shoulder straps over the sleeves' inner edge.
   for (const s of [-1, 1])
-    part(body, 'Luna_Body_vest_strap', shapedBox(0.045, 0.02, 0.15), M.vest, [s * 0.085, 0.228, 0]);
+    part(body, 'Luna_Body_vest_strap', shapedBox(0.045, 0.02, 0.15), M.vest, [s * 0.08, 0.222, 0], [0, 0, s * -0.3]);
   part(body, 'Luna_Body_collar', shapedBox(0.1, 0.022, 0.08), M.shirt, [0, 0.235, 0.004]);
   // Four flap pockets: two small chest pockets and two large hip pockets.
   for (const [x, y, w, h] of [
@@ -397,56 +476,11 @@ export function buildLuna() {
   for (const s of [-1, 1])
     part(head, 'Luna_Head_ear', shapedBox(0.036, 0.062, 0.044, { round: 0.45 }), M.ear, [s * 0.158, 0.125, 0.014], [0, 0, s * -0.16]);
 
-  // Hair: faceted cap, crown chunks over the dome, a bell-shaped bob of pointed clumps that
-  // stops behind the ears, a lock in front of each ear and jagged bangs following the dome.
-  const cap = part(
-    head,
-    'Luna_Head_hair_cap',
-    facet(new THREE.SphereGeometry(1, 10, 5, 0, Math.PI * 2, 0, Math.PI * 0.5)),
-    M.hair,
-    [0, 0.205, -0.015],
-  );
-  cap.scale.set(0.19, 0.21, 0.19);
-  // A clump hangs from its root; `bulge` bows it outward in the middle for a rounder bell shape.
-  const clump = (name, angle, { r, y, len, w, d, tilt, side = 0, taper = 0.42, bulge = 0 }) =>
-    part(
-      head,
-      name,
-      shapedBox(w, len, d, {
-        top: true,
-        taperTop: 0.85,
-        taperBottom: taper,
-        seg: [1, 3, 1],
-        shift: bulge ? (t) => new THREE.Vector3(0, 0, Math.sin(Math.PI * t) * bulge) : undefined,
-      }),
-      M.hair,
-      [Math.sin(angle) * r, y, Math.cos(angle) * r - 0.015],
-      [tilt, angle, side],
-      'YXZ',
-    );
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2 + 0.31;
-    clump('Luna_Head_hair_crown', a, { r: 0.045, y: 0.392, len: 0.115, w: 0.1, d: 0.05, tilt: -1.02, taper: 0.55 });
-  }
-  const bob = 17;
-  for (let i = 0; i < bob; i++) {
-    const a = THREE.MathUtils.lerp(2.0, Math.PI * 2 - 2.0, i / (bob - 1)); // behind ear → back → behind ear
-    const jag = [0, 0.022, -0.01, 0.014, 0.004][i % 5];
-    clump('Luna_Head_hair_bob', a, { r: 0.145, y: 0.32, len: 0.3 + jag, w: 0.095, d: 0.07, tilt: -0.26, bulge: 0.035 });
-  }
-  for (const s of [-1, 1])
-    clump('Luna_Head_hair_sidelock', s * 0.88, { r: 0.13, y: 0.29, len: 0.25, w: 0.06, d: 0.05, tilt: -0.16, side: s * 0.04, taper: 0.36, bulge: 0.012 });
-  const bangs = [
-    [-0.118, 0.19],
-    [-0.078, 0.21],
-    [-0.038, 0.19],
-    [0.0, 0.215],
-    [0.04, 0.192],
-    [0.08, 0.208],
-    [0.118, 0.185],
-  ];
-  for (const [x, len] of bangs)
-    clump('Luna_Head_hair_bangs', x / 0.13, { r: 0.09, y: 0.36, len: len + 0.01, w: 0.066, d: 0.05, tilt: -0.46, side: -x * 0.8, taper: 0.32, bulge: 0.012 });
+  // Hair: one faceted bob shell around the skull. A dome over the top, then a skirt that hangs
+  // to a different length per direction: short jagged bangs over the forehead, long locks
+  // framing the cheeks, a window that lets the ears show, and a full bob down to the nape.
+  // Alternate columns hang a little longer so the hem breaks into pointed PS1 chunks.
+  head.add(hairShell(M.hair));
 
   // ----- arms: short, slightly open, round fists -----
   for (const [side, s] of [
@@ -454,7 +488,7 @@ export function buildLuna() {
     ['R', -1],
   ]) {
     const arm = joint(body, 'Luna_Arm_' + side, [s * 0.128, 0.215, 0], [0, 0, s * 0.2]);
-    part(arm, `Luna_Arm_${side}_sleeve`, shapedBox(0.088, 0.088, 0.092, { taperBottom: 1.08, round: 0.3, seg: [2, 2, 2] }), M.sleeve, [s * 0.018, -0.03, 0]);
+    part(arm, `Luna_Arm_${side}_sleeve`, shapedBox(0.09, 0.094, 0.094, { taperTop: 0.82, taperBottom: 1.04, round: 0.55, seg: [3, 3, 3] }), M.sleeve, [s * 0.016, -0.036, 0]);
     part(arm, `Luna_Arm_${side}_upper`, shapedBox(0.054, 0.05, 0.054), M.skin, [s * 0.016, -0.085, 0]);
     const elbow = joint(arm, 'Luna_Elbow_' + side, [s * 0.016, -0.105, 0]);
     part(elbow, `Luna_Elbow_${side}_forearm`, shapedBox(0.052, 0.07, 0.052, { taperBottom: 0.94 }), M.skin, [0, -0.033, 0]);
@@ -480,7 +514,7 @@ export function buildLuna() {
   }
 
   // Vertex shading: lighter crown, darker tips; cloth darkens slightly toward the ground.
-  bakeGradient(root, (n) => n.includes('_hair_'), 0.9, 0.52, 1.0, 0.6);
+  bakeGradient(root, (n) => n.includes('_hair'), 0.9, 0.52, 1.0, 0.6);
   bakeGradient(root, (n) => /pants|fold|cuff|hips/.test(n), 0.26, 0.04, 1.0, 0.72);
   bakeGradient(root, (n) => /_vest|_bow/.test(n), 0.49, 0.24, 1.0, 0.82);
 

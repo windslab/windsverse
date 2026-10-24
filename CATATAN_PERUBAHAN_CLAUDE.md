@@ -18,11 +18,11 @@ Luna dibuat ulang mengikuti konsep "LUNA — PS1 style concept" dari owner (24 O
 |---|---|
 | `scripts/luna-ps1/model.js` | Sumber model. Ubah proporsi, warna, dan tekstur di sini. |
 | `scripts/build-luna-ps1.mjs` | Alat development untuk menghasilkan GLB dan preview. Butuh Playwright Chromium; tidak dipakai saat build Sites. |
-| `public/models/luna-ps1.glb` | Model baru, 403 KB (yang lama 1,7 MB), 2.450 segitiga, 91 mesh. |
+| `public/models/luna-ps1.glb` | Model baru, 283 KB (yang lama 1,7 MB), 1.930 segitiga, 55 mesh. |
 | `public/models/luna-ps1-preview.webp` | Poster untuk halaman `/luna`. |
 | `app/scene-3d.tsx` | Café memuat `luna-ps1.glb`. |
 | `app/luna/cafe-rig.ts` | Skala seragam. Faktor penyempitan 0.78/0.85 untuk model lama dihapus. |
-| `app/luna/viewer.tsx`, `studio.tsx` | Studio memakai model dan poster baru, dengan skala ke tinggi kamera studio. Cache versi `?v=2`. |
+| `app/luna/viewer.tsx`, `studio.tsx` | Studio memakai model dan poster baru, dengan skala ke tinggi kamera studio. Cache versi `?v=3`. |
 
 Nama sambungan tetap sama (`Luna_Body`, `Luna_Head`, `Luna_Arm_L/R`, `Luna_Elbow_L/R`, `Luna_Wrist_L/R`, `Luna_Leg_L/R`). Animasi sapa, pose barista, dan deteksi sepatu (`Luna_Leg_*_sole/sneaker`) berjalan tanpa perubahan logika.
 
@@ -48,6 +48,21 @@ Mengikuti 7 poin yang disetujui owner:
 7. Rompi: 4 kantong 3D berpenutup, 2 pena menonjol, name tag, pita 3D besar di punggung.
 
 Verifikasi: render 4 sudut, café (diam dan kasir, sol 5,5 mm di atas lantai seperti sebelumnya), `/luna` + "Sapa Luna", `typecheck`, `format:check`, `build`.
+
+## 4. Luna revisi rambut dan bahu (24 Okt 2026, masih branch `luna-ps1`)
+
+Masukan Winds: rambut jelek dan belum mirip referensi, dari samping terlihat botak, bahu kotak.
+
+- Rambut helai (crown, bob, sidelock, poni: 36 mesh) diganti satu mesh `Luna_Head_hair`: kubah bersegi
+  plus "rok" rambut yang panjangnya diatur per arah (`hairHem` di `model.js`): poni bergerigi di dahi,
+  helai pembingkai pipi, celah untuk telinga, dan bob penuh sampai tengkuk. Sisi kepala kini tertutup.
+- Tekstur rambut diulang (RepeatWrapping) sehingga tampil sebagai blok piksel seperti konsep,
+  bukan garis-garis memanjang.
+- Bahu: bagian atas kaus dan rompi dibuat melandai ke luar, tali rompi miring mengikuti bahu,
+  lengan baju pendek dibuat membulat (puff).
+- Tinggi model 0,885 (sebelumnya 0,915). Rig dan nama joint tidak berubah, jadi animasi tetap jalan.
+- Verifikasi: render 4 sudut; café (sol 0,8206 vs lantai Cube066 0,8150; kasir di floor_bar_staff_aisle);
+  `npm run typecheck`, `format:check`, `build` lulus.
 
 ## Deploy ke Sites
 
