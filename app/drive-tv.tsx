@@ -1,15 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import {
-  ArrowUpRight,
-  ChevronLeft,
-  ChevronRight,
-  Camera,
-  Pause,
-  Play,
-  RefreshCw,
-} from 'lucide-react';
-import { TV_DRIVE_URL, type TVAlbum, type TVPhoto } from '@/lib/drive-tv';
+import { ChevronLeft, ChevronRight, Camera, Pause, Play, RefreshCw } from 'lucide-react';
+import { type TVAlbum, type TVPhoto } from '@/lib/drive-tv';
 export type TVProgram = { photoId: string; playing: boolean };
 let albumCache: TVAlbum | undefined;
 let albumReadAt = 0;
@@ -125,21 +117,13 @@ export default function DriveTV({
       });
   };
   return (
-    <section className="drive-tv" aria-label="TV album foto Winds Space">
+    <section className="drive-tv" aria-label="Memoirs, foto pilihan Story of Winds">
       <header>
         <Camera size={19} />
         <div>
           <strong>WINDS SPACE</strong>
-          <span>Moments at Winds Space</span>
+          <span>Memoirs · Story of Winds</span>
         </div>
-        <a
-          href={TV_DRIVE_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Buka album Google Drive"
-        >
-          <ArrowUpRight size={20} />
-        </a>
       </header>
       <div className="tv-photo-stage" aria-busy={loading && !photos.length}>
         {previous && previous.id !== selected?.id && (
@@ -169,7 +153,12 @@ export default function DriveTV({
         {!photos.length && (
           <div className="tv-photo-message">
             <Camera size={32} />
-            <p>{loading ? 'Menyiapkan album…' : error || 'Belum ada foto publik di album ini.'}</p>
+            <p>
+              {loading
+                ? 'Menyiapkan album…'
+                : error ||
+                  'Belum ada foto di Memoirs. Foto pilihan dari kamera Story of Winds akan tampil di sini.'}
+            </p>
             <button type="button" onClick={() => void refresh()} disabled={loading}>
               Muat ulang album
             </button>
@@ -236,9 +225,7 @@ export default function DriveTV({
         </button>
       </div>
       <footer>
-        <a href={TV_DRIVE_URL} target="_blank" rel="noopener noreferrer">
-          Album Google Drive <ArrowUpRight size={13} />
-        </a>
+        <span>Foto tamu dari kamera Story of Winds</span>
         <small>
           {error && photos.length
             ? 'Pembaruan tertunda'

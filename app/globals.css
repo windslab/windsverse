@@ -4500,9 +4500,12 @@ td {
   }
 }
 
-.landing-scene-column .landing-tv-actions,
-.landing-scene-column .landing-telescope-cta {
+.landing-scene-column .landing-tv-actions {
   grid-column: auto;
+}
+/* Five destinations: Windstronout takes the last row on its own. */
+.landing-scene-column .landing-telescope-cta {
+  grid-column: 1 / -1;
 }
 
 /* Windstronout: controls follow the eyepiece on phones; object details have their own space. */
@@ -5208,4 +5211,133 @@ td {
     flex: 1;
     justify-content: center;
   }
+}
+
+/* Cafe Management → Story of Winds (app/camera-admin.tsx) */
+.camera-admin-section {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.camera-admin-section h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.camera-admin-config,
+.camera-editor-fields {
+  display: grid;
+  gap: 12px;
+  max-width: 520px;
+}
+.camera-admin-config fieldset,
+.camera-editor-fields fieldset {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border, #e6dfd4);
+  border-radius: 12px;
+  padding: 12px;
+}
+.camera-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 16px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.camera-preset-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.camera-preset-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e6dfd4);
+  border-radius: 12px;
+}
+.camera-preset-list li > span {
+  display: grid;
+  margin-right: auto;
+}
+.camera-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
+  gap: 18px;
+  padding: 14px;
+  border: 1px solid var(--border, #e6dfd4);
+  border-radius: 16px;
+}
+.camera-editor-preview {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+.camera-editor-preview img,
+.camera-editor-preview > span {
+  width: 100%;
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+}
+.camera-editor-preview > span {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 0.7;
+  background: #efe7da;
+  font-size: 13px;
+}
+.camera-slider {
+  display: grid;
+  gap: 4px;
+}
+.camera-slider input {
+  width: 100%;
+  accent-color: #c27520;
+}
+.camera-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.camera-photo {
+  margin: 0;
+  padding: 6px;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background: #f4ecdf;
+}
+.camera-photo.on-memoirs {
+  border-color: #c27520;
+}
+.camera-photo img,
+.camera-photo > span {
+  display: block;
+  width: 100%;
+  aspect-ratio: 0.62;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #e2d8c8;
+}
+.camera-photo figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding-top: 6px;
+}
+.camera-photo figcaption > span {
+  display: flex;
+}
+@media (max-width: 700px) {
+  .camera-editor {
+    grid-template-columns: 1fr;
+  }
+}
+.camera-editor-fields input[type='color'] {
+  width: 48px;
+  height: 32px;
+  padding: 2px;
 }

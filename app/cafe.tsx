@@ -2,6 +2,7 @@
 import QRCode from 'qrcode';
 import BackupPanel from './backup-panel';
 import AuditPanel from './audit-panel';
+import CameraAdmin from './camera-admin';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
@@ -43,6 +44,7 @@ import {
   Utensils,
   Receipt,
   CircleHelp,
+  Aperture,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -225,11 +227,12 @@ const nav = [
       ['books', 'Koleksi buku', BookOpen],
       ['notes', 'Catatan tim', StickyNote],
       ['feedback', 'Kritik & saran', MessageCircle],
+      ['camera', 'Story of Winds', Aperture],
       ['settings', 'Pengaturan', Settings],
     ],
   },
 ];
-const restricted = ['financials', 'employees', 'products', 'feedback', 'settings'];
+const restricted = ['financials', 'employees', 'products', 'feedback', 'settings', 'camera'];
 export default function Cafe({ name }: { name: string }) {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [s, setS] = useState<State>(blank()),
@@ -2940,6 +2943,7 @@ export default function Cafe({ name }: { name: string }) {
         </div>
       </>
     );
+  if (tab === 'camera' && admin) content = <CameraAdmin />;
   if (tab === 'settings')
     content = (
       <>
