@@ -38,9 +38,9 @@ function makeNoise(seed = 7) {
 }
 
 export type WorldLayout = {
-  /** Café footprint on the ground (world units). */
+  /** The café's whole site (floors, yard, pond, sidewalk) on the ground, world units. */
   bounds: THREE.Box3;
-  /** Ground height of the café floor. */
+  /** Ground level around the site: the top of the sidewalk. */
   groundY: number;
   /** Road through the scene: a point on its centre line, direction, half width. */
   road?: { origin: THREE.Vector3; direction: THREE.Vector3; halfWidth: number };
@@ -50,7 +50,7 @@ const GRASS_LOW = new THREE.Color('#5d6f3a'),
   GRASS_MID = new THREE.Color('#7f9149'),
   GRASS_HIGH = new THREE.Color('#9fae63'),
   DIRT = new THREE.Color('#9a8458'),
-  ASPHALT = new THREE.Color('#57575a'),
+  ASPHALT = new THREE.Color('#1c1c1d'),
   ROCK = new THREE.Color('#7a877c'),
   ROCK_GREEN = new THREE.Color('#4c6639');
 
@@ -113,17 +113,21 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     const { flat } = flatZone(x, z);
     const dist = Math.hypot(x - center.x, z - center.z);
     const hills =
-      // Gentle near the café, rising toward the horizon so the mountains stay in view.
-      (noise(x * 0.028, z * 0.028) - 0.35) *
-        (2.5 + 5 * THREE.MathUtils.smoothstep(dist, 40, 110)) *
-        THREE.MathUtils.smoothstep(dist, 10, 30) +
+      (noise(x * 0.028, z * 0.028) - 0.35) * 9 * THREE.MathUtils.smoothstep(dist, 10, 45) +
       (noise(x * 0.09 + 40, z * 0.09) - 0.5) * 1.2;
+    // Ground outside the café's site comes up to the sidewalk, so the site sits in the land
+    // instead of on a visible plinth; inside the site it stays hidden below the café's own floors.
+    if (flatZone(x, z).cafe <= 0) {
+      // Inside the site: ease down under the café's own floors, no step at the edge.
+      const inside = Math.min(
+        x - bounds.min.x,
+        bounds.max.x - x,
+        z - bounds.min.z,
+        bounds.max.z - z,
+      );
+      return groundY - 0.3 * THREE.MathUtils.smoothstep(inside, 0.2, 2);
+    }
     let h = groundY + hills * THREE.MathUtils.smoothstep(flat, 0, 1);
-    // Grassy berm hugging the café walls (not over the road), so the building sits in the ground.
-    const { cafe: hug, roadGap: gap } = flatZone(x, z);
-    const berm = 1 - THREE.MathUtils.smoothstep(hug, 0.4, 3.6),
-      clearOfRoad = THREE.MathUtils.smoothstep(gap, 0.6, 2.2);
-    h += 0.42 * berm * berm * clearOfRoad;
     // Observatory hill.
     const tower = Math.hypot(x - towerAt.x, z - towerAt.z);
     h += 6.5 * Math.exp(-(tower * tower) / 120);
@@ -247,65 +251,69 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       g.setAttribute('color', new THREE.BufferAttribute(c, 3));
     };
   const mountainParts: THREE.BufferGeometry[] = [];
+  /** Flat-topped bump (a high-power Gaussian), like the table-top hills in the reference. */
+  const mesa = (d: number, w: number) => Math.exp(-((d / w) ** 6));
   {
-    // Range: a curved height strip, peaks from summed bumps so the skyline reads as karst humps.
-    const cols = 140,
-      rows = 10,
-      span = Math.PI * 1.15,
-      inner = 150,
-      outer = 190;
+    // Range behind the café: a long, low skyline of gentle rolls and a few flat-topped rises.
+    const cols = 180,
+      rows = 8,
+      span = Math.PI * 1.2,
+      inner = 115,
+      outer = 150;
     const g = new THREE.PlaneGeometry(1, 1, cols, rows);
     const p = g.attributes.position;
-    const peaks = Array.from({ length: 22 }, (_, k) => ({
-      at: (k / 21 - 0.5) * span + (noise(k, 21) - 0.5) * 0.08,
-      h: 18 + noise(k, 22) * 22,
-      w: 0.035 + noise(k, 23) * 0.05,
+    const rises = Array.from({ length: 9 }, (_, k) => ({
+      at: (k / 8 - 0.5) * span * 0.9 + (noise(k, 41) - 0.5) * 0.12,
+      h: 4 + noise(k, 42) * 6,
+      w: 0.05 + noise(k, 43) * 0.08,
     }));
     for (let k = 0; k < p.count; k++) {
       const u = p.getX(k) + 0.5,
         v = p.getY(k) + 0.5;
       const a = behind + (u - 0.5) * span,
         r = inner + (outer - inner) * v;
-      let ridge = 6 + noise(u * 9, 3) * 6;
-      for (const peak of peaks)
-        ridge += peak.h * Math.exp(-((a - behind - peak.at) ** 2) / (peak.w * peak.w));
-      const profile = Math.sin(Math.PI * Math.min(1, v * 1.15)) ** 0.6;
+      let ridge = 11 + (noise(u * 6, 3) - 0.5) * 4 + (noise(u * 22, 7) - 0.5) * 0.9;
+      for (const rise of rises) ridge += rise.h * mesa(a - behind - rise.at, rise.w);
+      // Rounded front slope, then flat along the top.
+      const profile = Math.min(1, Math.sin((Math.PI / 2) * Math.min(1, v * 1.6)) * 1.05);
       p.setXYZ(
         k,
         center.x + Math.cos(a) * r,
-        groundY - 3 + ridge * profile,
+        groundY - 2 + ridge * profile,
         center.z + Math.sin(a) * r,
       );
     }
     g.deleteAttribute('uv');
     g.computeVertexNormals();
-    karstColor(g, groundY + 30, groundY);
+    karstColor(g, groundY + 20, groundY);
     mountainParts.push(g);
   }
-  // Separate karst towers in front, beyond the river.
-  for (let i = 0; i < 9; i++) {
-    const angle = behind + Math.PI + (i / 8 - 0.5) * 2.1 + (noise(i, 31) - 0.5) * 0.15,
-      radius = 115 + noise(i, 32) * 45,
-      peak = 10 + noise(i, 33) * 14,
-      width = 4.5 + noise(i, 34) * 4;
-    const g = new THREE.CylinderGeometry(width * 0.5, width, peak, 10, 6);
+  // In front, beyond the river: a loose scatter of small, flat-topped karst hills.
+  const placed: { a: number; r: number }[] = [];
+  for (let i = 0; placed.length < 7 && i < 60; i++) {
+    const a = behind + Math.PI + (noise(i * 3.1, 51) - 0.5) * 2.6,
+      r = 80 + noise(i * 2.7, 52) * 60;
+    if (placed.some((q) => Math.abs(q.a - a) * ((q.r + r) / 2) < 14)) continue;
+    placed.push({ a, r });
+    const peak = 5 + noise(i, 53) * 6,
+      width = 4 + noise(i, 54) * 5;
+    const g = new THREE.CylinderGeometry(width * 0.78, width, peak, 12, 5);
     const p = g.attributes.position,
       v = new THREE.Vector3();
     for (let k = 0; k < p.count; k++) {
       v.fromBufferAttribute(p, k);
       const t = (v.y + peak / 2) / peak,
-        bulge = 1 + 0.2 * Math.sin(t * Math.PI) + (noise(v.x * 0.5 + i, v.z * 0.5) - 0.5) * 0.4;
+        bulge = 1 + 0.12 * Math.sin(t * Math.PI) + (noise(v.x * 0.6 + i, v.z * 0.6) - 0.5) * 0.3;
       v.x *= bulge;
       v.z *= bulge;
-      if (t > 0.92) v.y += (1 - Math.hypot(v.x, v.z) / width) * width * 0.3;
+      // Soft, slightly domed top instead of a point.
+      if (t > 0.95) v.y += (1 - Math.hypot(v.x, v.z) / width) * peak * 0.12;
       p.setXYZ(k, v.x, v.y, v.z);
     }
     g.deleteAttribute('uv');
-    g.translate(
-      center.x + Math.cos(angle) * radius,
-      groundY + peak / 2 - 1.5,
-      center.z + Math.sin(angle) * radius,
-    );
+    g.rotateY(noise(i, 55) * 6.28);
+    g.scale(1, 1, 0.7 + noise(i, 56) * 0.6);
+    g.translate(center.x + Math.cos(a) * r, groundY + peak / 2 - 1, center.z + Math.sin(a) * r);
     g.computeVertexNormals();
     karstColor(g, groundY + peak, groundY);
     mountainParts.push(g);
@@ -330,13 +338,11 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     roadCanvas.width = 64;
     roadCanvas.height = 256;
     const x = roadCanvas.getContext('2d')!;
-    x.fillStyle = '#4d4d50';
+    // Same colours as the café's road (glTF Material.011 asphalt, Material.002 markings).
+    x.fillStyle = '#0d0d0d';
     x.fillRect(0, 0, 64, 256);
-    x.fillStyle = 'rgba(255,255,255,0.85)';
+    x.fillStyle = '#878787';
     x.fillRect(30, 0, 4, 120); // centre dash
-    x.fillStyle = 'rgba(232,196,90,0.9)';
-    x.fillRect(3, 0, 3, 256); // edge lines
-    x.fillRect(58, 0, 3, 256);
     const roadTexture = new THREE.CanvasTexture(roadCanvas);
     roadTexture.colorSpace = THREE.SRGBColorSpace;
     roadTexture.wrapT = THREE.RepeatWrapping;
@@ -360,79 +366,6 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     longRoad.receiveShadow = true;
     group.add(longRoad);
     textures.push(roadTexture);
-  }
-
-  // --- Power poles and sagging wires along the road --------------------------------------------
-  {
-    const poleParts: THREE.BufferGeometry[] = [],
-      wireParts: THREE.BufferGeometry[] = [];
-    const offset = sideOfCafe * (road.halfWidth + 1.3),
-      spacing = 13,
-      poleHeight = 6.2,
-      tops: THREE.Vector3[][] = [];
-    // Along-road extent of the café: its own pole and wires already stand there.
-    const cafeAlong = [
-      new THREE.Vector3(bounds.min.x, 0, bounds.min.z),
-      new THREE.Vector3(bounds.max.x, 0, bounds.max.z),
-      new THREE.Vector3(bounds.min.x, 0, bounds.max.z),
-      new THREE.Vector3(bounds.max.x, 0, bounds.min.z),
-    ].map((c) => c.sub(road.origin).dot(roadDir));
-    const skipFrom = Math.min(...cafeAlong) - 3,
-      skipTo = Math.max(...cafeAlong) + 3;
-    for (let along = -150; along <= 150; along += spacing) {
-      if (along > skipFrom && along < skipTo) {
-        tops.push([]);
-        continue;
-      }
-      const base = road.origin
-        .clone()
-        .addScaledVector(roadDir, along)
-        .addScaledVector(roadSide, offset);
-      base.y = height(base.x, base.z) - 0.05;
-      const pole = new THREE.CylinderGeometry(0.09, 0.13, poleHeight, 7);
-      pole.translate(base.x, base.y + poleHeight / 2, base.z);
-      const arm = new THREE.BoxGeometry(1.5, 0.1, 0.1);
-      arm.rotateY(Math.atan2(roadSide.x, roadSide.z) + Math.PI / 2);
-      arm.translate(base.x, base.y + poleHeight - 0.45, base.z);
-      poleParts.push(pole, arm);
-      tops.push(
-        [-0.65, 0, 0.65].map((w) =>
-          base
-            .clone()
-            .addScaledVector(roadSide, w)
-            .setY(base.y + poleHeight - 0.38),
-        ),
-      );
-    }
-    for (let k = 1; k < tops.length; k++) {
-      const a = tops[k - 1],
-        b = tops[k];
-      if (!a.length || !b.length) continue;
-      for (let w = 0; w < 3; w++) {
-        const mid = a[w].clone().lerp(b[w], 0.5);
-        mid.y -= 0.55;
-        wireParts.push(
-          new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a[w], mid, b[w]), 10, 0.018, 3),
-        );
-      }
-    }
-    const poleGeometry = mergeGeometries(poleParts.map((g) => g.toNonIndexed()))!,
-      wireGeometry = mergeGeometries(wireParts.map((g) => g.toNonIndexed()))!;
-    poleParts.forEach((g) => g.dispose());
-    wireParts.forEach((g) => g.dispose());
-    poleGeometry.computeVertexNormals();
-    geometries.push(poleGeometry, wireGeometry);
-    const poleMaterial = new THREE.MeshToonMaterial({
-        color: '#5b4636',
-        gradientMap: toonGradient(),
-      }),
-      wireMaterial = new THREE.MeshBasicMaterial({ color: '#2f2722' });
-    materials.push(poleMaterial, wireMaterial);
-    const poles = new THREE.Mesh(poleGeometry, poleMaterial),
-      wires = new THREE.Mesh(wireGeometry, wireMaterial);
-    poles.name = 'World_Poles';
-    wires.name = 'World_Wires';
-    group.add(poles, wires);
   }
 
   // --- Trees (instanced) -----------------------------------------------------------------------

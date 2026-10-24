@@ -35,12 +35,10 @@ function frontDirection() {
   return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
 }
 type FadingMaterial = { material: THREE.Material; opacity: number };
-/** Distance each car drives on either side of the café (world units). */
-const TRAFFIC_REACH = 70;
 function trafficVisibility(progress: number) {
   return (
-    THREE.MathUtils.smoothstep(progress, 0, 0.07) *
-    (1 - THREE.MathUtils.smoothstep(progress, 0.93, 1))
+    THREE.MathUtils.smoothstep(progress, 0, 0.16) *
+    (1 - THREE.MathUtils.smoothstep(progress, 0.84, 1))
   );
 }
 function setVehicleFade(vehicle: THREE.Group, fade: number) {
@@ -963,12 +961,38 @@ export default function CafeScene({
           | undefined;
         const trafficLanes: TrafficLane[] = [];
         if (road) {
-          // The road's geometry runs from -1 to +1 on its local Z axis; the world's long road
-          // (lib/cafe-world.ts) continues it to the horizon, so its ends no longer fade.
+          // The road's geometry runs from -1 to +1 on its local Z axis.
+          // Fade both asphalt and lane markings softly into the world's long road at the ends.
           road.traverse((object) => {
             const roadMesh = object as THREE.Mesh;
             if (!roadMesh.isMesh) return;
+            const originals = Array.isArray(roadMesh.material)
+              ? roadMesh.material
+              : [roadMesh.material];
+            const softened = originals.map((original) => {
+              const material = original.clone();
+              material.transparent = true;
+              material.depthWrite = false;
+              material.onBeforeCompile = (shader) => {
+                shader.vertexShader =
+                  'varying float vRoadEndZ;\n' +
+                  shader.vertexShader.replace(
+                    '#include <begin_vertex>',
+                    '#include <begin_vertex>\nvRoadEndZ = position.z;',
+                  );
+                shader.fragmentShader =
+                  'varying float vRoadEndZ;\n' +
+                  shader.fragmentShader.replace(
+                    '#include <color_fragment>',
+                    '#include <color_fragment>\ndiffuseColor.a *= 1.0 - smoothstep(0.72, 1.0, abs(vRoadEndZ));',
+                  );
+              };
+              material.customProgramCacheKey = () => 'winds-road-ends-v1';
+              return material;
+            });
+            roadMesh.material = Array.isArray(roadMesh.material) ? softened : softened[0];
             roadMesh.castShadow = false;
+            addedMaterials.push(...originals);
           });
           const left = road.localToWorld(new THREE.Vector3(-1, 0, 0));
           const right = road.localToWorld(new THREE.Vector3(1, 0, 0));
@@ -981,18 +1005,11 @@ export default function CafeScene({
           };
           const vehicleScale = (left.distanceTo(right) * 0.3) / 0.82;
           for (const [index, laneX] of [-0.45, 0.45].entries()) {
-            // Two-way traffic along the long road: each lane drives the other way, far beyond
-            // the café in both directions, and only fades at the very ends.
+            // Two-way traffic: the second lane drives the other way.
             const a = road.localToWorld(new THREE.Vector3(laneX, 0.025, -0.98)),
-              b = road.localToWorld(new THREE.Vector3(laneX, 0.025, 0.98)),
-              mid = a.clone().lerp(b, 0.5),
-              along = b
-                .clone()
-                .sub(a)
-                .normalize()
-                .multiplyScalar(index ? -1 : 1);
-            const start = mid.clone().addScaledVector(along, -TRAFFIC_REACH);
-            const end = mid.clone().addScaledVector(along, TRAFFIC_REACH);
+              b = road.localToWorld(new THREE.Vector3(laneX, 0.025, 0.98));
+            const start = index ? b : a,
+              end = index ? a : b;
             const car = makeVehicle('car'),
               truck = makeVehicle('truck');
             for (const vehicle of [car, truck]) {
@@ -1026,15 +1043,20 @@ export default function CafeScene({
         // The world from the Windstronout panorama replaces the plain floor: hills, river,
         // karst towers, trees and the observatory, all toon-shaded like the café.
         {
-          const cafeBounds = new THREE.Box3();
-          (fitObjects.length ? fitObjects : [model]).forEach((o) =>
-            cafeBounds.union(new THREE.Box3().setFromObject(o)),
-          );
-          world = createCafeWorld(
-            // Ground meets the café's lowest floor so the building sits on it, not above it.
-            { bounds: cafeBounds, groundY: cafeBounds.min.y - 0.02, road: roadLayout },
-            windTime,
-          );
+          // The café's whole site: everything in the model except the road.
+          const site = new THREE.Box3(),
+            part = new THREE.Box3();
+          model.traverse((node) => {
+            const mesh = node as THREE.Mesh;
+            if (!mesh.isMesh || !mesh.visible) return;
+            for (let up: THREE.Object3D | null = mesh; up; up = up.parent) if (up === road) return;
+            site.union(part.setFromObject(mesh));
+          });
+          const sidewalk = objectByModelName(model, 'trotoar');
+          const level = sidewalk
+            ? new THREE.Box3().setFromObject(sidewalk).max.y - 0.02
+            : site.min.y;
+          world = createCafeWorld({ bounds: site, groundY: level, road: roadLayout }, windTime);
           scene.add(world.group);
           floor.visible = false;
         }

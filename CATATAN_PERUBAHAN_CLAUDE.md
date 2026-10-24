@@ -282,3 +282,17 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   matahari tertutup kafe/bukit (raycast 5×/detik). Preset Senja kini 2,5° di atas cakrawala; lampu menyala
   mulai matahari < 6°.
 - `typecheck`, `format:check`, `build` lulus; `people.test` 8/8, `engine.test` 21/25.
+
+## 16. Revisi dunia: area kafe, jalan, dan gunung sesuai referensi (25 Okt 2026)
+
+- Tiang listrik di sepanjang jalan dihapus (kembali seperti sebelumnya).
+- Tidak ada lagi gundukan di dalam area kafe. Seluruh lingkungan kafe (semua mesh model kecuali jalan)
+  menjadi area situs; tanah di luarnya dinaikkan setinggi trotoar, di dalamnya turun landai di bawah
+  lantai kafe — lantai asli dan kolam ikan tidak tertutup, tanpa garis tepi.
+- Efek pudar ujung jalan model dan lalu lintas dikembalikan seperti sebelumnya (tetap dua arah).
+  Jalan panjang memakai warna aspal & marka jalan kafe (Material.011 / Material.002).
+- Perbukitan dekat dikembalikan ke versi sebelumnya.
+- Gunung mengikuti referensi siluet: barisan di belakang berupa punggungan rendah berpuncak datar
+  (radius 115–150, tinggi ±11–20); karst di depan 7 bukit kecil berpuncak membulat, posisi diacak dan
+  berjarak (80–140).
+- `typecheck`, `format:check`, `build` lulus; `people.test` 8/8, `engine.test` 21/25.
