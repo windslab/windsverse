@@ -18,11 +18,11 @@ Luna dibuat ulang mengikuti konsep "LUNA — PS1 style concept" dari owner (24 O
 |---|---|
 | `scripts/luna-ps1/model.js` | Sumber model. Ubah proporsi, warna, dan tekstur di sini. |
 | `scripts/build-luna-ps1.mjs` | Alat development untuk menghasilkan GLB dan preview. Butuh Playwright Chromium; tidak dipakai saat build Sites. |
-| `public/models/luna-ps1.glb` | Model baru, 283 KB (yang lama 1,7 MB), 1.930 segitiga, 55 mesh. |
+| `public/models/luna-ps1.glb` | Model baru, 397 KB (yang lama 1,7 MB), 2.800 segitiga, 57 mesh. |
 | `public/models/luna-ps1-preview.webp` | Poster untuk halaman `/luna`. |
 | `app/scene-3d.tsx` | Café memuat `luna-ps1.glb`. |
 | `app/luna/cafe-rig.ts` | Skala seragam. Faktor penyempitan 0.78/0.85 untuk model lama dihapus. |
-| `app/luna/viewer.tsx`, `studio.tsx` | Studio memakai model dan poster baru, dengan skala ke tinggi kamera studio. Cache versi `?v=3`. |
+| `app/luna/viewer.tsx`, `studio.tsx` | Studio memakai model dan poster baru, dengan skala ke tinggi kamera studio. Cache versi `?v=4`. |
 
 Nama sambungan tetap sama (`Luna_Body`, `Luna_Head`, `Luna_Arm_L/R`, `Luna_Elbow_L/R`, `Luna_Wrist_L/R`, `Luna_Leg_L/R`). Animasi sapa, pose barista, dan deteksi sepatu (`Luna_Leg_*_sole/sneaker`) berjalan tanpa perubahan logika.
 
@@ -63,6 +63,33 @@ Masukan Winds: rambut jelek dan belum mirip referensi, dari samping terlihat bot
 - Tinggi model 0,885 (sebelumnya 0,915). Rig dan nama joint tidak berubah, jadi animasi tetap jalan.
 - Verifikasi: render 4 sudut; café (sol 0,8206 vs lantai Cube066 0,8150; kasir di floor_bar_staff_aisle);
   `npm run typecheck`, `format:check`, `build` lulus.
+
+## 5. Luna revisi detail kepala, rambut, dan badan (24 Okt 2026, masih branch `luna-ps1`)
+
+Masukan Winds: poni terlalu rata sehingga alis tidak terlihat, dan dari samping poni rata dengan wajah.
+Kali ini setiap bagian diukur dari gambar referensi (posisi alis, mata, mulut, dagu, lebar dan
+tinggi rambut, posisi telinga) lalu dibandingkan berdampingan dari 4 sudut.
+
+- Kepala baru (`headMesh`): bentuk low-poly dari ukuran referensi, bagian depan wajah lebih datar.
+  Tekstur wajah 48×32 membungkus setengah kepala, jadi mata dan alis tetap terlihat dari samping dan
+  kedua mata terlihat dari sudut 3/4.
+- Wajah: mata oval tegak dengan garis bulu mata dan lekuk luar, alis tipis, titik hidung, senyum
+  lebih lebar, blush di bawah sudut luar mata.
+- Telinga lebih besar dan bulat, sedikit menghadap depan, dengan lipatan dalam.
+- Rambut (`hairStrands`): helai-helai berujung runcing yang bertemu di ubun-ubun dan saling tumpang.
+  Poni tengah sempit dengan panjang berbeda-beda sampai atas mata; "jendela" dahi kiri-kanan sehingga
+  alis terlihat; helai yang menyapu ke pelipis; helai pembingkai pipi; celah telinga; bob dua lapis
+  di belakang yang melebar ke bawah. Poni menonjol di depan dahi bila dilihat dari samping.
+  Rambut tidak memberi bayangan ke wajah (studio `/luna` juga disesuaikan di `app/luna/viewer.tsx`).
+- Badan: kepala diturunkan sehingga dagu dekat bahu dan ujung rambut menyentuh garis bahu; lengan
+  lebih terbuka; lengan baju lebih panjang mengikuti lengan; rompi lebih panjang dan melebar di bawah;
+  celana lebih longgar dan menumpuk di atas sepatu; kantong cargo lebih besar; pita belakang lebih
+  besar dan turun ke pinggang.
+- Rig dan nama joint tetap sama; animasi sapa tetap jalan.
+- Verifikasi: render 4 sudut + close-up kepala berdampingan dengan referensi; GLB dimuat ulang dan
+  identik dengan model sumber; café (sol 0,8206 vs lantai Cube066 0,8150; kasir di
+  floor_bar_staff_aisle); studio `/luna` + tombol "Sapa Luna"; `npm run typecheck`, `format:check`,
+  `build` lulus.
 
 ## Deploy ke Sites
 

@@ -111,7 +111,7 @@ export default function LunaViewer({
     resize.observe(container);
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
     void new GLTFLoader()
-      .loadAsync('/models/luna-ps1.glb?v=3')
+      .loadAsync('/models/luna-ps1.glb?v=4')
       .then((gltf) => {
         if (disposed) {
           disposeModel(gltf.scene);
@@ -126,7 +126,8 @@ export default function LunaViewer({
         model.traverse((object) => {
           const mesh = object as THREE.Mesh;
           if (mesh.isMesh) {
-            mesh.castShadow = true;
+            // Hair shadows would darken the face; the concept art is evenly lit.
+            mesh.castShadow = mesh.name !== 'Luna_Head_hair';
             mesh.receiveShadow = true;
           }
         });
@@ -178,7 +179,7 @@ export default function LunaViewer({
         <>
           <img
             className={styles.poster}
-            src="/models/luna-ps1-preview.webp?v=3"
+            src="/models/luna-ps1-preview.webp?v=4"
             alt="Luna mengenakan kaus pink, rompi abu-abu, cargo, dan sneakers krem"
           />
           <div className={styles.status} role="status">
@@ -188,7 +189,7 @@ export default function LunaViewer({
               <>
                 Pratinjau 3D belum tersedia di perangkat ini.
                 <br />
-                <a href="/models/luna-ps1.glb?v=3" download>
+                <a href="/models/luna-ps1.glb?v=4" download>
                   Unduh model Luna
                 </a>
               </>
