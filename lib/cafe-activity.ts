@@ -1,5 +1,7 @@
 export type CafeVisitor = {
   key: string;
+  /** Visitors from the same order share a group and sit together. */
+  group?: string;
   status: 'diproses' | 'sedang_dibuat' | 'siap_disajikan' | 'selesai';
   type: string;
   tableNumber: string | number | null;

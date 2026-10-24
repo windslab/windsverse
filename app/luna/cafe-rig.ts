@@ -47,12 +47,14 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
     root,
     feet,
     update(age: number, stride: number, task: string, reduced: boolean) {
-      const working = task === 'preparing',
+      const working = task === 'preparing' || task === 'cleaning',
         carrying = task === 'carrying' || task === 'serving';
       pose(0, stride * 0.5);
       pose(1, -stride * 0.5);
       pose(2, carrying ? -0.65 : working ? -0.5 : -stride * 0.3, 0, 0.05);
-      pose(3, carrying ? -0.65 : working ? -0.5 : stride * 0.3, 0, -0.05);
+      // Cleaning: the right hand wipes the counter side to side.
+      const wipe = task === 'cleaning' && !reduced ? Math.sin(age * 4) * 0.35 : 0;
+      pose(3, carrying ? -0.65 : working ? -0.5 : stride * 0.3, wipe, -0.05);
       pose(4, carrying ? -0.45 : working ? -0.45 + (reduced ? 0 : Math.sin(age * 5) * 0.1) : 0);
       pose(5, carrying ? -0.45 : working ? -0.45 + (reduced ? 0 : Math.sin(age * 5 + 1) * 0.1) : 0);
       pose(6, working ? 0.12 : 0, reduced ? 0 : Math.sin(age * 0.65) * 0.025, 0);

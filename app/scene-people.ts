@@ -222,6 +222,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       seat: null as CafeSeat | null,
       feet,
       key: '',
+      group: '',
       status: '',
       phase: 'hidden',
       drinkUntil: 0,
@@ -231,12 +232,14 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     };
   }
   const seats = findCafeSeats(cafe);
-  const people = Array.from({ length: 6 }, (_, i) => person(i));
+  // Barista + MAX_SCENE_GUESTS (lib/cafe-visitors.ts) guests.
+  const people = Array.from({ length: 9 }, (_, i) => person(i));
   type Person = (typeof people)[number];
   const retired = new Set<string>();
   const barista = people[0];
   let task = 'idle',
     taskKey = '',
+    cleanUntil = 0,
     servingGuest: Person | null = null;
   function travel(actor: Person, destination: THREE.Vector3, phase: string) {
     const route = paths.path(actor.position, destination, actor === barista ? 'staff' : 'visitor');
@@ -249,10 +252,21 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     actor.seated = false;
     return true;
   }
+  /** Stable pseudo-random number in [0, 1) for a visitor group. */
+  const groupRandom = (group: string) =>
+    ([...group].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 1000) / 1000;
   function findSeat(actor: Person, visitor: CafeVisitor, occupied: Set<string>) {
+    // Sit next to a friend from the same order; otherwise at the chosen table; otherwise anywhere.
+    const friend = people
+      .slice(1)
+      .find((p) => p !== actor && visitor.group && p.group === visitor.group && p.seat);
+    const open = seats.filter((s) => (visitor.type === 'takeaway' ? s.takeaway : !s.takeaway));
     const reference =
+      friend?.seat?.surface ??
       seats.find((s) => s.table === tableKey(visitor.tableNumber) && !s.takeaway)?.surface ??
-      actor.position;
+      (open.length
+        ? open[Math.floor(groupRandom(visitor.group || visitor.key) * open.length)].surface
+        : actor.position);
     const candidates = seats.filter(
       (s) => !occupied.has(s.id) && (visitor.type === 'takeaway' ? s.takeaway : !s.takeaway),
     );
@@ -313,11 +327,12 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         actor = people.slice(1).find((p) => !p.key);
         if (!actor) continue;
         actor.key = visitor.key;
+        actor.group = visitor.group ?? visitor.key;
         actor.position.copy(
           paths.snap(
             anchors.entrance
               .clone()
-              .add(new THREE.Vector3(0, 0, -people.indexOf(actor) * 0.5 * scale)),
+              .add(new THREE.Vector3(0, 0, -(people.indexOf(actor) % 4) * 0.5 * scale)),
           ) ?? anchors.entrance,
         );
         actor.visual.visible = actor.shadow.visible = true;
@@ -477,7 +492,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         ? Math.PI / 2
         : isBarista && !moving && task === 'cashier'
           ? -Math.PI / 2
-          : isBarista && !moving && task === 'preparing'
+          : isBarista && !moving && (task === 'preparing' || task === 'cleaning')
             ? Math.PI
             : actor.heading;
     actor.visual.rotation.y +=
@@ -545,7 +560,9 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
           ? 'preparing'
           : posActive
             ? 'cashier'
-            : 'idle';
+            : age < cleanUntil
+              ? 'cleaning'
+              : 'idle';
     const key = next + ':' + (guest?.key ?? '');
     if (key === taskKey) return;
     taskKey = key;
@@ -559,7 +576,13 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     }
     const goal = guest
       ? (paths.snap(approach!) ?? guest.destination)
-      : anchors[next === 'preparing' ? 'working' : next === 'cashier' ? 'cashier' : 'idle'];
+      : anchors[
+          next === 'preparing' || next === 'cleaning'
+            ? 'working'
+            : next === 'cashier'
+              ? 'cashier'
+              : 'idle'
+        ];
     travel(barista, goal, 'working');
     barista.serveAge = 0;
   }
@@ -584,13 +607,43 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       const dt = Math.min(delta, 0.05);
       age += dt;
       chooseTask();
-      if (animate(barista, dt, reduced, true) && task === 'serving' && servingGuest) {
+      const arrived = animate(barista, dt, reduced, true),
+        // Friends at the same table can block the last step; standing beside any of them is enough.
+        atTable =
+          task === 'serving' &&
+          !!servingGuest &&
+          people
+            .slice(1)
+            .some(
+              (p) =>
+                p.key &&
+                p.group === servingGuest!.group &&
+                p.seat &&
+                Math.hypot(
+                  p.seat.surface.x - barista.position.x,
+                  p.seat.surface.z - barista.position.z,
+                ) <
+                  0.6 * scale,
+            );
+      if ((arrived || atTable) && task === 'serving' && servingGuest) {
         barista.serveAge += dt;
         if (barista.serveAge > 2) {
-          servingGuest.delivered = true;
-          servingGuest.drinkUntil = age + 90;
-          servingGuest.drinkUntilWall = Date.now() + 90_000;
-          rememberServed(servingGuest.key);
+          // One tray for the whole group at the table, then wipe down the bar.
+          for (const guest of people.slice(1))
+            if (
+              guest === servingGuest ||
+              (guest.key &&
+                guest.group === servingGuest.group &&
+                guest.status === 'selesai' &&
+                guest.phase === 'sitting' &&
+                !guest.delivered)
+            ) {
+              guest.delivered = true;
+              guest.drinkUntil = age + 90;
+              guest.drinkUntilWall = Date.now() + 90_000;
+              rememberServed(guest.key);
+            }
+          cleanUntil = age + 6;
           taskKey = '';
         }
       }
@@ -609,6 +662,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
           guest.visual.visible = guest.shadow.visible = false;
           retired.add(guest.key);
           guest.key = '';
+          guest.group = '';
           guest.status = '';
           guest.seat = null;
           guest.waypoints = [];

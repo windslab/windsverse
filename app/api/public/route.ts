@@ -3,6 +3,7 @@ import {Fault} from '@/lib/engine';
 import {digest} from '@/lib/auth-crypto';
 import {sceneVisitors} from '@/lib/cafe-visitors';
 import {publicBooks} from '@/lib/public-books';
+import {localDate} from '@/lib/model';
 export const dynamic='force-dynamic';
 export async function GET(req:Request){try{
  const url=new URL(req.url),loaded=await read(),s=loaded.state;
@@ -12,7 +13,17 @@ export async function GET(req:Request){try{
   const ip=req.headers.get('cf-connecting-ip')||'local',key='public-track:'+await digest(ip),now=Date.now(),windowMs=60_000;
   const result=await loaded.db.prepare('INSERT INTO auth_attempts(key,count,expires_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN expires_at<=? THEN 1 ELSE count+1 END,expires_at=CASE WHEN expires_at<=? THEN excluded.expires_at ELSE expires_at END RETURNING count').bind(key,now+windowMs,now,now).first<{count:number}>();
   if((result?.count||0)>30)throw new Fault('Terlalu banyak pencarian. Tunggu sebentar lalu coba lagi.',429);
-  const order=s.orders.find(o=>o.no.toUpperCase()===tracking.trim().toUpperCase());
+  const query=tracking.trim();
+  if(!/^WS-/i.test(query)){
+   // Lookup by name: today's paid orders only, first name + status + queue position, nothing else.
+   const name=query.toLowerCase();
+   if(name.length<2)throw new Fault('Ketik minimal 2 huruf nama pemesan.');
+   const today=localDate(),open=s.orders.filter(o=>o.paid&&!o.historicalEntry&&o.date===today&&o.status!=='dibatalkan').sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
+   const waiting=open.filter(o=>['diproses','sedang_dibuat'].includes(o.status));
+   const matches=open.filter(o=>(o.customerName||'').toLowerCase().split(/\s+/).some((w:string)=>w.startsWith(name))).slice(-10).map(o=>{const i=waiting.indexOf(o);return{name:(o.customerName||'').trim().split(/\s+/)[0],status:o.status,orderType:o.orderType,queue:i<0?null:i+1};});
+   return Response.json({found:matches.length>0,matches},{headers:{'Cache-Control':'no-store'}});
+  }
+  const order=s.orders.find(o=>o.no.toUpperCase()===query.toUpperCase());
   if(!order)return Response.json({found:false},{headers:{'Cache-Control':'no-store'}});
   return Response.json({found:true,status:order.status,orderType:order.orderType},{headers:{'Cache-Control':'no-store'}});
  }
