@@ -35,10 +35,12 @@ function frontDirection() {
   return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
 }
 type FadingMaterial = { material: THREE.Material; opacity: number };
+/** Distance each car drives on either side of the café (world units). */
+const TRAFFIC_REACH = 70;
 function trafficVisibility(progress: number) {
   return (
-    THREE.MathUtils.smoothstep(progress, 0, 0.16) *
-    (1 - THREE.MathUtils.smoothstep(progress, 0.84, 1))
+    THREE.MathUtils.smoothstep(progress, 0, 0.07) *
+    (1 - THREE.MathUtils.smoothstep(progress, 0.93, 1))
   );
 }
 function setVehicleFade(vehicle: THREE.Group, fade: number) {
@@ -411,10 +413,13 @@ export default function CafeScene({
     const scene = new THREE.Scene();
     // Windstronout's sky (atmosphere, clouds, stars, moon) with fog toward its horizon colour.
     scene.background = new THREE.Color('#05070c');
-    const sky = createCafeSky(150);
+    const sky = createCafeSky(220);
     let world: ReturnType<typeof createCafeWorld> | undefined;
-    scene.add(sky.group);
-    scene.fog = new THREE.Fog('#aeb39a', 40, 240);
+    const sunRay = new THREE.Raycaster();
+    let lastSunCheck = 0,
+      sunBlocked = false;
+    scene.add(sky.group, sky.flareGroup);
+    scene.fog = new THREE.Fog('#aeb39a', 50, 330);
     let lastShadowSun = new THREE.Vector3(),
       lastShadowAt = -Infinity,
       lastPhase = '';
@@ -430,7 +435,7 @@ export default function CafeScene({
       SKY_NIGHT = new THREE.Color('#51627f'),
       GROUND_DAY = new THREE.Color('#9b8572'),
       GROUND_NIGHT = new THREE.Color('#1d2230');
-    const camera = new THREE.PerspectiveCamera(60, 1, 0.03, 170),
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.03, 260),
       overviewTarget = new THREE.Vector3(-0.35, 1, 0.15),
       overviewCamera = overviewTarget
         .clone()
@@ -958,38 +963,12 @@ export default function CafeScene({
           | undefined;
         const trafficLanes: TrafficLane[] = [];
         if (road) {
-          // The road's geometry runs from -1 to +1 on its local Z axis.
-          // Fade both asphalt and lane markings into the ground at the two ends.
+          // The road's geometry runs from -1 to +1 on its local Z axis; the world's long road
+          // (lib/cafe-world.ts) continues it to the horizon, so its ends no longer fade.
           road.traverse((object) => {
             const roadMesh = object as THREE.Mesh;
             if (!roadMesh.isMesh) return;
-            const originals = Array.isArray(roadMesh.material)
-              ? roadMesh.material
-              : [roadMesh.material];
-            const softened = originals.map((original) => {
-              const material = original.clone();
-              material.transparent = true;
-              material.depthWrite = false;
-              material.onBeforeCompile = (shader) => {
-                shader.vertexShader =
-                  'varying float vRoadEndZ;\n' +
-                  shader.vertexShader.replace(
-                    '#include <begin_vertex>',
-                    '#include <begin_vertex>\nvRoadEndZ = position.z;',
-                  );
-                shader.fragmentShader =
-                  'varying float vRoadEndZ;\n' +
-                  shader.fragmentShader.replace(
-                    '#include <color_fragment>',
-                    '#include <color_fragment>\ndiffuseColor.a *= 1.0 - smoothstep(0.72, 1.0, abs(vRoadEndZ));',
-                  );
-              };
-              material.customProgramCacheKey = () => 'winds-road-ends-v1';
-              return material;
-            });
-            roadMesh.material = Array.isArray(roadMesh.material) ? softened : softened[0];
             roadMesh.castShadow = false;
-            addedMaterials.push(...originals);
           });
           const left = road.localToWorld(new THREE.Vector3(-1, 0, 0));
           const right = road.localToWorld(new THREE.Vector3(1, 0, 0));
@@ -1002,9 +981,18 @@ export default function CafeScene({
           };
           const vehicleScale = (left.distanceTo(right) * 0.3) / 0.82;
           for (const [index, laneX] of [-0.45, 0.45].entries()) {
-            // Increasing local Z moves left across the dashboard's initial camera view.
-            const start = road.localToWorld(new THREE.Vector3(laneX, 0.025, -0.98));
-            const end = road.localToWorld(new THREE.Vector3(laneX, 0.025, 0.98));
+            // Two-way traffic along the long road: each lane drives the other way, far beyond
+            // the café in both directions, and only fades at the very ends.
+            const a = road.localToWorld(new THREE.Vector3(laneX, 0.025, -0.98)),
+              b = road.localToWorld(new THREE.Vector3(laneX, 0.025, 0.98)),
+              mid = a.clone().lerp(b, 0.5),
+              along = b
+                .clone()
+                .sub(a)
+                .normalize()
+                .multiplyScalar(index ? -1 : 1);
+            const start = mid.clone().addScaledVector(along, -TRAFFIC_REACH);
+            const end = mid.clone().addScaledVector(along, TRAFFIC_REACH);
             const car = makeVehicle('car'),
               truck = makeVehicle('truck');
             for (const vehicle of [car, truck]) {
@@ -1043,7 +1031,8 @@ export default function CafeScene({
             cafeBounds.union(new THREE.Box3().setFromObject(o)),
           );
           world = createCafeWorld(
-            { bounds: cafeBounds, groundY: floor.position.y, road: roadLayout },
+            // Ground meets the café's lowest floor so the building sits on it, not above it.
+            { bounds: cafeBounds, groundY: cafeBounds.min.y - 0.02, road: roadLayout },
             windTime,
           );
           scene.add(world.group);
@@ -1360,9 +1349,20 @@ export default function CafeScene({
             }
           }
           // Light follows the sun: dawn, morning, noon, afternoon, dusk and night.
-          sky.update(camera, phaseRef.current, t, delta, reduced);
+          // Is the sun hidden behind the café or the hills? (checked a few times a second)
+          if (t - lastSunCheck > 0.2) {
+            lastSunCheck = t;
+            sunRay.set(camera.position, sky.state.sun);
+            sunRay.far = 400;
+            const blockers: THREE.Object3D[] = [];
+            if (assetRoot) blockers.push(assetRoot);
+            if (world) blockers.push(world.group);
+            sunBlocked =
+              sky.state.altitude > -1 && sunRay.intersectObjects(blockers, true).length > 0;
+          }
+          sky.update(camera, phaseRef.current, t, delta, reduced, sunBlocked);
           const sk = sky.state,
-            lamps = 1 - THREE.MathUtils.smoothstep(sk.altitude, -5, 3),
+            lamps = 1 - THREE.MathUtils.smoothstep(sk.altitude, -3, 6),
             night = lamps > 0.5,
             blend = reduced ? 1 : 1 - Math.exp(-delta * 2.4);
           if (sk.phase !== lastPhase) {

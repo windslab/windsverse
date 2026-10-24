@@ -24,7 +24,7 @@ const PRESET_SUN: Record<Exclude<SkyPhase, 'live'>, [number, number]> = {
   pagi: [95, 18],
   siang: [140, 72],
   sore: [255, 28],
-  senja: [262, -1.5],
+  senja: [262, 2.5],
   malam: [300, -35],
 };
 
@@ -156,6 +156,78 @@ export function createCafeSky(radius = 85) {
   moonSprite.renderOrder = -2;
   group.add(moonSprite);
 
+  // Sun: a bright disc with a soft halo, bigger and orange near the horizon.
+  const glowTexture = (stops: [number, string][]) => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const x = c.getContext('2d')!,
+      g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+    for (const [at, color] of stops) g.addColorStop(at, color);
+    x.fillStyle = g;
+    x.fillRect(0, 0, 128, 128);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  };
+  const sunTexture = glowTexture([
+      [0, 'rgba(255,255,255,1)'],
+      [0.18, 'rgba(255,255,255,1)'],
+      [0.22, 'rgba(255,255,255,0.55)'],
+      [0.45, 'rgba(255,255,255,0.16)'],
+      [1, 'rgba(255,255,255,0)'],
+    ]),
+    flareTexture = glowTexture([
+      [0, 'rgba(255,255,255,0.0)'],
+      [0.55, 'rgba(255,255,255,0.12)'],
+      [0.82, 'rgba(255,255,255,0.4)'],
+      [1, 'rgba(255,255,255,0)'],
+    ]),
+    dotTexture = glowTexture([
+      [0, 'rgba(255,255,255,0.9)'],
+      [0.4, 'rgba(255,255,255,0.35)'],
+      [1, 'rgba(255,255,255,0)'],
+    ]);
+  const sunMaterial = new THREE.SpriteMaterial({
+    map: sunTexture,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    fog: false,
+  });
+  const sunSprite = new THREE.Sprite(sunMaterial);
+  sunSprite.renderOrder = -1;
+  group.add(sunSprite);
+  // Lens flare: ghosts along the line from the sun through the centre of the view.
+  const flares = [
+    { at: 0.35, size: 0.05, texture: dotTexture, color: '#ffe6b8', opacity: 0.35 },
+    { at: 0.62, size: 0.11, texture: flareTexture, color: '#bfe3ff', opacity: 0.45 },
+    { at: 0.9, size: 0.035, texture: dotTexture, color: '#ffd59a', opacity: 0.4 },
+    { at: 1.25, size: 0.16, texture: flareTexture, color: '#ffc6a0', opacity: 0.35 },
+    { at: 1.6, size: 0.06, texture: dotTexture, color: '#d6f0ff', opacity: 0.3 },
+  ].map((f) => {
+    const material = new THREE.SpriteMaterial({
+      map: f.texture,
+      color: f.color,
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.renderOrder = 10;
+    sprite.visible = false;
+    return { ...f, base: new THREE.Color(f.color), material, sprite };
+  });
+  const flareGroup = new THREE.Group();
+  flares.forEach((f) => flareGroup.add(f.sprite));
+  let flareFade = 0;
+  const sunNdc = new THREE.Vector3(),
+    flarePoint = new THREE.Vector3(),
+    sunWorld = new THREE.Vector3(),
+    SUN_WHITE = new THREE.Color('#fff6dc'),
+    SUN_DUSK = new THREE.Color('#ffa63d');
+
   const state: SkyState = {
     sun: new THREE.Vector3(0, 1, 0),
     moon: new THREE.Vector3(0, -1, 0),
@@ -173,7 +245,17 @@ export function createCafeSky(radius = 85) {
     group,
     state,
     /** Call each frame. `dt` in seconds; presets ease the sun across the sky. */
-    update(camera: THREE.Camera, phase: SkyPhase, time: number, dt: number, reduced: boolean) {
+    /** Lens flare sprites; add to the scene (they are placed in front of the camera). */
+    flareGroup,
+    update(
+      camera: THREE.Camera,
+      phase: SkyPhase,
+      time: number,
+      dt: number,
+      reduced: boolean,
+      /** True while something (café, hill, mountain) stands between the camera and the sun. */
+      sunBlocked = false,
+    ) {
       group.position.copy(camera.position);
       const now = new Date();
       // Stars and the real sun/moon move slowly: recompute twice a second.
@@ -223,6 +305,38 @@ export function createCafeSky(radius = 85) {
       u.cloudVisibility.value = THREE.MathUtils.smoothstep(altitude, -6, -0.833);
       starMaterial.uniforms.visibility.value = 1 - THREE.MathUtils.smoothstep(altitude, -14, -1);
       starMaterial.uniforms.scale.value = Math.min(2, window.devicePixelRatio || 1);
+      // Sun disc: whiter and smaller high up, larger and orange-gold near the horizon.
+      const low = 1 - THREE.MathUtils.smoothstep(altitude, 2, 22);
+      sunSprite.position.copy(state.sun).multiplyScalar(radius * 0.88);
+      sunSprite.scale.setScalar(radius * (0.11 + 0.09 * low));
+      sunMaterial.color.copy(SUN_WHITE).lerp(SUN_DUSK, low);
+      sunMaterial.opacity = THREE.MathUtils.smoothstep(altitude, -2.5, 0.5);
+      sunSprite.visible = sunMaterial.opacity > 0.01;
+      // Flare only while the sun is on screen and above the horizon.
+      sunWorld.copy(camera.position).addScaledVector(state.sun, radius * 0.88);
+      sunNdc.copy(sunWorld).project(camera);
+      const onScreen =
+        sunNdc.z < 1 &&
+        Math.abs(sunNdc.x) < 1.1 &&
+        Math.abs(sunNdc.y) < 1.1 &&
+        altitude > -1 &&
+        !reduced;
+      flareFade += ((sunBlocked ? 0 : 1) - flareFade) * Math.min(1, dt * 8);
+      const strength = onScreen
+        ? THREE.MathUtils.smoothstep(altitude, -1, 3) *
+          (1 - THREE.MathUtils.smoothstep(Math.hypot(sunNdc.x, sunNdc.y), 0.8, 1.15)) *
+          flareFade
+        : 0;
+      for (const f of flares) {
+        f.sprite.visible = strength > 0.01;
+        if (!f.sprite.visible) continue;
+        flarePoint.set(sunNdc.x * (1 - f.at * 2), sunNdc.y * (1 - f.at * 2), 0.2).unproject(camera);
+        const distance = flarePoint.distanceTo(camera.position);
+        f.sprite.position.copy(flarePoint);
+        f.sprite.scale.setScalar(distance * f.size * (1 + low * 0.4));
+        f.material.opacity = f.opacity * strength;
+        f.material.color.copy(f.base).lerp(SUN_DUSK, low * 0.4);
+      }
       moonSprite.position.copy(state.moon).multiplyScalar(radius * 0.9);
       moonSprite.visible = state.moon.y > -0.02;
       moonMaterial.opacity =
@@ -244,6 +358,10 @@ export function createCafeSky(radius = 85) {
       starGeometry?.dispose();
       starMaterial.dispose();
       moonTexture.dispose();
+      [sunTexture, flareTexture, dotTexture].forEach((t) => t.dispose());
+      sunMaterial.dispose();
+      flares.forEach((f) => f.material.dispose());
+      flareGroup.removeFromParent();
       moonMaterial.dispose();
       group.removeFromParent();
     },

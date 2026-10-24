@@ -265,3 +265,20 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   radius 150, kamera far 170, kabut 40–240 supaya bukit jauh tetap terlihat berkabut.
 - Diukur di emulasi HP: 60 fps, ±154 ribu segitiga (sebelumnya ±96 ribu), ±552 draw call.
 - `typecheck`, `format:check`, `build` lulus; `engine.test` 21/25 seperti sebelumnya.
+
+## 15. Dunia: kafe menapak, jalan panjang, lalu lintas dua arah, gunung, dan matahari (25 Okt 2026)
+
+- Tanah mengikuti lantai terendah kafe + gundukan rumput di sekeliling dinding (tidak menutupi jalan);
+  warna rumput sama di semua area (warna "halaman" dihapus). Bukit dekat dibuat landai.
+- Jalan panjang 300 satuan dengan garis tengah putus-putus dan garis tepi kuning (`World_Road`); efek
+  pudar di ujung jalan model dihapus.
+- Tiang listrik + tiga kabel melengkung setiap 13 satuan di sisi kafe sepanjang jalan (dua mesh gabungan),
+  dilewati di area kafe yang sudah punya tiang sendiri.
+- Lalu lintas dua arah: jalur kedua berlawanan arah; mobil berjalan 70 satuan ke tiap sisi dan hanya
+  memudar di 7% awal/akhir perjalanan.
+- Gunung: barisan gunung batu menyambung di belakang kafe (radius 150–190) dan 9 karst terpisah di depan
+  (115–160), lebih kecil dan jauh. Langit radius 220, kamera far 260, kabut 50–330.
+- Matahari: cakram + pendar (lebih besar & oranye-keemasan dekat cakrawala), lens flare yang memudar bila
+  matahari tertutup kafe/bukit (raycast 5×/detik). Preset Senja kini 2,5° di atas cakrawala; lampu menyala
+  mulai matahari < 6°.
+- `typecheck`, `format:check`, `build` lulus; `people.test` 8/8, `engine.test` 21/25.
