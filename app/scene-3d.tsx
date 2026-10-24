@@ -1026,7 +1026,7 @@ export default function CafeScene({
               if (!r.ok) throw new Error('Navigation unavailable');
               return r.json() as Promise<CafePathData>;
             }),
-            loader.loadAsync('/models/luna-chibi.glb?v=1'),
+            loader.loadAsync('/models/luna-ps1.glb?v=1'),
           ]);
           if (disposed) return;
           prepareCafeBarWorkspace(model);

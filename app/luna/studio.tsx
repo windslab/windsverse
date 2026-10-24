@@ -10,7 +10,7 @@ const Viewer = dynamic(() => import('./viewer'), {
   loading: () => (
     <img
       className={styles.poster}
-      src="/models/luna-chibi-preview.webp?v=3"
+      src="/models/luna-ps1-preview.webp?v=1"
       alt="Luna, barista chibi perempuan dengan rambut bob cokelat, kaus pink, dan rompi abu-abu gelap"
     />
   ),
@@ -64,7 +64,7 @@ export default function LunaStudio() {
           </div>
           <a
             className={styles.download}
-            href="/models/luna-chibi.glb?v=4"
+            href="/models/luna-ps1.glb?v=1"
             download="Luna-Winds-Space.glb"
           >
             <ArrowDownToLine size={16} /> Unduh model 3D <small>GLB</small>
