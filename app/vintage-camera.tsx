@@ -1,26 +1,18 @@
 'use client';
-// Story of Winds: a 35 mm-style camera for guests. Wind the film, look through the viewfinder,
-// press the shutter, and the shot is developed with a warm film look and kept for 30 days.
+// Story of Winds: a pocket digicam for guests. Live LCD with on-screen info, zoom rocker,
+// D-pad to change film, MENU, playback, self-timer, focus beeps before the shutter.
+// Each shot is developed on the phone with the chosen film and kept for 30 days.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Aperture,
-  Download,
-  Images,
-  LoaderCircle,
-  RefreshCw,
-  Trash2,
-  X,
-  Zap,
-  ZapOff,
-} from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, LoaderCircle, Trash2, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
-import { FILMS, develop, filmById, type Film } from '@/lib/film';
+import { FILMS, develop, presetFilm, type Film, type PresetData } from '@/lib/film';
 import styles from './vintage-camera.module.css';
 
 type Photo = { id: string; film: string; createdAt: string; expiresAt: string };
-type Roll = { left: number; roll: number; resetAt: string; admin: boolean };
+type Roll = { left: number; roll: number; resetAt: string };
+type Mode = 'shoot' | 'menu' | 'play';
 
-const CONSENT_KEY = 'sow-consent-v1',
+const CONSENT_KEY = 'sow-consent-v2',
   DEVICE_KEY = 'sow-device',
   FILM_KEY = 'sow-film';
 
@@ -54,8 +46,9 @@ function deviceToken() {
   return token;
 }
 const headers = () => ({ 'x-camera-device': deviceToken() });
+const errorOf = (e: unknown, fallback: string) => (e instanceof Error && e.message) || fallback;
 
-/** Short mechanical sounds made on the fly, so no audio files need to load. */
+/** Beeps and shutter noise made on the fly, so no audio files need to load. */
 function useCameraSounds() {
   const ctx = useRef<AudioContext | null>(null);
   const audio = () => {
@@ -66,7 +59,7 @@ function useCameraSounds() {
       return null;
     }
   };
-  const burst = (at: number, length: number, gain: number, freq: number) => {
+  const noise = (at: number, length: number, gain: number, freq: number) => {
     const a = audio();
     if (!a) return;
     const buffer = a.createBuffer(1, Math.ceil(a.sampleRate * length), a.sampleRate),
@@ -83,13 +76,33 @@ function useCameraSounds() {
     src.connect(filter).connect(amp).connect(a.destination);
     src.start(a.currentTime + at);
   };
+  const tone = (at: number, freq: number, length = 0.06, gain = 0.12) => {
+    const a = audio();
+    if (!a) return;
+    const osc = a.createOscillator(),
+      amp = a.createGain();
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    amp.gain.setValueAtTime(gain, a.currentTime + at);
+    amp.gain.exponentialRampToValueAtTime(0.001, a.currentTime + at + length);
+    osc.connect(amp).connect(a.destination);
+    osc.start(a.currentTime + at);
+    osc.stop(a.currentTime + at + length + 0.02);
+  };
   return {
-    shutter() {
-      burst(0, 0.03, 0.9, 2400);
-      burst(0.07, 0.05, 0.6, 1200);
+    focus() {
+      tone(0, 2600);
+      tone(0.1, 2600);
     },
-    tick() {
-      burst(0, 0.012, 0.35, 3200);
+    shutter() {
+      noise(0, 0.03, 0.9, 2400);
+      noise(0.06, 0.05, 0.5, 1300);
+    },
+    click() {
+      tone(0, 1800, 0.025, 0.06);
+    },
+    timer() {
+      tone(0, 2200, 0.05, 0.08);
     },
   };
 }
@@ -101,6 +114,7 @@ const vibrate = (pattern: number | number[]) => {
     /* Not supported. */
   }
 };
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export default function VintageCamera({
   open,
@@ -111,46 +125,83 @@ export default function VintageCamera({
 }) {
   const [consented, setConsented] = useState(false),
     [agree, setAgree] = useState(false),
-    [view, setView] = useState<'camera' | 'album'>('camera'),
-    [film, setFilm] = useState<Film>(FILMS[0]),
+    [mode, setMode] = useState<Mode>('shoot'),
+    [films, setFilms] = useState<Film[]>(FILMS),
+    [filmIndex, setFilmIndex] = useState(0),
     [facing, setFacing] = useState<'environment' | 'user'>('environment'),
     [flash, setFlash] = useState(false),
-    [wound, setWound] = useState(false),
-    [winding, setWinding] = useState(0),
-    [busy, setBusy] = useState(false),
-    [flashing, setFlashing] = useState(false),
+    [timer, setTimer] = useState(false),
+    [zoom, setZoom] = useState(1),
+    [phase, setPhase] = useState<'live' | 'focus' | 'countdown' | 'saving' | 'review'>('live'),
+    [count, setCount] = useState(0),
+    [blink, setBlink] = useState(false),
     [cameraError, setCameraError] = useState(''),
     [message, setMessage] = useState(''),
     [roll, setRoll] = useState<Roll | null>(null),
     [photos, setPhotos] = useState<Photo[]>([]),
-    [adminAll, setAdminAll] = useState(false),
-    [developed, setDeveloped] = useState<{ url: string; photo: Photo } | null>(null);
+    [playIndex, setPlayIndex] = useState(0),
+    [review, setReview] = useState(''),
+    [clock, setClock] = useState(() => new Date());
   const video = useRef<HTMLVideoElement>(null),
     stream = useRef<MediaStream | null>(null),
-    urls = useRef(new Map<string, string>()),
-    lever = useRef<{ x: number; start: number } | null>(null);
+    urls = useRef(new Map<string, string>());
   const sounds = useCameraSounds();
+  const film = films[filmIndex] ?? films[0];
 
   useEffect(() => {
     if (!open) return;
     setConsented(store.get(CONSENT_KEY) === '1');
-    const saved = store.get(FILM_KEY);
-    if (saved) setFilm(filmById(saved));
+    const t = setInterval(() => setClock(new Date()), 30_000);
+    return () => clearInterval(t);
   }, [open]);
 
-  const loadRoll = useCallback(async (all = false) => {
+  // Films: built-ins the admin left visible, then admin presets (LUTs load when chosen).
+  useEffect(() => {
+    if (!open) return;
+    void fetch('/api/camera', { cache: 'no-store' })
+      .then(
+        (r) => r.json() as Promise<{ config: { hiddenFilms: string[] }; presets: PresetData[] }>,
+      )
+      .then(({ config, presets }) => {
+        const list = [
+          ...FILMS.filter((f) => !config.hiddenFilms.includes(f.id)),
+          ...presets.map((p) => presetFilm(p)),
+        ];
+        if (!list.length) return;
+        setFilms(list);
+        const saved = list.findIndex((f) => f.id === store.get(FILM_KEY));
+        setFilmIndex(saved < 0 ? 0 : saved);
+      })
+      .catch(() => {});
+  }, [open]);
+
+  // Fetch a preset's LUT the first time it is selected.
+  useEffect(() => {
+    const preset = film as Film & PresetData;
+    if (!open || !preset.custom || !preset.lutSize || preset.lut) return;
+    let live = true;
+    void fetch('/api/camera/lut/' + preset.id + '?v=' + encodeURIComponent(preset.updatedAt ?? ''))
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject()))
+      .then((buffer) => {
+        if (!live) return;
+        const lut = { size: preset.lutSize!, data: new Uint8Array(buffer) };
+        setFilms((list) => list.map((f) => (f.id === preset.id ? { ...f, lut } : f)));
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [open, film]);
+
+  const loadRoll = useCallback(async () => {
     try {
-      const res = await fetch('/api/photos' + (all ? '?all=1' : ''), {
-          headers: headers(),
-          cache: 'no-store',
-        }),
-        data: any = await res.json();
+      const res = await fetch('/api/photos', { headers: headers(), cache: 'no-store' }),
+        data = (await res.json()) as Roll & { photos: Photo[]; error?: string };
       if (!res.ok) throw Error(data.error || 'Album belum dapat dimuat.');
       setPhotos(data.photos);
-      if (!all)
-        setRoll({ left: data.left, roll: data.roll, resetAt: data.resetAt, admin: data.admin });
-    } catch (e: any) {
-      setMessage(e.message || 'Album belum dapat dimuat.');
+      setRoll({ left: data.left, roll: data.roll, resetAt: data.resetAt });
+    } catch (e) {
+      setMessage(errorOf(e, 'Album belum dapat dimuat.'));
     }
   }, []);
 
@@ -158,15 +209,13 @@ export default function VintageCamera({
     if (open && consented) void loadRoll();
   }, [open, consented, loadRoll]);
 
-  // Camera stream follows the dialog, the viewfinder tab and the chosen lens.
+  // The camera runs only while shooting, and follows the chosen lens.
   useEffect(() => {
-    if (!open || !consented || view !== 'camera') return;
+    if (!open || !consented || mode !== 'shoot') return;
     let cancelled = false;
     setCameraError('');
     if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraError(
-        'Browser ini belum mendukung kamera. Coba buka di Chrome atau Safari terbaru.',
-      );
+      setCameraError('Browser ini belum mendukung kamera. Coba Chrome atau Safari terbaru.');
       return;
     }
     navigator.mediaDevices
@@ -183,25 +232,22 @@ export default function VintageCamera({
         }
       })
       .catch(() =>
-        setCameraError(
-          'Kamera belum diizinkan. Izinkan akses kamera di pengaturan browser, lalu buka lagi.',
-        ),
+        setCameraError('Kamera belum diizinkan. Izinkan akses kamera di browser, lalu buka lagi.'),
       );
     return () => {
       cancelled = true;
       stream.current?.getTracks().forEach((t) => t.stop());
       stream.current = null;
     };
-  }, [open, consented, view, facing]);
+  }, [open, consented, mode, facing]);
 
-  // Free downloaded photos when the camera closes.
   useEffect(() => {
     if (open) return;
     urls.current.forEach((u) => URL.revokeObjectURL(u));
     urls.current.clear();
-    setDeveloped(null);
-    setView('camera');
-    setAdminAll(false);
+    setMode('shoot');
+    setPhase('live');
+    setReview('');
   }, [open]);
 
   const photoUrl = useCallback(async (id: string) => {
@@ -214,52 +260,59 @@ export default function VintageCamera({
     return url;
   }, []);
 
-  const advance = (amount: number) => {
-    if (wound || busy || !roll?.left) return;
-    const next = Math.min(1, winding + amount);
-    if (Math.floor(next * 6) > Math.floor(winding * 6)) {
-      sounds.tick();
-      vibrate(6);
-    }
-    setWinding(next);
-    if (next >= 1) {
-      setWound(true);
-      setWinding(0);
-      vibrate([10, 30, 10]);
-    }
+  const pickFilm = (step: number) => {
+    sounds.click();
+    setFilmIndex((i) => {
+      const next = (i + step + films.length) % films.length;
+      store.set(FILM_KEY, films[next].id);
+      return next;
+    });
   };
 
   const shoot = async () => {
-    if (!wound || busy || !video.current || !roll?.left) return;
     const v = video.current;
-    if (!v.videoWidth) return;
+    if (phase !== 'live' || mode !== 'shoot' || !v?.videoWidth || !roll?.left || cameraError)
+      return;
+    setMessage('');
+    if (timer) {
+      setPhase('countdown');
+      for (let s = 3; s > 0; s--) {
+        setCount(s);
+        sounds.timer();
+        await wait(1000);
+      }
+    }
+    setPhase('focus');
+    sounds.focus();
+    vibrate(8);
+    await wait(380);
     sounds.shutter();
     vibrate(25);
-    setFlashing(true);
-    setTimeout(() => setFlashing(false), flash ? 260 : 120);
-    setWound(false);
-    setBusy(true);
-    setMessage('');
+    setBlink(true);
+    setTimeout(() => setBlink(false), flash ? 260 : 110);
+    setPhase('saving');
     try {
-      const blob = await develop(v, film, { mirror: facing === 'user' });
+      const blob = await develop(v, film, { mirror: facing === 'user', zoom });
       const res = await fetch('/api/photos', {
           method: 'POST',
           headers: { ...headers(), 'x-camera-film': film.id, 'content-type': 'image/jpeg' },
           body: blob,
         }),
-        data: any = await res.json();
+        data = (await res.json()) as { photo: Photo; left: number; error?: string };
       if (!res.ok) throw Error(data.error || 'Foto belum tersimpan.');
       const url = URL.createObjectURL(blob);
       urls.current.set(data.photo.id, url);
-      setDeveloped({ url, photo: data.photo });
       setPhotos((p) => [data.photo, ...p]);
       setRoll((r) => (r ? { ...r, left: data.left } : r));
-    } catch (e: any) {
-      setMessage(e.message || 'Foto belum tersimpan.');
+      setReview(url);
+      setPhase('review');
+      await wait(2200);
+      setReview('');
+    } catch (e) {
+      setMessage(errorOf(e, 'Foto belum tersimpan.'));
       void loadRoll();
-    } finally {
-      setBusy(false);
     }
+    setPhase('live');
   };
 
   const download = async (photo: Photo) => {
@@ -269,55 +322,85 @@ export default function VintageCamera({
       a.download =
         'story-of-winds-' + photo.createdAt.slice(0, 10) + '-' + photo.id.slice(0, 6) + '.jpg';
       a.click();
-    } catch (e: any) {
-      setMessage(e.message);
+    } catch (e) {
+      setMessage(errorOf(e, 'Foto belum dapat diunduh.'));
     }
   };
 
   const remove = async (photo: Photo) => {
-    if (!confirm('Hapus foto ini? Foto yang dihapus tidak bisa dikembalikan.')) return;
-    const res = await fetch('/api/photos?id=' + photo.id, { method: 'DELETE', headers: headers() });
+    if (!confirm('Hapus foto ini? Jepretan tetap terhitung dan foto tidak bisa dikembalikan.'))
+      return;
+    const res = await fetch('/api/photos?id=' + photo.id, {
+      method: 'DELETE',
+      headers: headers(),
+    });
     if (!res.ok) {
-      setMessage(((await res.json()) as any).error || 'Foto belum terhapus.');
+      setMessage(((await res.json()) as { error?: string }).error || 'Foto belum terhapus.');
       return;
     }
     setPhotos((p) => p.filter((x) => x.id !== photo.id));
-    if (developed?.photo.id === photo.id) setDeveloped(null);
+    setPlayIndex((i) => Math.max(0, i - 1));
   };
 
   const resetLabel = roll
     ? new Date(roll.resetAt).toLocaleString('id-ID', {
         timeZone: 'Asia/Makassar',
-        weekday: 'long',
+        weekday: 'short',
         hour: '2-digit',
         minute: '2-digit',
       })
     : '';
+  const time = clock.toLocaleString('id-ID', {
+    timeZone: 'Asia/Makassar',
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const busy = phase !== 'live';
+  const dpad = (dir: 'up' | 'down' | 'left' | 'right') => {
+    if (busy) return;
+    if (mode === 'play') {
+      if (dir === 'left') setPlayIndex((i) => Math.max(0, i - 1));
+      if (dir === 'right') setPlayIndex((i) => Math.min(photos.length - 1, i + 1));
+      sounds.click();
+      return;
+    }
+    if (dir === 'left' || dir === 'right') pickFilm(dir === 'left' ? -1 : 1);
+    else if (dir === 'up') {
+      sounds.click();
+      setFlash((f) => !f);
+    } else {
+      sounds.click();
+      setTimer((t) => !t);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={styles.dialog} showCloseButton={false}>
         <DialogTitle className="sr-only">Story of Winds</DialogTitle>
         <DialogDescription className="sr-only">
-          Kamera film Winds Space dengan filter vintage. 15 jepretan per hari.
+          Kamera digital Winds Space dengan film vintage. Jepretan terbatas per hari.
         </DialogDescription>
         <button className={styles.close} onClick={() => onOpenChange(false)} aria-label="Tutup">
           <X size={18} />
         </button>
         {!consented ? (
           <section className={styles.consent}>
-            <span className={styles.kicker}>VINTAGE BOOTH · WINDS SPACE</span>
+            <span className={styles.kicker}>DIGICAM · WINDS SPACE</span>
             <h2>Story of Winds</h2>
-            <p>Kamera film kecil untukmu. Sebelum mulai memotret:</p>
+            <p>Kamera saku kecil untukmu. Sebelum mulai memotret:</p>
             <ol>
               <li>
-                Satu roll berisi <strong>15 jepretan per hari</strong> per perangkat. Film baru
-                tersedia setiap jam <strong>08.00 WITA</strong>.
+                Ada <strong>jatah jepretan harian</strong> per perangkat. Jatah baru tersedia setiap
+                jam <strong>08.00 WITA</strong>.
               </li>
               <li>Foto tersimpan di sini selama 30 hari, lalu terhapus otomatis.</li>
               <li>
-                Foto hanya terlihat dari perangkatmu sendiri. Pengelola Winds Space dapat melihat
-                dan menghapus foto untuk menjaga kenyamanan bersama.
+                Foto hanya terlihat dari perangkatmu. Pengelola Winds Space dapat melihat dan
+                menghapus foto, dan <strong>foto pilihan bisa ditampilkan di Memoirs</strong>.
               </li>
               <li>Dilarang memotret konten SARA, pornografi, kekerasan, atau melanggar hukum.</li>
             </ol>
@@ -333,274 +416,282 @@ export default function VintageCamera({
                 setConsented(true);
               }}
             >
-              Masukkan film
+              Nyalakan kamera
             </button>
           </section>
         ) : (
-          <>
-            <nav className={styles.tabs} aria-label="Bagian kamera">
-              <button aria-pressed={view === 'camera'} onClick={() => setView('camera')}>
-                <Aperture size={16} /> Kamera
-              </button>
+          <section className={styles.camera}>
+            <div className={styles.topEdge}>
+              <span className={styles.led} data-on={phase === 'countdown' || undefined} />
+              <span className={styles.model}>
+                WINDS <b>SW-35</b>
+              </span>
               <button
-                aria-pressed={view === 'album'}
-                onClick={() => {
-                  setView('album');
-                  setDeveloped(null);
-                }}
-              >
-                <Images size={16} /> Album ({photos.length})
-              </button>
-            </nav>
-            {view === 'camera' ? (
-              <section className={styles.body}>
-                <div className={styles.topPlate}>
-                  <div
-                    className={styles.counter}
-                    aria-label={'Sisa jepretan ' + (roll?.left ?? '…')}
-                  >
-                    <span>{roll ? String(roll.left).padStart(2, '0') : '··'}</span>
-                    <small>SISA</small>
-                  </div>
-                  <span className={styles.brand}>STORY OF WINDS 35</span>
+                className={styles.shutter}
+                aria-label="Jepret"
+                disabled={mode !== 'shoot' || busy || !roll?.left || !!cameraError}
+                onClick={() => void shoot()}
+              />
+            </div>
+
+            <div className={styles.lcdBezel}>
+              <div className={styles.lcd}>
+                {mode === 'play' ? (
+                  <Playback
+                    photo={photos[playIndex]}
+                    index={playIndex}
+                    total={photos.length}
+                    photoUrl={photoUrl}
+                  />
+                ) : (
+                  <>
+                    <video
+                      ref={video}
+                      playsInline
+                      muted
+                      style={{
+                        filter: film.preview,
+                        transform: `scale(${zoom})${facing === 'user' ? ' scaleX(-1)' : ''}`,
+                      }}
+                    />
+                    {review && <img className={styles.review} src={review} alt="Foto terbaru" />}
+                    <div className={styles.osd} aria-hidden>
+                      <span className={styles.osdTop}>
+                        <span>
+                          <i className={styles.battery} /> P
+                        </span>
+                        <span>{film.name.toUpperCase()}</span>
+                        <span>[{roll ? String(roll.left).padStart(2, '0') : '--'}]</span>
+                      </span>
+                      <span className={styles.osdSide}>
+                        <span>{flash ? '⚡ ON' : '⚡ OFF'}</span>
+                        {timer && <span>⏲ 3s</span>}
+                        {zoom > 1 && <span>{zoom.toFixed(1)}×</span>}
+                      </span>
+                      {phase !== 'review' && (
+                        <i
+                          className={styles.focus}
+                          data-state={phase === 'focus' || phase === 'saving' ? 'lock' : undefined}
+                        />
+                      )}
+                      {phase === 'countdown' && <b className={styles.countdown}>{count}</b>}
+                      {phase === 'saving' && (
+                        <span className={styles.osdCenter}>
+                          <LoaderCircle size={16} className="spin" /> MENYIMPAN
+                        </span>
+                      )}
+                      {phase === 'review' && <span className={styles.osdCenter}>REVIEW</span>}
+                      <span className={styles.osdBottom}>
+                        {film.date ? <span className={styles.dateOn}>DATE</span> : <span />}
+                        <span>{time}</span>
+                      </span>
+                    </div>
+                    {mode === 'menu' && (
+                      <div className={styles.menu} role="listbox" aria-label="Pilih film">
+                        <strong>FILM</strong>
+                        {films.map((f, i) => (
+                          <button
+                            key={f.id}
+                            role="option"
+                            aria-selected={i === filmIndex}
+                            onClick={() => {
+                              setFilmIndex(i);
+                              store.set(FILM_KEY, f.id);
+                              setMode('shoot');
+                            }}
+                          >
+                            <i style={{ background: f.color }} />
+                            {f.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {cameraError && <p className={styles.lcdError}>{cameraError}</p>}
+                    {blink && <i className={flash ? styles.flashBurst : styles.shutterBlink} />}
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className={styles.controls}>
+              <div className={styles.leftColumn}>
+                <div className={styles.rocker} aria-label="Zoom">
                   <button
-                    className={styles.flashToggle}
-                    aria-pressed={flash}
-                    aria-label={flash ? 'Matikan lampu kilat' : 'Nyalakan lampu kilat'}
-                    onClick={() => setFlash((f) => !f)}
+                    aria-label="Perkecil"
+                    onClick={() => setZoom((z) => Math.max(1, +(z - 0.5).toFixed(1)))}
                   >
-                    {flash ? <Zap size={16} /> : <ZapOff size={16} />}
+                    W
+                  </button>
+                  <button
+                    aria-label="Perbesar"
+                    onClick={() => setZoom((z) => Math.min(3, +(z + 0.5).toFixed(1)))}
+                  >
+                    T
                   </button>
                 </div>
-                <div className={styles.viewfinder}>
-                  {developed ? (
-                    <img
-                      className={styles.developing}
-                      src={developed.url}
-                      alt="Foto yang baru dicuci"
-                    />
-                  ) : (
-                    <>
-                      <video
-                        ref={video}
-                        playsInline
-                        muted
-                        style={{
-                          filter: film.preview,
-                          transform: facing === 'user' ? 'scaleX(-1)' : undefined,
-                        }}
-                      />
-                      <i className={styles.frameLines} />
-                      {film.date && <span className={styles.dateHint}>DATE</span>}
-                    </>
-                  )}
-                  {cameraError && <p className={styles.cameraError}>{cameraError}</p>}
-                  {busy && (
-                    <p className={styles.status}>
-                      <LoaderCircle size={16} className="spin" /> Mencuci film…
-                    </p>
-                  )}
-                  {flashing && <i className={flash ? styles.flashBurst : styles.shutterBlink} />}
+                <div className={styles.smallButtons}>
+                  <button
+                    aria-pressed={mode === 'menu'}
+                    onClick={() => {
+                      sounds.click();
+                      setMode((m) => (m === 'menu' ? 'shoot' : 'menu'));
+                    }}
+                  >
+                    MENU
+                  </button>
+                  <button
+                    aria-pressed={mode === 'play'}
+                    aria-label="Lihat foto"
+                    onClick={() => {
+                      sounds.click();
+                      setPlayIndex(0);
+                      setMode((m) => (m === 'play' ? 'shoot' : 'play'));
+                    }}
+                  >
+                    ▶
+                  </button>
+                  <button
+                    aria-label="Ganti kamera depan atau belakang"
+                    onClick={() => {
+                      sounds.click();
+                      setFacing((f) => (f === 'user' ? 'environment' : 'user'));
+                    }}
+                  >
+                    ⟲
+                  </button>
                 </div>
-                {developed ? (
-                  <div className={styles.afterShot}>
-                    <button className={styles.secondary} onClick={() => download(developed.photo)}>
-                      <Download size={16} /> Unduh
-                    </button>
-                    <button className={styles.primary} onClick={() => setDeveloped(null)}>
-                      Foto lagi
-                    </button>
-                  </div>
-                ) : (
-                  <div className={styles.controls}>
-                    <button
-                      className={styles.flip}
-                      aria-label="Ganti kamera depan atau belakang"
-                      onClick={() => setFacing((f) => (f === 'user' ? 'environment' : 'user'))}
-                    >
-                      <RefreshCw size={18} />
-                    </button>
-                    <button
-                      className={styles.shutter}
-                      disabled={!wound || busy || !roll?.left || !!cameraError}
-                      aria-label="Jepret"
-                      onClick={() => void shoot()}
-                    />
-                    <div
-                      className={styles.lever}
-                      role="slider"
-                      tabIndex={0}
-                      aria-label="Tuas penggulung film. Geser ke kanan untuk menggulung."
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={wound ? 100 : Math.round(winding * 100)}
-                      data-wound={wound || undefined}
-                      onPointerDown={(e) => {
-                        e.currentTarget.setPointerCapture(e.pointerId);
-                        lever.current = { x: e.clientX, start: winding };
-                      }}
-                      onPointerMove={(e) => {
-                        if (!lever.current) return;
-                        const dx = e.clientX - lever.current.x;
-                        if (dx > 0) advance(dx / 160 - (winding - lever.current.start));
-                      }}
-                      onPointerUp={(e) => {
-                        const start = lever.current;
-                        lever.current = null;
-                        // A tap winds a third of the way, like short strokes on a real lever.
-                        if (start && Math.abs(e.clientX - start.x) < 6) advance(0.34);
-                      }}
-                      onPointerCancel={() => {
-                        lever.current = null;
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'Enter') {
-                          e.preventDefault();
-                          advance(0.34);
-                        }
-                      }}
-                    >
-                      <span style={{ transform: `rotate(${(wound ? 1 : winding) * 70}deg)` }} />
-                    </div>
-                  </div>
-                )}
-                <p className={styles.hint}>
-                  {!roll
-                    ? 'Memuat roll…'
-                    : !roll.left
-                      ? `Roll hari ini habis. Film baru: ${resetLabel} WITA.`
-                      : wound
-                        ? 'Film siap. Tekan tombol rana.'
-                        : 'Geser atau ketuk tuas di kanan untuk menggulung film.'}
-                </p>
-                <div className={styles.films} role="radiogroup" aria-label="Pilih film">
-                  {FILMS.map((f) => (
-                    <button
-                      key={f.id}
-                      role="radio"
-                      aria-checked={film.id === f.id}
-                      className={styles.film}
-                      style={{ '--film': f.color } as React.CSSProperties}
-                      onClick={() => {
-                        setFilm(f);
-                        store.set(FILM_KEY, f.id);
-                      }}
-                    >
-                      <i />
-                      <span>{f.name}</span>
-                    </button>
-                  ))}
-                </div>
-                <p className={styles.filmNote}>{film.note}</p>
-              </section>
-            ) : (
-              <Album
-                photos={photos}
-                admin={!!roll?.admin}
-                all={adminAll}
-                onAll={(all) => {
-                  setAdminAll(all);
-                  void loadRoll(all);
-                }}
-                photoUrl={photoUrl}
-                onDownload={download}
-                onDelete={remove}
-              />
-            )}
+              </div>
+              <div className={styles.dpad}>
+                <button
+                  className={styles.up}
+                  onClick={() => dpad('up')}
+                  aria-label="Lampu kilat"
+                  disabled={mode === 'play'}
+                >
+                  ⚡
+                </button>
+                <button
+                  className={styles.left}
+                  onClick={() => dpad('left')}
+                  aria-label={mode === 'play' ? 'Foto sebelumnya' : 'Film sebelumnya'}
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <button
+                  className={styles.ok}
+                  aria-label={mode === 'play' ? 'Unduh foto' : 'Jepret'}
+                  onClick={() => {
+                    if (mode === 'play' && photos[playIndex]) void download(photos[playIndex]);
+                    else if (mode === 'menu') setMode('shoot');
+                    else void shoot();
+                  }}
+                >
+                  {mode === 'play' ? <Download size={15} /> : 'OK'}
+                </button>
+                <button
+                  className={styles.right}
+                  onClick={() => dpad('right')}
+                  aria-label={mode === 'play' ? 'Foto berikutnya' : 'Film berikutnya'}
+                >
+                  <ChevronRight size={16} />
+                </button>
+                <button
+                  className={styles.down}
+                  onClick={() =>
+                    mode === 'play' && photos[playIndex]
+                      ? void remove(photos[playIndex])
+                      : dpad('down')
+                  }
+                  aria-label={mode === 'play' ? 'Hapus foto' : 'Timer 3 detik'}
+                >
+                  {mode === 'play' ? <Trash2 size={13} /> : '⏲'}
+                </button>
+              </div>
+            </div>
+
+            <p className={styles.hint}>
+              {!roll
+                ? 'Memuat roll…'
+                : mode === 'play'
+                  ? photos.length
+                    ? '◀ ▶ lihat foto · OK unduh · 🗑 hapus'
+                    : 'Belum ada foto.'
+                  : !roll.left
+                    ? `Jatah hari ini habis. Jatah baru: ${resetLabel} WITA.`
+                    : '◀ ▶ ganti film · ⚡ kilat · ⏲ timer · W/T zoom'}
+            </p>
+            <p className={styles.filmNote}>
+              <i style={{ background: film.color }} /> {film.name}
+              {film.note ? ' — ' + film.note : ''}
+            </p>
             {message && (
               <p role="alert" className={styles.message}>
                 {message}
               </p>
             )}
-          </>
+          </section>
         )}
       </DialogContent>
     </Dialog>
   );
 }
 
-function Album({
-  photos,
-  admin,
-  all,
-  onAll,
-  photoUrl,
-  onDownload,
-  onDelete,
-}: {
-  photos: Photo[];
-  admin: boolean;
-  all: boolean;
-  onAll: (all: boolean) => void;
-  photoUrl: (id: string) => Promise<string>;
-  onDownload: (p: Photo) => void;
-  onDelete: (p: Photo) => void;
-}) {
-  return (
-    <section className={styles.album}>
-      {admin && (
-        <label className={styles.agree}>
-          <input type="checkbox" checked={all} onChange={(e) => onAll(e.target.checked)} />
-          Tampilkan foto semua tamu (admin)
-        </label>
-      )}
-      {!photos.length ? (
-        <p className={styles.empty}>Belum ada foto. Gulung filmnya dan mulai memotret.</p>
-      ) : (
-        <div className={styles.grid}>
-          {photos.map((p) => (
-            <AlbumPhoto
-              key={p.id}
-              photo={p}
-              photoUrl={photoUrl}
-              onDownload={onDownload}
-              onDelete={onDelete}
-            />
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function AlbumPhoto({
+function Playback({
   photo,
+  index,
+  total,
   photoUrl,
-  onDownload,
-  onDelete,
 }: {
-  photo: Photo;
+  photo?: Photo;
+  index: number;
+  total: number;
   photoUrl: (id: string) => Promise<string>;
-  onDownload: (p: Photo) => void;
-  onDelete: (p: Photo) => void;
 }) {
   const [url, setUrl] = useState('');
   useEffect(() => {
+    if (!photo) return;
     let live = true;
     photoUrl(photo.id)
       .then((u) => live && setUrl(u))
       .catch(() => {});
     return () => {
       live = false;
+      setUrl('');
     };
-  }, [photo.id, photoUrl]);
-  const days = Math.max(0, Math.ceil((Date.parse(photo.expiresAt) - Date.now()) / 86_400_000));
+  }, [photo, photoUrl]);
+  if (!photo)
+    return (
+      <div className={styles.playEmpty}>
+        <span>▶ PLAY</span>
+        <p>Belum ada foto. Tekan ▶ lagi untuk kembali memotret.</p>
+      </div>
+    );
   return (
-    <figure className={styles.print}>
-      {url ? <img src={url} alt={'Foto ' + filmById(photo.film).name} /> : <span />}
-      <figcaption>
-        <small>
-          {filmById(photo.film).name} · {days} hari lagi
-        </small>
+    <div className={styles.play}>
+      {url ? <img src={url} alt={'Foto ' + (index + 1)} /> : <LoaderCircle className="spin" />}
+      <span className={styles.osdTop}>
+        <span>▶ PLAY</span>
         <span>
-          <button aria-label="Unduh foto" onClick={() => onDownload(photo)}>
-            <Download size={15} />
-          </button>
-          <button aria-label="Hapus foto" onClick={() => onDelete(photo)}>
-            <Trash2 size={15} />
-          </button>
+          {index + 1}/{total}
         </span>
-      </figcaption>
-    </figure>
+      </span>
+      <span className={styles.osdBottom}>
+        <span>
+          {new Date(photo.createdAt).toLocaleDateString('id-ID', {
+            timeZone: 'Asia/Makassar',
+            day: '2-digit',
+            month: 'short',
+          })}
+        </span>
+        <span>
+          hapus otomatis{' '}
+          {new Date(photo.expiresAt).toLocaleDateString('id-ID', {
+            timeZone: 'Asia/Makassar',
+            day: '2-digit',
+            month: 'short',
+          })}
+        </span>
+      </span>
+    </div>
   );
 }

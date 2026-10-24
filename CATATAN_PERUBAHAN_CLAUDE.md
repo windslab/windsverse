@@ -179,3 +179,23 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   tidak mengembalikan jatah, file bukan JPEG/film asing ditolak, album dan penghitung tampil.
   `typecheck`, `format:check`, `build` lulus; `engine.test` 21/25 seperti sebelumnya.
 - Belum diuji: kamera sungguhan di HP (panel browser memblokir kamera) dan tampilan admin "semua foto".
+
+## 10. Memoirs dari foto tamu, pengaturan kamera admin, dan kamera digicam (25 Okt 2026, branch `luna-ps1`)
+
+- **Memoirs** (`app/api/tv/route.ts`, `app/drive-tv.tsx`): tidak lagi mengambil Google Drive. Isinya foto
+  Story of Winds yang dipilih admin (`memoirs: true`). Hanya foto pilihan itu yang bisa dibuka publik.
+- **Cafe Management → Story of Winds** (`app/camera-admin.tsx`, khusus admin): jatah jepretan per hari,
+  film bawaan yang tampil, preset film (penggeser + upload LUT .cube + pratinjau langsung), dan semua foto
+  tamu dengan tombol "Tampilkan di Memoirs" dan hapus.
+- Server: `lib/camera-config.ts`, `app/api/camera` (pengaturan & preset), `app/api/camera/lut/[id]`.
+  Preset dan pengaturan disimpan di `records` (kind `filmPreset`/`cameraConfig`), LUT di R2 `lut/<id>`
+  (maks. 33³). Tanpa migrasi. `PATCH /api/photos?id&memoirs` untuk admin.
+- `lib/film.ts`: LUT 3D (trilinear), parser .cube (diperkecil ke ≤33³), zoom digital, preset → film.
+- **Kamera digicam** (`app/vintage-camera.tsx`): badan perak, layar LCD dengan info (baterai, mode, film,
+  sisa jepretan, kilat, timer, zoom, tanggal-jam WITA), kotak fokus yang mengunci hijau dengan bunyi
+  bip-bip, zoom W/T, MENU film, ▶ lihat foto (unduh/hapus), timer 3 detik, kamera depan/belakang.
+  Teks aturan diperbarui: foto pilihan bisa tampil di Memoirs (persetujuan diminta ulang, `sow-consent-v2`).
+- Diuji lokal (database & akun admin uji coba lokal saja): pengaturan, preset + LUT, film tersembunyi,
+  Memoirs publik hanya untuk foto pilihan, tamu tidak bisa mengubah pengaturan/Memoirs, panel admin dan
+  kamera digicam tampil. `typecheck`, `format:check`, `build` lulus; `engine.test` 21/25 seperti sebelumnya.
+- Belum diuji: kamera sungguhan di HP.

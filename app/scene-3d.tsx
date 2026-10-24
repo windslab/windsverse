@@ -1648,7 +1648,7 @@ export default function CafeScene({
         <DialogContent className="tv-expanded-dialog">
           <DialogTitle className="sr-only">Memoirs</DialogTitle>
           <DialogDescription className="sr-only">
-            Slideshow foto dari album Google Drive Winds Space, dengan pilihan foto dan kontrol
+            Slideshow foto pilihan dari kamera Story of Winds, dengan pilihan foto dan kontrol
             pemutaran.
           </DialogDescription>
           <DriveTV program={tvProgram} onProgramChange={setTvProgram} />

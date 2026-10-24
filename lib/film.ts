@@ -2,10 +2,10 @@
 // colour grade, faded blacks, grain, vignette, optional light leak and date stamp, then a
 // cream border with a caption. Everything is plain canvas so it runs on any phone.
 
-export type FilmId = 'hangat' | 'retro' | 'sekali-pakai' | 'senja' | 'klasik';
+export type Lut = { size: number; data: Uint8Array };
 
 export type Film = {
-  id: FilmId;
+  id: string;
   name: string;
   note: string;
   /** Canister colour in the film picker. */
@@ -25,6 +25,10 @@ export type Film = {
   vignette: number;
   leak?: { color: string; strength: number };
   date?: boolean;
+  /** Optional 3D LUT applied before the grade (from an uploaded .cube preset). */
+  lut?: Lut;
+  /** Preset made by an admin (not built in). */
+  custom?: boolean;
 };
 
 export const FILMS: Film[] = [
@@ -102,7 +106,7 @@ export const PRINT_ASPECT = 2 / 3;
 export async function develop(
   source: CanvasImageSource & { videoWidth?: number; videoHeight?: number },
   film: Film,
-  { mirror = false, maxSide = 1500, now = new Date() } = {},
+  { mirror = false, maxSide = 1500, now = new Date(), zoom = 1 } = {},
 ) {
   const sw = source.videoWidth || (source as HTMLImageElement).naturalWidth || 1,
     sh = source.videoHeight || (source as HTMLImageElement).naturalHeight || 1;
@@ -113,6 +117,9 @@ export async function develop(
     ch = sh;
     cw = sh * PRINT_ASPECT;
   }
+  // Digital zoom crops further into the centre.
+  cw /= zoom;
+  ch /= zoom;
   const scale = Math.min(1, maxSide / ch),
     w = Math.round(cw * scale),
     h = Math.round(ch * scale);
@@ -128,6 +135,7 @@ export async function develop(
   ctx.drawImage(source, (sw - cw) / 2, (sh - ch) / 2, cw, ch, 0, 0, w, h);
   ctx.restore();
 
+  if (film.lut) applyLut(ctx, w, h, film.lut);
   grade(ctx, w, h, film);
   if (film.leak) leak(ctx, w, h, film.leak);
   vignette(ctx, w, h, film.vignette);
@@ -261,4 +269,109 @@ function print(photo: HTMLCanvasElement, film: Film, now: Date) {
   return new Promise<Blob>((resolve, reject) =>
     out.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob'))), 'image/jpeg', 0.86),
   );
+}
+
+/** Trilinear 3D LUT lookup; `data` is RGB bytes with red changing fastest (.cube order). */
+function applyLut(ctx: CanvasRenderingContext2D, w: number, h: number, lut: Lut) {
+  const img = ctx.getImageData(0, 0, w, h),
+    d = img.data,
+    { size: n, data } = lut,
+    max = n - 1;
+  const at = (r: number, g: number, b: number, c: number) => data[((b * n + g) * n + r) * 3 + c];
+  for (let i = 0; i < d.length; i += 4) {
+    const r = (d[i] / 255) * max,
+      g = (d[i + 1] / 255) * max,
+      b = (d[i + 2] / 255) * max;
+    const r0 = r | 0,
+      g0 = g | 0,
+      b0 = b | 0,
+      r1 = Math.min(max, r0 + 1),
+      g1 = Math.min(max, g0 + 1),
+      b1 = Math.min(max, b0 + 1),
+      fr = r - r0,
+      fg = g - g0,
+      fb = b - b0;
+    for (let c = 0; c < 3; c++) {
+      const c00 = at(r0, g0, b0, c) * (1 - fr) + at(r1, g0, b0, c) * fr,
+        c10 = at(r0, g1, b0, c) * (1 - fr) + at(r1, g1, b0, c) * fr,
+        c01 = at(r0, g0, b1, c) * (1 - fr) + at(r1, g0, b1, c) * fr,
+        c11 = at(r0, g1, b1, c) * (1 - fr) + at(r1, g1, b1, c) * fr;
+      d[i + c] = (c00 * (1 - fg) + c10 * fg) * (1 - fb) + (c01 * (1 - fg) + c11 * fg) * fb;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+/**
+ * Reads an Adobe/Resolve .cube 3D LUT and resamples it to at most `maxSize` per side,
+ * so even 64³ LUTs stay small (33³ × 3 bytes ≈ 105 KB).
+ */
+export function parseCube(text: string, maxSize = 33): Lut {
+  let size = 0,
+    min = [0, 0, 0],
+    max = [1, 1, 1];
+  const values: number[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const [key, ...rest] = line.split(/\s+/);
+    if (key === 'LUT_3D_SIZE') size = Number(rest[0]);
+    else if (key === 'DOMAIN_MIN') min = rest.map(Number);
+    else if (key === 'DOMAIN_MAX') max = rest.map(Number);
+    else if (/^[-+.\d]/.test(key)) values.push(Number(key), Number(rest[0]), Number(rest[1]));
+  }
+  if (!size || size < 2 || size > 128 || values.length !== size ** 3 * 3 || values.some(isNaN))
+    throw new Error('File .cube tidak valid atau bukan LUT 3D.');
+  const src = (r: number, g: number, b: number, c: number) =>
+    (values[((b * size + g) * size + r) * 3 + c] - min[c]) / (max[c] - min[c] || 1);
+  const n = Math.min(size, maxSize),
+    out = new Uint8Array(n ** 3 * 3),
+    step = (size - 1) / (n - 1);
+  for (let b = 0; b < n; b++)
+    for (let g = 0; g < n; g++)
+      for (let r = 0; r < n; r++) {
+        const sr = r * step,
+          sg = g * step,
+          sb = b * step,
+          r0 = Math.floor(sr),
+          g0 = Math.floor(sg),
+          b0 = Math.floor(sb),
+          r1 = Math.min(size - 1, r0 + 1),
+          g1 = Math.min(size - 1, g0 + 1),
+          b1 = Math.min(size - 1, b0 + 1),
+          fr = sr - r0,
+          fg = sg - g0,
+          fb = sb - b0;
+        for (let c = 0; c < 3; c++) {
+          const v =
+            ((src(r0, g0, b0, c) * (1 - fr) + src(r1, g0, b0, c) * fr) * (1 - fg) +
+              (src(r0, g1, b0, c) * (1 - fr) + src(r1, g1, b0, c) * fr) * fg) *
+              (1 - fb) +
+            ((src(r0, g0, b1, c) * (1 - fr) + src(r1, g0, b1, c) * fr) * (1 - fg) +
+              (src(r0, g1, b1, c) * (1 - fr) + src(r1, g1, b1, c) * fr) * fg) *
+              fb;
+          out[((b * n + g) * n + r) * 3 + c] = Math.round(Math.min(1, Math.max(0, v)) * 255);
+        }
+      }
+  return { size: n, data: out };
+}
+
+/** Preset saved by an admin (lib/camera-config.ts) → film, with its LUT if it has one. */
+export type PresetData = Omit<Film, 'preview' | 'lut' | 'custom'> & {
+  enabled?: boolean;
+  lutSize?: number;
+  updatedAt?: string;
+};
+export function presetFilm(p: PresetData, lut?: Lut): Film {
+  const [r, , b] = p.grade.gain,
+    warm = Math.max(0, Math.min(0.6, (r - b) * 1.2));
+  return {
+    ...p,
+    lut,
+    custom: true,
+    // Rough viewfinder look; the developed print uses the exact grade and LUT.
+    preview: p.grade.mono
+      ? 'grayscale(1) contrast(' + p.grade.contrast + ')'
+      : `sepia(${warm.toFixed(2)}) saturate(${p.grade.saturation}) contrast(${p.grade.contrast}) brightness(${(1 + p.grade.lift[0] / 400).toFixed(2)})`,
+  };
 }

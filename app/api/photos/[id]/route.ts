@@ -10,7 +10,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const photo = await getPhoto((await params).id);
     if (!photo || photo.expiresAt <= new Date().toISOString())
       throw new Fault('Foto tidak ditemukan.', 404);
-    if (!(await adminOrNull(req)) && photo.owner !== (await deviceOwner(req)))
+    // Memoirs photos are public; others belong to their device (and admins).
+    if (!photo.memoirs && !(await adminOrNull(req)) && photo.owner !== (await deviceOwner(req)))
       throw new Fault('Foto ini bukan milik perangkatmu.', 403);
     const obj = await env.BUCKET?.get('photo/' + photo.id);
     if (!obj) throw new Fault('Foto tidak ditemukan.', 404);

@@ -9,12 +9,10 @@ import { authenticate } from './auth';
 import { database } from './store';
 import { Fault } from './engine';
 
-export const ROLL_SIZE = 15;
 /** Extra cap per network so clearing browser data does not give unlimited rolls. */
 export const NETWORK_DAILY_LIMIT = 60;
 export const PHOTO_LIFE_MS = 30 * 24 * 60 * 60 * 1000;
 export const MAX_PHOTO_BYTES = 1.5 * 1024 * 1024;
-export const FILMS = ['hangat', 'retro', 'sekali-pakai', 'senja', 'klasik'] as const;
 
 export type PhotoRecord = {
   id: string;
@@ -25,6 +23,8 @@ export type PhotoRecord = {
   expiresAt: string;
   /** Deleted photos keep their row (without the image) so they still count against the roll. */
   deleted?: boolean;
+  /** Chosen by an admin to play on the public Memoirs TV. */
+  memoirs?: boolean;
 };
 
 /** Rolls refill at 08:00 WITA, which is 00:00 UTC. */
@@ -56,20 +56,26 @@ export async function adminOrNull(req: Request) {
   }
 }
 
-export async function listPhotos(filter: { owner?: string } = {}) {
+export async function listPhotos(filter: { owner?: string; memoirs?: boolean } = {}) {
   const db = database();
-  const rows = filter.owner
+  const rows = filter.memoirs
     ? await db
         .prepare(
-          "SELECT data FROM records WHERE kind='photo' AND json_extract(data,'$.owner')=? ORDER BY json_extract(data,'$.createdAt') DESC LIMIT 500",
+          "SELECT data FROM records WHERE kind='photo' AND json_extract(data,'$.memoirs')=1 ORDER BY json_extract(data,'$.createdAt') DESC LIMIT 200",
         )
-        .bind(filter.owner)
         .all<{ data: string }>()
-    : await db
-        .prepare(
-          "SELECT data FROM records WHERE kind='photo' ORDER BY json_extract(data,'$.createdAt') DESC LIMIT 500",
-        )
-        .all<{ data: string }>();
+    : filter.owner
+      ? await db
+          .prepare(
+            "SELECT data FROM records WHERE kind='photo' AND json_extract(data,'$.owner')=? ORDER BY json_extract(data,'$.createdAt') DESC LIMIT 500",
+          )
+          .bind(filter.owner)
+          .all<{ data: string }>()
+      : await db
+          .prepare(
+            "SELECT data FROM records WHERE kind='photo' ORDER BY json_extract(data,'$.createdAt') DESC LIMIT 500",
+          )
+          .all<{ data: string }>();
   const now = new Date().toISOString();
   return rows.results
     .map((r) => JSON.parse(r.data) as PhotoRecord)
@@ -126,4 +132,13 @@ export function jpegBytes(bytes: ArrayBuffer) {
   if (b.byteLength > MAX_PHOTO_BYTES) throw new Fault('Foto terlalu besar.', 413);
   if (!(b[0] === 255 && b[1] === 216 && b[2] === 255)) throw new Fault('Foto harus JPEG.');
   return b;
+}
+
+export async function setMemoirs(id: string, memoirs: boolean) {
+  await database()
+    .prepare(
+      "UPDATE records SET data=json_set(data,'$.memoirs',json(?)) WHERE id=? AND kind='photo'",
+    )
+    .bind(memoirs ? 'true' : 'false', id)
+    .run();
 }
