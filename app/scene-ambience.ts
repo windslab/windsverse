@@ -52,7 +52,13 @@ export function createSceneAmbience(context: AudioContext): SceneAmbience {
   let disposed = false;
   const transientSources = new Set<AudioBufferSourceNode | OscillatorNode>();
 
-  function chirp(destination: AudioNode, start: number, pitch: number, duration: number, volume: number) {
+  function chirp(
+    destination: AudioNode,
+    start: number,
+    pitch: number,
+    duration: number,
+    volume: number,
+  ) {
     const tone = context.createOscillator();
     const gain = context.createGain();
     tone.type = 'sine';
@@ -64,7 +70,11 @@ export function createSceneAmbience(context: AudioContext): SceneAmbience {
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
     tone.connect(gain).connect(destination);
     transientSources.add(tone);
-    tone.onended = () => { transientSources.delete(tone); tone.disconnect(); gain.disconnect(); };
+    tone.onended = () => {
+      transientSources.delete(tone);
+      tone.disconnect();
+      gain.disconnect();
+    };
     tone.start(start);
     tone.stop(start + duration + 0.01);
   }
@@ -82,7 +92,12 @@ export function createSceneAmbience(context: AudioContext): SceneAmbience {
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
     burst.connect(filter).connect(gain).connect(night);
     transientSources.add(burst);
-    burst.onended = () => { transientSources.delete(burst); burst.disconnect(); filter.disconnect(); gain.disconnect(); };
+    burst.onended = () => {
+      transientSources.delete(burst);
+      burst.disconnect();
+      filter.disconnect();
+      gain.disconnect();
+    };
     burst.start(start, Math.random());
     burst.stop(start + duration + 0.01);
   }
@@ -94,11 +109,20 @@ export function createSceneAmbience(context: AudioContext): SceneAmbience {
       if (Math.random() < 0.65) {
         const pitch = 2100 + Math.random() * 1300;
         const notes = 2 + Math.floor(Math.random() * 3);
-        for (let i = 0; i < notes; i++) chirp(morning, at + i * 0.15, pitch * (0.9 + Math.random() * 0.25), 0.1 + Math.random() * 0.08, 0.018);
+        for (let i = 0; i < notes; i++)
+          chirp(
+            morning,
+            at + i * 0.15,
+            pitch * (0.9 + Math.random() * 0.25),
+            0.1 + Math.random() * 0.08,
+            0.018,
+          );
       }
     } else {
       // A few short, evenly spaced cricket pulses keep the night bed gentle.
-      if (Math.random() < 0.82) for (let i = 0; i < 4; i++) chirp(night, at + i * 0.085, 3900 + Math.random() * 450, 0.045, 0.009);
+      if (Math.random() < 0.82)
+        for (let i = 0; i < 4; i++)
+          chirp(night, at + i * 0.085, 3900 + Math.random() * 450, 0.045, 0.009);
       if (Math.random() < 0.7) crackle(at + Math.random() * 0.45);
     }
   }, 1100);
@@ -110,17 +134,34 @@ export function createSceneAmbience(context: AudioContext): SceneAmbience {
   };
 
   return {
-    setMode(next) { mode = next; updateGain(); },
-    setEnabled(next) { enabled = next; updateGain(); },
+    setMode(next) {
+      mode = next;
+      updateGain();
+    },
+    setEnabled(next) {
+      enabled = next;
+      updateGain();
+    },
     dispose() {
       disposed = true;
       window.clearInterval(timer);
       wind.stop();
       fire.stop();
-      transientSources.forEach(source => { try { source.stop(); } catch { /* already stopped */ } });
-      wind.disconnect(); windFilter.disconnect(); windGain.disconnect();
-      fire.disconnect(); fireFilter.disconnect(); fireGain.disconnect();
-      morning.disconnect(); night.disconnect();
+      transientSources.forEach((source) => {
+        try {
+          source.stop();
+        } catch {
+          /* already stopped */
+        }
+      });
+      wind.disconnect();
+      windFilter.disconnect();
+      windGain.disconnect();
+      fire.disconnect();
+      fireFilter.disconnect();
+      fireGain.disconnect();
+      morning.disconnect();
+      night.disconnect();
     },
   };
 }

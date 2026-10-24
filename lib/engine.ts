@@ -1,193 +1,1580 @@
-import {stripOperationalSecrets} from './audit';
-import {ingredientUnitCost} from './ingredient-cost';
-import {z} from 'zod';
-import {type State,type Row,type Actor,type Kind,kinds,blank as blankState,defaultCategories,initial,localDate,shiftTotals,hasMissingHpp,tracksStock,CAFE_TIMEZONE,OPERATIONS_VERSION} from './model';
-const str=z.string().trim().min(1).max(200), optional=z.string().trim().max(2000).default('');
-const amount=z.number().int().min(0).max(1_000_000_000);
-const image=z.string().max(500).default('').refine(v=>!v||v.startsWith('/api/files/')||/^https:\/\//.test(v),'Gambar harus berupa unggahan atau HTTPS.');
-const date=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v=>{const d=new Date(v+'T12:00:00Z');return Number.isFinite(d.getTime())&&d.toISOString().slice(0,10)===v;},'Tanggal tidak valid.');
-const schemas:Partial<Record<Kind,z.ZodTypeAny>>={
- employees:z.object({name:str,email:z.union([z.string().email(),z.literal('')]).default('').transform(v=>v.toLowerCase()),role:z.enum(['admin','karyawan']),status:z.enum(['aktif','nonaktif']),phone:optional,joinedAt:date}),
- categories:z.object({name:str,sortOrder:z.number().int().min(0).max(10000).default(0)}),
- products:z.object({name:str,price:amount,category:str,description:optional,status:z.enum(['tersedia','habis']),image,sortOrder:z.number().int().min(0).default(0)}),
- ingredients:z.object({name:str,unit:str,unitCost:z.number().finite().min(0).max(1e8).optional(),packagePrice:z.number().finite().min(0).max(1e9).optional(),packageQuantity:z.number().finite().positive('Isi kemasan harus lebih dari nol.').max(1e9).optional(),trackStock:z.boolean().default(false),stock:z.number().finite().min(0).max(1e9).default(0),minStock:z.number().finite().min(0).max(1e9).default(0)}).superRefine((data,ctx)=>{const price=data.packagePrice!==undefined,quantity=data.packageQuantity!==undefined;if(price!==quantity||(!price&&data.unitCost===undefined))ctx.addIssue({code:'custom',message:'Isi harga dan jumlah isi kemasan secara lengkap.'});if(price&&quantity&&ingredientUnitCost(data)>1e8)ctx.addIssue({code:'custom',message:'Biaya per satuan terlalu besar.'});}).transform(data=>({...data,unitCost:ingredientUnitCost(data)})),
- recipes:z.object({productId:str,ingredients:z.array(z.object({ingredientId:str,amount:z.number().positive().max(1e7)})).min(1).max(100)}),
- tables:z.object({number:str,capacity:z.number().int().min(1).max(100),zone:str,status:z.enum(['kosong','terisi','reserved','dibersihkan']),notes:optional,image}),
- shifts:z.object({name:str,startAt:z.string().datetime({offset:true}),endAt:z.string().datetime({offset:true}),employeeIds:z.array(str).min(1).max(30),scheduleTimezone:z.enum(['Asia/Jakarta','Asia/Makassar']).optional()}),
- expenses:z.object({title:str,amount,category:z.enum(['operasional','bahan_baku','sewa','utilitas','lainnya']),date,shiftId:z.string().default(''),notes:optional}),
- tiers:z.object({min:amount,max:amount.nullable(),wage:amount}),
- books:z.object({title:str,author:str,isbn:optional,category:str,shelfLocation:str,totalCopies:z.number().int().min(1).max(10000),publisher:optional,year:optional,synopsis:optional,image,status:z.enum(['tersedia','hilang','pemeliharaan']).default('tersedia')}),
- settings:z.object({name:str,tagline:optional,logo:image,address:optional,phone:optional,whatsapp:optional,taxPercentage:z.number().min(0).max(100),bonusPercentage:z.number().min(0).max(100),receiptFooter:optional,printerWidth:z.enum(['58','80']),timezone:z.enum(['Asia/Jakarta','Asia/Makassar']).default(CAFE_TIMEZONE).transform(()=>CAFE_TIMEZONE)})
+import { stripOperationalSecrets } from './audit';
+import { ingredientUnitCost } from './ingredient-cost';
+import { z } from 'zod';
+import {
+  type State,
+  type Row,
+  type Actor,
+  type Kind,
+  kinds,
+  blank as blankState,
+  defaultCategories,
+  initial,
+  localDate,
+  shiftTotals,
+  hasMissingHpp,
+  tracksStock,
+  CAFE_TIMEZONE,
+  OPERATIONS_VERSION,
+} from './model';
+const str = z.string().trim().min(1).max(200),
+  optional = z.string().trim().max(2000).default('');
+const amount = z.number().int().min(0).max(1_000_000_000);
+const image = z
+  .string()
+  .max(500)
+  .default('')
+  .refine(
+    (v) => !v || v.startsWith('/api/files/') || /^https:\/\//.test(v),
+    'Gambar harus berupa unggahan atau HTTPS.',
+  );
+const date = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((v) => {
+    const d = new Date(v + 'T12:00:00Z');
+    return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === v;
+  }, 'Tanggal tidak valid.');
+const schemas: Partial<Record<Kind, z.ZodTypeAny>> = {
+  employees: z.object({
+    name: str,
+    email: z
+      .union([z.string().email(), z.literal('')])
+      .default('')
+      .transform((v) => v.toLowerCase()),
+    role: z.enum(['admin', 'karyawan']),
+    status: z.enum(['aktif', 'nonaktif']),
+    phone: optional,
+    joinedAt: date,
+  }),
+  categories: z.object({ name: str, sortOrder: z.number().int().min(0).max(10000).default(0) }),
+  products: z.object({
+    name: str,
+    price: amount,
+    category: str,
+    description: optional,
+    status: z.enum(['tersedia', 'habis']),
+    image,
+    sortOrder: z.number().int().min(0).default(0),
+  }),
+  ingredients: z
+    .object({
+      name: str,
+      unit: str,
+      unitCost: z.number().finite().min(0).max(1e8).optional(),
+      packagePrice: z.number().finite().min(0).max(1e9).optional(),
+      packageQuantity: z
+        .number()
+        .finite()
+        .positive('Isi kemasan harus lebih dari nol.')
+        .max(1e9)
+        .optional(),
+      trackStock: z.boolean().default(false),
+      stock: z.number().finite().min(0).max(1e9).default(0),
+      minStock: z.number().finite().min(0).max(1e9).default(0),
+    })
+    .superRefine((data, ctx) => {
+      const price = data.packagePrice !== undefined,
+        quantity = data.packageQuantity !== undefined;
+      if (price !== quantity || (!price && data.unitCost === undefined))
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Isi harga dan jumlah isi kemasan secara lengkap.',
+        });
+      if (price && quantity && ingredientUnitCost(data) > 1e8)
+        ctx.addIssue({ code: 'custom', message: 'Biaya per satuan terlalu besar.' });
+    })
+    .transform((data) => ({ ...data, unitCost: ingredientUnitCost(data) })),
+  recipes: z.object({
+    productId: str,
+    ingredients: z
+      .array(z.object({ ingredientId: str, amount: z.number().positive().max(1e7) }))
+      .min(1)
+      .max(100),
+  }),
+  tables: z.object({
+    number: str,
+    capacity: z.number().int().min(1).max(100),
+    zone: str,
+    status: z.enum(['kosong', 'terisi', 'reserved', 'dibersihkan']),
+    notes: optional,
+    image,
+  }),
+  shifts: z.object({
+    name: str,
+    startAt: z.string().datetime({ offset: true }),
+    endAt: z.string().datetime({ offset: true }),
+    employeeIds: z.array(str).min(1).max(30),
+    scheduleTimezone: z.enum(['Asia/Jakarta', 'Asia/Makassar']).optional(),
+  }),
+  expenses: z.object({
+    title: str,
+    amount,
+    category: z.enum(['operasional', 'bahan_baku', 'sewa', 'utilitas', 'lainnya']),
+    date,
+    shiftId: z.string().default(''),
+    notes: optional,
+  }),
+  tiers: z.object({ min: amount, max: amount.nullable(), wage: amount }),
+  books: z.object({
+    title: str,
+    author: str,
+    isbn: optional,
+    category: str,
+    shelfLocation: str,
+    totalCopies: z.number().int().min(1).max(10000),
+    publisher: optional,
+    year: optional,
+    synopsis: optional,
+    image,
+    status: z.enum(['tersedia', 'hilang', 'pemeliharaan']).default('tersedia'),
+  }),
+  settings: z.object({
+    name: str,
+    tagline: optional,
+    logo: image,
+    address: optional,
+    phone: optional,
+    whatsapp: optional,
+    taxPercentage: z.number().min(0).max(100),
+    bonusPercentage: z.number().min(0).max(100),
+    receiptFooter: optional,
+    printerWidth: z.enum(['58', '80']),
+    timezone: z
+      .enum(['Asia/Jakarta', 'Asia/Makassar'])
+      .default(CAFE_TIMEZONE)
+      .transform(() => CAFE_TIMEZONE),
+  }),
 };
-export class Fault extends Error{constructor(message:string,public status=400){super(message)}}
-const fail=(m:string):never=>{throw new Fault(m)};
-const assert=(v:any,m:string)=>{if(!v)fail(m)};
-const find=(s:State,k:Kind,id:string)=>s[k].find(r=>r.id===id)||fail('Data tidak ditemukan.');
-const admin=(a:Actor)=>{if(a.role!=='admin')throw new Fault('Hanya admin yang dapat melakukan tindakan ini.',403)};
-const shiftEditable=(s:State,id:string)=>{const sh=find(s,'shifts',id);assert(sh.status!=='closed','Shift sudah ditutup. Catatan keuangannya dikunci.');return sh};
-export function validateTiers(tiers:Row[]){const t=[...tiers].sort((a,b)=>a.min-b.min);assert(t.length>0&&t[0].min===0,'Tier harus dimulai dari Rp0.');t.forEach((r,i)=>{assert(r.max===null?i===t.length-1:r.max>=r.min,'Rentang tier tidak valid.');if(i>0)assert(t[i-1].max!==null&&r.min===t[i-1].max+1,'Tier harus berurutan tanpa celah atau tumpang tindih.');});assert(t.at(-1)?.max===null,'Tier terakhir harus tanpa batas atas.');}
-export function apply(s:State,a:Actor,action:string,p:Record<string,any>,now=new Date(),context:{allowActiveRestore?:boolean}={}):any{
- const stamp=now.toISOString(),today=localDate(now),id=()=>crypto.randomUUID();
- const canShift=(sh:Row)=>assert(a.role==='admin'||sh.employeeIds.includes(a.employeeId),'Anda tidak dijadwalkan pada shift ini.');
- const openShift=(sid:string)=>{const sh=find(s,'shifts',sid);canShift(sh);assert(sh.status==='open','Buka shift sebelum mencatat transaksi.');assertPeriodEditable(sh.date.slice(0,7));return sh};
- const assertPeriodEditable=(period:string)=>assert(!s.payrolls.some(pr=>pr.period===period&&pr.status==='lunas'),'Periode sudah dibayar dan dikunci.');
- const invalidatePayroll=(period:string)=>{s.payrolls=s.payrolls.filter(pr=>pr.period!==period||pr.status==='lunas')};
- const assertHppComplete=(period:string)=>{const missing=s.orders.filter(o=>o.date.startsWith(period)&&o.paid&&o.status!=='dibatalkan'&&hasMissingHpp(o));assert(!missing.length,'Lengkapi HPP sebelum menghitung atau membayar gaji. Transaksi belum lengkap: '+missing.slice(0,3).map(o=>o.no).join(', ')+(missing.length>3?' dan '+(missing.length-3)+' lainnya.':'.'));};
- const refreshClosedShift=(sh:Row)=>{if(sh.status!=='closed')return;assertPeriodEditable(sh.date.slice(0,7));assert(Array.isArray(sh.snapshot?.tiers)&&sh.snapshot.tiers.length,'Tier historis shift ini belum tersedia. Hubungi admin sebelum mengoreksi.');validateTiers(sh.snapshot.tiers);const historicalTiers=structuredClone(sh.snapshot.tiers);const totals=shiftTotals(s,sh);assert(totals.wage!==undefined,'Laba tidak cocok dengan tier gaji.');const attendance=s.attendance.filter(at=>at.shiftId===sh.id&&at.status==='hadir');sh.snapshot={...totals,employees:attendance.map(at=>({employeeId:at.employeeId,wage:totals.wage})),tiers:historicalTiers};invalidatePayroll(sh.date.slice(0,7));};
- const finalizeShift=(sh:Row,closedAt=stamp)=>{assertPeriodEditable(sh.date.slice(0,7));validateTiers(s.tiers);const totals=shiftTotals(s,sh);assert(totals.wage!==undefined,'Laba tidak cocok dengan tier gaji.');const attendance=s.attendance.filter(at=>at.shiftId===sh.id&&at.status==='hadir');sh.snapshot={...totals,employees:attendance.map(at=>({employeeId:at.employeeId,wage:totals.wage})),tiers:structuredClone(s.tiers)};sh.status='closed';sh.closedAt=closedAt;invalidatePayroll(sh.date.slice(0,7));};
- const assertPayrollCurrent=(period:string)=>{
-  const payrolls=s.payrolls.filter(pr=>pr.period===period),closed=s.shifts.filter(sh=>sh.date.startsWith(period)&&sh.status==='closed');
-  assert(closed.length>0&&payrolls.length>0,'Hitung periode gaji terlebih dahulu.');
-  const percentage=payrolls[0].bonusPercentage;assert(typeof percentage==='number'&&Number.isFinite(percentage)&&percentage>=0&&percentage<=100&&payrolls.every(pr=>pr.bonusPercentage===percentage),'Aturan bonus payroll lama belum lengkap. Hitung ulang periode gaji.');
-  const amounts=new Map<string,{base:number;count:number}>();let profit=0;
-  for(const sh of closed){
-   assert(Array.isArray(sh.snapshot?.tiers)&&sh.snapshot.tiers.length,'Tier historis shift belum tersedia. Periksa data sebelum membayar gaji.');validateTiers(sh.snapshot.tiers);
-   const t=shiftTotals(s,sh);assert(t.hppComplete&&t.wage!==undefined,'HPP atau tier historis belum lengkap.');profit+=t.profit;
-   for(const at of s.attendance.filter(at=>at.shiftId===sh.id&&at.status==='hadir')){const previous=amounts.get(at.employeeId)||{base:0,count:0};amounts.set(at.employeeId,{base:previous.base+t.wage!,count:previous.count+1});}
+export class Fault extends Error {
+  constructor(
+    message: string,
+    public status = 400,
+  ) {
+    super(message);
   }
-  const entries=[...amounts.entries()].sort(([a],[b])=>a.localeCompare(b)),baseTotal=entries.reduce((n,[,v])=>n+v.base,0),shiftCount=entries.reduce((n,[,v])=>n+v.count,0),general=s.expenses.filter(e=>e.date.startsWith(period)&&!e.shiftId&&e.category!=='bahan_baku').reduce((n,e)=>n+e.amount,0),pool=Math.round(Math.max(0,profit-general-baseTotal)*(percentage/100));
-  assert(entries.length===payrolls.length&&new Set(payrolls.map(pr=>pr.employeeId)).size===payrolls.length,'Rincian karyawan payroll tidak cocok. Hitung ulang periode gaji.');let allocated=0;
-  entries.forEach(([employeeId,v],index)=>{const bonus=index===entries.length-1?pool-allocated:Math.floor(pool*v.count/shiftCount);allocated+=bonus;const row=payrolls.find(pr=>pr.employeeId===employeeId);assert(row&&row.base===v.base&&row.shifts===v.count&&row.bonus===bonus&&row.total===v.base+bonus,'Nominal payroll tidak cocok dengan data shift/HPP terbaru. Hitung ulang periode sebelum membayar.');});
- };
- const maybeFinalizeShift=(sh:Row,at=now)=>{if(!['planned','open'].includes(sh.status))return;const records=s.attendance.filter(x=>x.shiftId===sh.id);const attendanceDone=records.every(x=>x.status!=='hadir'||!!x.checkOut);const rosterDone=sh.employeeIds.every((eid:string)=>records.some(x=>x.employeeId===eid&&(x.status!=='hadir'||!!x.checkOut)));const ordersDone=!s.orders.some(o=>o.shiftId===sh.id&&!['selesai','dibatalkan'].includes(o.status));const ended=at>=new Date(sh.endAt);if(attendanceDone&&ordersDone&&(rosterDone||ended))finalizeShift(sh,ended?sh.endAt:stamp);};
- if(action==='save'){
-  const k=p.kind as Kind;if(!['ingredients','recipes','expenses','books'].includes(k))admin(a);assert(!!schemas[k],'Jenis data tidak dapat diedit langsung.');const existing=p.id?s[k].find(r=>r.id===p.id):undefined;
-  if(existing&&['expenses','shifts','ingredients','recipes','employees','settings'].includes(k)){assert(typeof p.reason==='string'&&p.reason.trim(),'Alasan perubahan wajib diisi. Muat ulang halaman jika kolom alasan belum tersedia.');str.parse(p.reason);}
-  const row={...existing,...schemas[k]!.parse(p.data),id:existing?.id||(k==='settings'?'cafe':id())} as Row;
-  if(k==='ingredients')row.unitCost=ingredientUnitCost(row);
-  if(k==='categories')assert(!s.categories.some(c=>c.id!==row.id&&c.name.toLocaleLowerCase('id-ID')===row.name.toLocaleLowerCase('id-ID')),'Nama kategori sudah digunakan.');
-  if(k==='products')find(s,'categories',row.category);
-  if(k==='employees'){
-   assert(!row.email||!s.employees.some(e=>e.email===row.email&&e.id!==row.id),'Email sudah terdaftar.');
-   if(existing?.id===a.employeeId)assert(row.role==='admin'&&row.status==='aktif','Admin tidak dapat menonaktifkan atau menurunkan peran akunnya sendiri.');
-   if(existing?.id==='owner')assert(row.role==='admin'&&row.status==='aktif','Akun pemilik utama tidak dapat dinonaktifkan atau diganti.');
+}
+const fail = (m: string): never => {
+  throw new Fault(m);
+};
+const assert = (v: any, m: string) => {
+  if (!v) fail(m);
+};
+const find = (s: State, k: Kind, id: string) =>
+  s[k].find((r) => r.id === id) || fail('Data tidak ditemukan.');
+const admin = (a: Actor) => {
+  if (a.role !== 'admin') throw new Fault('Hanya admin yang dapat melakukan tindakan ini.', 403);
+};
+const shiftEditable = (s: State, id: string) => {
+  const sh = find(s, 'shifts', id);
+  assert(sh.status !== 'closed', 'Shift sudah ditutup. Catatan keuangannya dikunci.');
+  return sh;
+};
+export function validateTiers(tiers: Row[]) {
+  const t = [...tiers].sort((a, b) => a.min - b.min);
+  assert(t.length > 0 && t[0].min === 0, 'Tier harus dimulai dari Rp0.');
+  t.forEach((r, i) => {
+    assert(r.max === null ? i === t.length - 1 : r.max >= r.min, 'Rentang tier tidak valid.');
+    if (i > 0)
+      assert(
+        t[i - 1].max !== null && r.min === t[i - 1].max + 1,
+        'Tier harus berurutan tanpa celah atau tumpang tindih.',
+      );
+  });
+  assert(t.at(-1)?.max === null, 'Tier terakhir harus tanpa batas atas.');
+}
+export function apply(
+  s: State,
+  a: Actor,
+  action: string,
+  p: Record<string, any>,
+  now = new Date(),
+  context: { allowActiveRestore?: boolean } = {},
+): any {
+  const stamp = now.toISOString(),
+    today = localDate(now),
+    id = () => crypto.randomUUID();
+  const canShift = (sh: Row) =>
+    assert(
+      a.role === 'admin' || sh.employeeIds.includes(a.employeeId),
+      'Anda tidak dijadwalkan pada shift ini.',
+    );
+  const openShift = (sid: string) => {
+    const sh = find(s, 'shifts', sid);
+    canShift(sh);
+    assert(sh.status === 'open', 'Buka shift sebelum mencatat transaksi.');
+    assertPeriodEditable(sh.date.slice(0, 7));
+    return sh;
+  };
+  const assertPeriodEditable = (period: string) =>
+    assert(
+      !s.payrolls.some((pr) => pr.period === period && pr.status === 'lunas'),
+      'Periode sudah dibayar dan dikunci.',
+    );
+  const invalidatePayroll = (period: string) => {
+    s.payrolls = s.payrolls.filter((pr) => pr.period !== period || pr.status === 'lunas');
+  };
+  const assertHppComplete = (period: string) => {
+    const missing = s.orders.filter(
+      (o) => o.date.startsWith(period) && o.paid && o.status !== 'dibatalkan' && hasMissingHpp(o),
+    );
+    assert(
+      !missing.length,
+      'Lengkapi HPP sebelum menghitung atau membayar gaji. Transaksi belum lengkap: ' +
+        missing
+          .slice(0, 3)
+          .map((o) => o.no)
+          .join(', ') +
+        (missing.length > 3 ? ' dan ' + (missing.length - 3) + ' lainnya.' : '.'),
+    );
+  };
+  const refreshClosedShift = (sh: Row) => {
+    if (sh.status !== 'closed') return;
+    assertPeriodEditable(sh.date.slice(0, 7));
+    assert(
+      Array.isArray(sh.snapshot?.tiers) && sh.snapshot.tiers.length,
+      'Tier historis shift ini belum tersedia. Hubungi admin sebelum mengoreksi.',
+    );
+    validateTiers(sh.snapshot.tiers);
+    const historicalTiers = structuredClone(sh.snapshot.tiers);
+    const totals = shiftTotals(s, sh);
+    assert(totals.wage !== undefined, 'Laba tidak cocok dengan tier gaji.');
+    const attendance = s.attendance.filter((at) => at.shiftId === sh.id && at.status === 'hadir');
+    sh.snapshot = {
+      ...totals,
+      employees: attendance.map((at) => ({ employeeId: at.employeeId, wage: totals.wage })),
+      tiers: historicalTiers,
+    };
+    invalidatePayroll(sh.date.slice(0, 7));
+  };
+  const finalizeShift = (sh: Row, closedAt = stamp) => {
+    assertPeriodEditable(sh.date.slice(0, 7));
+    validateTiers(s.tiers);
+    const totals = shiftTotals(s, sh);
+    assert(totals.wage !== undefined, 'Laba tidak cocok dengan tier gaji.');
+    const attendance = s.attendance.filter((at) => at.shiftId === sh.id && at.status === 'hadir');
+    sh.snapshot = {
+      ...totals,
+      employees: attendance.map((at) => ({ employeeId: at.employeeId, wage: totals.wage })),
+      tiers: structuredClone(s.tiers),
+    };
+    sh.status = 'closed';
+    sh.closedAt = closedAt;
+    invalidatePayroll(sh.date.slice(0, 7));
+  };
+  const assertPayrollCurrent = (period: string) => {
+    const payrolls = s.payrolls.filter((pr) => pr.period === period),
+      closed = s.shifts.filter((sh) => sh.date.startsWith(period) && sh.status === 'closed');
+    assert(closed.length > 0 && payrolls.length > 0, 'Hitung periode gaji terlebih dahulu.');
+    const percentage = payrolls[0].bonusPercentage;
+    assert(
+      typeof percentage === 'number' &&
+        Number.isFinite(percentage) &&
+        percentage >= 0 &&
+        percentage <= 100 &&
+        payrolls.every((pr) => pr.bonusPercentage === percentage),
+      'Aturan bonus payroll lama belum lengkap. Hitung ulang periode gaji.',
+    );
+    const amounts = new Map<string, { base: number; count: number }>();
+    let profit = 0;
+    for (const sh of closed) {
+      assert(
+        Array.isArray(sh.snapshot?.tiers) && sh.snapshot.tiers.length,
+        'Tier historis shift belum tersedia. Periksa data sebelum membayar gaji.',
+      );
+      validateTiers(sh.snapshot.tiers);
+      const t = shiftTotals(s, sh);
+      assert(t.hppComplete && t.wage !== undefined, 'HPP atau tier historis belum lengkap.');
+      profit += t.profit;
+      for (const at of s.attendance.filter((at) => at.shiftId === sh.id && at.status === 'hadir')) {
+        const previous = amounts.get(at.employeeId) || { base: 0, count: 0 };
+        amounts.set(at.employeeId, { base: previous.base + t.wage!, count: previous.count + 1 });
+      }
+    }
+    const entries = [...amounts.entries()].sort(([a], [b]) => a.localeCompare(b)),
+      baseTotal = entries.reduce((n, [, v]) => n + v.base, 0),
+      shiftCount = entries.reduce((n, [, v]) => n + v.count, 0),
+      general = s.expenses
+        .filter((e) => e.date.startsWith(period) && !e.shiftId && e.category !== 'bahan_baku')
+        .reduce((n, e) => n + e.amount, 0),
+      pool = Math.round(Math.max(0, profit - general - baseTotal) * (percentage / 100));
+    assert(
+      entries.length === payrolls.length &&
+        new Set(payrolls.map((pr) => pr.employeeId)).size === payrolls.length,
+      'Rincian karyawan payroll tidak cocok. Hitung ulang periode gaji.',
+    );
+    let allocated = 0;
+    entries.forEach(([employeeId, v], index) => {
+      const bonus =
+        index === entries.length - 1 ? pool - allocated : Math.floor((pool * v.count) / shiftCount);
+      allocated += bonus;
+      const row = payrolls.find((pr) => pr.employeeId === employeeId);
+      assert(
+        row &&
+          row.base === v.base &&
+          row.shifts === v.count &&
+          row.bonus === bonus &&
+          row.total === v.base + bonus,
+        'Nominal payroll tidak cocok dengan data shift/HPP terbaru. Hitung ulang periode sebelum membayar.',
+      );
+    });
+  };
+  const maybeFinalizeShift = (sh: Row, at = now) => {
+    if (!['planned', 'open'].includes(sh.status)) return;
+    const records = s.attendance.filter((x) => x.shiftId === sh.id);
+    const attendanceDone = records.every((x) => x.status !== 'hadir' || !!x.checkOut);
+    const rosterDone = sh.employeeIds.every((eid: string) =>
+      records.some((x) => x.employeeId === eid && (x.status !== 'hadir' || !!x.checkOut)),
+    );
+    const ordersDone = !s.orders.some(
+      (o) => o.shiftId === sh.id && !['selesai', 'dibatalkan'].includes(o.status),
+    );
+    const ended = at >= new Date(sh.endAt);
+    if (attendanceDone && ordersDone && (rosterDone || ended))
+      finalizeShift(sh, ended ? sh.endAt : stamp);
+  };
+  if (action === 'save') {
+    const k = p.kind as Kind;
+    if (!['ingredients', 'recipes', 'expenses', 'books'].includes(k)) admin(a);
+    assert(!!schemas[k], 'Jenis data tidak dapat diedit langsung.');
+    const existing = p.id ? s[k].find((r) => r.id === p.id) : undefined;
+    if (
+      existing &&
+      ['expenses', 'shifts', 'ingredients', 'recipes', 'employees', 'settings'].includes(k)
+    ) {
+      assert(
+        typeof p.reason === 'string' && p.reason.trim(),
+        'Alasan perubahan wajib diisi. Muat ulang halaman jika kolom alasan belum tersedia.',
+      );
+      str.parse(p.reason);
+    }
+    const row = {
+      ...existing,
+      ...schemas[k]!.parse(p.data),
+      id: existing?.id || (k === 'settings' ? 'cafe' : id()),
+    } as Row;
+    if (k === 'ingredients') row.unitCost = ingredientUnitCost(row);
+    if (k === 'categories')
+      assert(
+        !s.categories.some(
+          (c) =>
+            c.id !== row.id &&
+            c.name.toLocaleLowerCase('id-ID') === row.name.toLocaleLowerCase('id-ID'),
+        ),
+        'Nama kategori sudah digunakan.',
+      );
+    if (k === 'products') find(s, 'categories', row.category);
+    if (k === 'employees') {
+      assert(
+        !row.email || !s.employees.some((e) => e.email === row.email && e.id !== row.id),
+        'Email sudah terdaftar.',
+      );
+      if (existing?.id === a.employeeId)
+        assert(
+          row.role === 'admin' && row.status === 'aktif',
+          'Admin tidak dapat menonaktifkan atau menurunkan peran akunnya sendiri.',
+        );
+      if (existing?.id === 'owner')
+        assert(
+          row.role === 'admin' && row.status === 'aktif',
+          'Akun pemilik utama tidak dapat dinonaktifkan atau diganti.',
+        );
+    }
+    if (k === 'shifts') {
+      assert(
+        !existing || existing.status === 'planned',
+        'Roster yang sudah dimulai tidak dapat diubah.',
+      );
+      assert(!s.attendance.some((at) => at.shiftId === row.id), 'Roster sudah memiliki absensi.');
+      assert(new Date(row.endAt) > new Date(row.startAt), 'Waktu akhir harus setelah waktu mulai.');
+      assert(
+        new Date(row.endAt).getTime() - new Date(row.startAt).getTime() <= 24 * 3600000,
+        'Durasi shift maksimal 24 jam.',
+      );
+      assert(
+        new Set(row.employeeIds).size === row.employeeIds.length,
+        'Karyawan tidak boleh berulang.',
+      );
+      row.employeeIds.forEach((eid: string) => {
+        assert(find(s, 'employees', eid).status === 'aktif', 'Karyawan tidak aktif.');
+        assert(
+          !s.shifts.some(
+            (sh) =>
+              sh.id !== row.id &&
+              new Date(sh.startAt) < new Date(row.endAt) &&
+              new Date(sh.endAt) > new Date(row.startAt) &&
+              sh.employeeIds.includes(eid),
+          ),
+          'Jadwal karyawan bertumpang tindih.',
+        );
+      });
+      row.status = 'planned';
+      row.date = localDate(new Date(row.startAt));
+      row.scheduleTimezone = CAFE_TIMEZONE;
+    }
+    if (k === 'expenses') {
+      if (existing) assertPeriodEditable(existing.date.slice(0, 7));
+      if (existing?.shiftId)
+        assertPeriodEditable(find(s, 'shifts', existing.shiftId).date.slice(0, 7));
+      if (row.shiftId) assertPeriodEditable(find(s, 'shifts', row.shiftId).date.slice(0, 7));
+      assertPeriodEditable(row.date.slice(0, 7));
+    }
+    if (k === 'recipes') {
+      find(s, 'products', row.productId);
+      row.ingredients.forEach((i: any) => find(s, 'ingredients', i.ingredientId));
+      assert(
+        new Set(row.ingredients.map((i: any) => i.ingredientId)).size === row.ingredients.length,
+        'Bahan resep berulang.',
+      );
+      const prior = s.recipes.find((r) => r.productId === row.productId);
+      if (prior) row.id = prior.id;
+    }
+    if (k === 'tables' && existing)
+      assert(
+        !s.orders.some(
+          (o) => o.tableId === row.id && !['selesai', 'dibatalkan'].includes(o.status),
+        ) || row.status === 'terisi',
+        'Meja dengan pesanan aktif harus tetap terisi.',
+      );
+    if (k === 'books') {
+      const borrowed = s.loans.filter((l) => l.bookId === row.id && !l.returnDate).length;
+      assert(row.totalCopies >= borrowed, 'Jumlah eksemplar di bawah jumlah yang sedang dipinjam.');
+    }
+    const next = s[k].filter((r) => r.id !== row.id).concat(row);
+    if (k === 'tiers') validateTiers(next);
+    s[k] = next;
+    if (k === 'expenses') {
+      const periods = [row.date.slice(0, 7), existing?.date?.slice(0, 7)];
+      s.payrolls = s.payrolls.filter((pr) => pr.status === 'lunas' || !periods.includes(pr.period));
+      for (const sid of new Set([row.shiftId, existing?.shiftId].filter(Boolean)))
+        refreshClosedShift(find(s, 'shifts', sid!));
+    }
+    if (k === 'settings' && existing?.bonusPercentage !== row.bonusPercentage) {
+      const locked = new Set(
+        s.payrolls.filter((pr) => pr.status === 'lunas').map((pr) => pr.period),
+      );
+      s.payrolls = s.payrolls.filter((pr) => locked.has(pr.period));
+    }
+    return row;
   }
-  if(k==='shifts'){
-   assert(!existing||existing.status==='planned','Roster yang sudah dimulai tidak dapat diubah.');
-   assert(!s.attendance.some(at=>at.shiftId===row.id),'Roster sudah memiliki absensi.');
-   assert(new Date(row.endAt)>new Date(row.startAt),'Waktu akhir harus setelah waktu mulai.');
-   assert(new Date(row.endAt).getTime()-new Date(row.startAt).getTime()<=24*3600000,'Durasi shift maksimal 24 jam.');
-   assert(new Set(row.employeeIds).size===row.employeeIds.length,'Karyawan tidak boleh berulang.');
-   row.employeeIds.forEach((eid:string)=>{assert(find(s,'employees',eid).status==='aktif','Karyawan tidak aktif.');assert(!s.shifts.some(sh=>sh.id!==row.id&&new Date(sh.startAt)<new Date(row.endAt)&&new Date(sh.endAt)>new Date(row.startAt)&&sh.employeeIds.includes(eid)),'Jadwal karyawan bertumpang tindih.');});
-   row.status='planned';row.date=localDate(new Date(row.startAt));row.scheduleTimezone=CAFE_TIMEZONE;
+  if (action === 'tiers.replace') {
+    admin(a);
+    assert(typeof p.reason === 'string' && p.reason.trim(), 'Alasan perubahan tier wajib diisi.');
+    str.parse(p.reason);
+    const rows = z
+      .array(schemas.tiers!)
+      .min(1)
+      .max(30)
+      .parse(p.rows)
+      .map((r: any) => ({ ...r, id: id() }));
+    validateTiers(rows);
+    s.tiers = rows;
+    return;
   }
-  if(k==='expenses'){
-   if(existing)assertPeriodEditable(existing.date.slice(0,7));
-   if(existing?.shiftId)assertPeriodEditable(find(s,'shifts',existing.shiftId).date.slice(0,7));if(row.shiftId)assertPeriodEditable(find(s,'shifts',row.shiftId).date.slice(0,7));
-   assertPeriodEditable(row.date.slice(0,7));
+  if (action === 'roster.bulk') {
+    admin(a);
+    const input = z
+      .object({
+        mode: z.enum(['rentang', 'rotasi']),
+        startDate: date,
+        endDate: date,
+        employeeIds: z.array(str).min(1).max(30),
+        rotationEmployeeIds: z.array(str).max(30).default([]),
+        offDays: z.array(z.enum(['0', '1', '2', '3', '4', '5', '6'])).default([]),
+        shiftAName: str,
+        shiftAStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+        shiftAEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+        shiftBName: str,
+        shiftBStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+        shiftBEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+      })
+      .parse(p);
+    const first = new Date(input.startDate + 'T12:00:00Z'),
+      last = new Date(input.endDate + 'T12:00:00Z');
+    assert(last >= first, 'Tanggal akhir harus sama atau setelah tanggal mulai.');
+    const totalDays = Math.floor((last.getTime() - first.getTime()) / 86400000) + 1;
+    assert(totalDays <= 93, 'Mode cepat maksimal untuk 93 hari sekaligus.');
+    const allEmployees = [...input.employeeIds, ...input.rotationEmployeeIds];
+    assert(
+      new Set(allEmployees).size === allEmployees.length,
+      'Karyawan tidak boleh berada di dua kelompok rotasi.',
+    );
+    allEmployees.forEach((eid) =>
+      assert(find(s, 'employees', eid).status === 'aktif', 'Karyawan tidak aktif.'),
+    );
+    const planned: Row[] = [];
+    const at = (d: string, time: string) => new Date(d + 'T' + time + ':00+08:00');
+    const add = (d: string, name: string, start: string, end: string, employeeIds: string[]) => {
+      if (!employeeIds.length) return;
+      const startDate = at(d, start),
+        endDate = at(d, end);
+      if (endDate <= startDate) endDate.setUTCDate(endDate.getUTCDate() + 1);
+      assert(
+        endDate.getTime() - startDate.getTime() <= 24 * 3600000,
+        'Durasi shift maksimal 24 jam.',
+      );
+      const startAt = startDate.toISOString(),
+        endAt = endDate.toISOString();
+      for (const eid of employeeIds)
+        assert(
+          ![...s.shifts, ...planned].some(
+            (sh) =>
+              new Date(sh.startAt) < endDate &&
+              new Date(sh.endAt) > startDate &&
+              sh.employeeIds.includes(eid),
+          ),
+          'Jadwal karyawan bertumpang tindih pada ' + d + '.',
+        );
+      planned.push({
+        id: id(),
+        name,
+        startAt,
+        endAt,
+        employeeIds: [...employeeIds],
+        status: 'planned',
+        date: d,
+        createdByBulk: true,
+        scheduleTimezone: CAFE_TIMEZONE,
+      });
+    };
+    for (let i = 0; i < totalDays; i++) {
+      const day = new Date(first.getTime() + i * 86400000);
+      if (input.offDays.includes(String(day.getUTCDay()) as any)) continue;
+      const d = day.toISOString().slice(0, 10),
+        odd = Math.floor(i / 7) % 2 === 1;
+      if (input.mode === 'rentang')
+        add(d, input.shiftAName, input.shiftAStart, input.shiftAEnd, input.employeeIds);
+      else if (input.rotationEmployeeIds.length) {
+        add(
+          d,
+          input.shiftAName,
+          input.shiftAStart,
+          input.shiftAEnd,
+          odd ? input.rotationEmployeeIds : input.employeeIds,
+        );
+        add(
+          d,
+          input.shiftBName,
+          input.shiftBStart,
+          input.shiftBEnd,
+          odd ? input.employeeIds : input.rotationEmployeeIds,
+        );
+      } else
+        add(
+          d,
+          odd ? input.shiftBName : input.shiftAName,
+          odd ? input.shiftBStart : input.shiftAStart,
+          odd ? input.shiftBEnd : input.shiftAEnd,
+          input.employeeIds,
+        );
+    }
+    assert(
+      planned.length > 0,
+      'Tidak ada jadwal yang dibuat. Periksa rentang tanggal dan hari libur.',
+    );
+    s.shifts.push(...planned);
+    return { count: planned.length };
   }
-  if(k==='recipes'){find(s,'products',row.productId);row.ingredients.forEach((i:any)=>find(s,'ingredients',i.ingredientId));assert(new Set(row.ingredients.map((i:any)=>i.ingredientId)).size===row.ingredients.length,'Bahan resep berulang.');const prior=s.recipes.find(r=>r.productId===row.productId);if(prior)row.id=prior.id;}
-  if(k==='tables'&&existing)assert(!s.orders.some(o=>o.tableId===row.id&&!['selesai','dibatalkan'].includes(o.status))||row.status==='terisi','Meja dengan pesanan aktif harus tetap terisi.');
-  if(k==='books'){const borrowed=s.loans.filter(l=>l.bookId===row.id&&!l.returnDate).length;assert(row.totalCopies>=borrowed,'Jumlah eksemplar di bawah jumlah yang sedang dipinjam.');}
-  const next=s[k].filter(r=>r.id!==row.id).concat(row);if(k==='tiers')validateTiers(next);s[k]=next;if(k==='expenses'){const periods=[row.date.slice(0,7),existing?.date?.slice(0,7)];s.payrolls=s.payrolls.filter(pr=>pr.status==='lunas'||!periods.includes(pr.period));for(const sid of new Set([row.shiftId,existing?.shiftId].filter(Boolean)))refreshClosedShift(find(s,'shifts',sid!));}if(k==='settings'&&existing?.bonusPercentage!==row.bonusPercentage){const locked=new Set(s.payrolls.filter(pr=>pr.status==='lunas').map(pr=>pr.period));s.payrolls=s.payrolls.filter(pr=>locked.has(pr.period));}return row;
- }
- if(action==='tiers.replace'){admin(a);assert(typeof p.reason==='string'&&p.reason.trim(),'Alasan perubahan tier wajib diisi.');str.parse(p.reason);const rows=z.array(schemas.tiers!).min(1).max(30).parse(p.rows).map((r:any)=>({...r,id:id()}));validateTiers(rows);s.tiers=rows;return;}
- if(action==='roster.bulk'){
-  admin(a);
-  const input=z.object({mode:z.enum(['rentang','rotasi']),startDate:date,endDate:date,employeeIds:z.array(str).min(1).max(30),rotationEmployeeIds:z.array(str).max(30).default([]),offDays:z.array(z.enum(['0','1','2','3','4','5','6'])).default([]),shiftAName:str,shiftAStart:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),shiftAEnd:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),shiftBName:str,shiftBStart:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),shiftBEnd:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)}).parse(p);
-  const first=new Date(input.startDate+'T12:00:00Z'),last=new Date(input.endDate+'T12:00:00Z');assert(last>=first,'Tanggal akhir harus sama atau setelah tanggal mulai.');const totalDays=Math.floor((last.getTime()-first.getTime())/86400000)+1;assert(totalDays<=93,'Mode cepat maksimal untuk 93 hari sekaligus.');
-  const allEmployees=[...input.employeeIds,...input.rotationEmployeeIds];assert(new Set(allEmployees).size===allEmployees.length,'Karyawan tidak boleh berada di dua kelompok rotasi.');allEmployees.forEach(eid=>assert(find(s,'employees',eid).status==='aktif','Karyawan tidak aktif.'));
-  const planned:Row[]=[];const at=(d:string,time:string)=>new Date(d+'T'+time+':00+08:00');
-  const add=(d:string,name:string,start:string,end:string,employeeIds:string[])=>{if(!employeeIds.length)return;const startDate=at(d,start),endDate=at(d,end);if(endDate<=startDate)endDate.setUTCDate(endDate.getUTCDate()+1);assert(endDate.getTime()-startDate.getTime()<=24*3600000,'Durasi shift maksimal 24 jam.');const startAt=startDate.toISOString(),endAt=endDate.toISOString();for(const eid of employeeIds)assert(![...s.shifts,...planned].some(sh=>new Date(sh.startAt)<endDate&&new Date(sh.endAt)>startDate&&sh.employeeIds.includes(eid)),'Jadwal karyawan bertumpang tindih pada '+d+'.');planned.push({id:id(),name,startAt,endAt,employeeIds:[...employeeIds],status:'planned',date:d,createdByBulk:true,scheduleTimezone:CAFE_TIMEZONE});};
-  for(let i=0;i<totalDays;i++){const day=new Date(first.getTime()+i*86400000);if(input.offDays.includes(String(day.getUTCDay()) as any))continue;const d=day.toISOString().slice(0,10),odd=Math.floor(i/7)%2===1;if(input.mode==='rentang')add(d,input.shiftAName,input.shiftAStart,input.shiftAEnd,input.employeeIds);else if(input.rotationEmployeeIds.length){add(d,input.shiftAName,input.shiftAStart,input.shiftAEnd,odd?input.rotationEmployeeIds:input.employeeIds);add(d,input.shiftBName,input.shiftBStart,input.shiftBEnd,odd?input.employeeIds:input.rotationEmployeeIds);}else add(d,odd?input.shiftBName:input.shiftAName,odd?input.shiftBStart:input.shiftAStart,odd?input.shiftBEnd:input.shiftAEnd,input.employeeIds);}
-  assert(planned.length>0,'Tidak ada jadwal yang dibuat. Periksa rentang tanggal dan hari libur.');s.shifts.push(...planned);return {count:planned.length};
- }
- if(action==='delete'){
-  admin(a);assert(typeof p.reason==='string'&&p.reason.trim(),'Alasan penghapusan wajib diisi.');str.parse(p.reason);const k=p.kind as Kind;assert(['categories','products','ingredients','recipes','tables','shifts','expenses','books','notes','feedback','employees'].includes(k),'Data ini harus dipertahankan sebagai riwayat.');const row=find(s,k,p.id);
-  if(k==='categories')assert(s.categories.length>1&&!s.products.some(product=>product.category===row.id),'Kategori masih digunakan menu atau merupakan kategori terakhir. Pindahkan menu ke kategori lain dahulu.');
-  if(k==='employees'){assert(row.id!=='owner','Akun pemilik tidak dapat dihapus.');assert(!s.shifts.some(sh=>sh.employeeIds.includes(row.id))&&!s.attendance.some(at=>at.employeeId===row.id),'Karyawan memiliki riwayat. Gunakan status nonaktif.');}
-  if(k==='shifts'){
-   assertPeriodEditable(row.date.slice(0,7));
-   const orders=s.orders.filter(o=>o.shiftId===row.id);
-   for(const o of orders)if(o.status!=='dibatalkan')for(const d of o.deductions||[]){const ing=find(s,'ingredients',d.ingredientId);ing.stock=Math.round((ing.stock+d.quantity)*1e6)/1e6;}
-   for(const tableId of new Set(orders.map(o=>o.tableId).filter(Boolean)))if(!s.orders.some(o=>o.shiftId!==row.id&&o.tableId===tableId&&!['selesai','dibatalkan'].includes(o.status)))find(s,'tables',tableId).status='dibersihkan';
-   s.orders=s.orders.filter(o=>o.shiftId!==row.id);
-   s.attendance=s.attendance.filter(at=>at.shiftId!==row.id);
-   s.expenses=s.expenses.filter(e=>e.shiftId!==row.id);
-   s.payrolls=s.payrolls.filter(pr=>pr.status==='lunas'||pr.period!==row.date.slice(0,7));
+  if (action === 'delete') {
+    admin(a);
+    assert(typeof p.reason === 'string' && p.reason.trim(), 'Alasan penghapusan wajib diisi.');
+    str.parse(p.reason);
+    const k = p.kind as Kind;
+    assert(
+      [
+        'categories',
+        'products',
+        'ingredients',
+        'recipes',
+        'tables',
+        'shifts',
+        'expenses',
+        'books',
+        'notes',
+        'feedback',
+        'employees',
+      ].includes(k),
+      'Data ini harus dipertahankan sebagai riwayat.',
+    );
+    const row = find(s, k, p.id);
+    if (k === 'categories')
+      assert(
+        s.categories.length > 1 && !s.products.some((product) => product.category === row.id),
+        'Kategori masih digunakan menu atau merupakan kategori terakhir. Pindahkan menu ke kategori lain dahulu.',
+      );
+    if (k === 'employees') {
+      assert(row.id !== 'owner', 'Akun pemilik tidak dapat dihapus.');
+      assert(
+        !s.shifts.some((sh) => sh.employeeIds.includes(row.id)) &&
+          !s.attendance.some((at) => at.employeeId === row.id),
+        'Karyawan memiliki riwayat. Gunakan status nonaktif.',
+      );
+    }
+    if (k === 'shifts') {
+      assertPeriodEditable(row.date.slice(0, 7));
+      const orders = s.orders.filter((o) => o.shiftId === row.id);
+      for (const o of orders)
+        if (o.status !== 'dibatalkan')
+          for (const d of o.deductions || []) {
+            const ing = find(s, 'ingredients', d.ingredientId);
+            ing.stock = Math.round((ing.stock + d.quantity) * 1e6) / 1e6;
+          }
+      for (const tableId of new Set(orders.map((o) => o.tableId).filter(Boolean)))
+        if (
+          !s.orders.some(
+            (o) =>
+              o.shiftId !== row.id &&
+              o.tableId === tableId &&
+              !['selesai', 'dibatalkan'].includes(o.status),
+          )
+        )
+          find(s, 'tables', tableId).status = 'dibersihkan';
+      s.orders = s.orders.filter((o) => o.shiftId !== row.id);
+      s.attendance = s.attendance.filter((at) => at.shiftId !== row.id);
+      s.expenses = s.expenses.filter((e) => e.shiftId !== row.id);
+      s.payrolls = s.payrolls.filter(
+        (pr) => pr.status === 'lunas' || pr.period !== row.date.slice(0, 7),
+      );
+    }
+    if (k === 'ingredients')
+      assert(
+        !s.orders.some(
+          (o) =>
+            !['selesai', 'dibatalkan'].includes(o.status) &&
+            o.deductions.some((i: any) => i.ingredientId === row.id),
+        ) && !s.recipes.some((r) => r.ingredients.some((i: any) => i.ingredientId === row.id)),
+        'Bahan masih digunakan dalam resep.',
+      );
+    if (k === 'products')
+      assert(
+        !s.orders.some((o) => o.items.some((i: any) => i.productId === row.id)),
+        'Menu memiliki riwayat pesanan. Gunakan status habis.',
+      );
+    if (k === 'tables')
+      assert(
+        !s.orders.some(
+          (o) => o.tableId === row.id && !['selesai', 'dibatalkan'].includes(o.status),
+        ),
+        'Meja masih memiliki pesanan aktif.',
+      );
+    if (k === 'expenses') {
+      if (row.shiftId) assertPeriodEditable(find(s, 'shifts', row.shiftId).date.slice(0, 7));
+      assertPeriodEditable(row.date.slice(0, 7));
+    }
+    if (k === 'books')
+      assert(
+        !s.loans.some((l) => l.bookId === row.id),
+        'Buku memiliki riwayat peminjaman; ubah statusnya.',
+      );
+    s[k] = s[k].filter((r) => r.id !== row.id);
+    if (k === 'expenses') {
+      s.payrolls = s.payrolls.filter(
+        (pr) => pr.status === 'lunas' || pr.period !== row.date.slice(0, 7),
+      );
+      if (row.shiftId) refreshClosedShift(find(s, 'shifts', row.shiftId));
+    }
+    if (k === 'products') s.recipes = s.recipes.filter((r) => r.productId !== row.id);
+    return;
   }
-  if(k==='ingredients')assert(!s.orders.some(o=>!['selesai','dibatalkan'].includes(o.status)&&o.deductions.some((i:any)=>i.ingredientId===row.id))&&!s.recipes.some(r=>r.ingredients.some((i:any)=>i.ingredientId===row.id)),'Bahan masih digunakan dalam resep.');
-  if(k==='products')assert(!s.orders.some(o=>o.items.some((i:any)=>i.productId===row.id)),'Menu memiliki riwayat pesanan. Gunakan status habis.');
-  if(k==='tables')assert(!s.orders.some(o=>o.tableId===row.id&&!['selesai','dibatalkan'].includes(o.status)),'Meja masih memiliki pesanan aktif.');
-  if(k==='expenses'){if(row.shiftId)assertPeriodEditable(find(s,'shifts',row.shiftId).date.slice(0,7));assertPeriodEditable(row.date.slice(0,7));}
-  if(k==='books')assert(!s.loans.some(l=>l.bookId===row.id),'Buku memiliki riwayat peminjaman; ubah statusnya.');
-  s[k]=s[k].filter(r=>r.id!==row.id);if(k==='expenses'){s.payrolls=s.payrolls.filter(pr=>pr.status==='lunas'||pr.period!==row.date.slice(0,7));if(row.shiftId)refreshClosedShift(find(s,'shifts',row.shiftId));}if(k==='products')s.recipes=s.recipes.filter(r=>r.productId!==row.id);return;
- }
- if(action==='shift.open'){const sh=find(s,'shifts',p.id);canShift(sh);assert(sh.status==='planned','Shift sudah dimulai.');assert(!s.payrolls.some(pr=>pr.period===sh.date.slice(0,7)&&pr.status==='lunas'),'Periode payroll sudah dibayar dan dikunci.');assert(!s.shifts.some(x=>x.status==='open'),'Tutup shift sebelumnya terlebih dahulu.');assert(now>=new Date(sh.startAt)&&now<new Date(sh.endAt),'Shift hanya dapat dibuka dalam jadwalnya.');sh.status='open';sh.openedAt=stamp;return;}
- if(action==='attendance.in'){
-  const sh=find(s,'shifts',p.shiftId);canShift(sh);assert(sh.status==='planned'||sh.status==='open','Shift sudah selesai.');assertPeriodEditable(sh.date.slice(0,7));const shiftDate=sh.date;const endDate=localDate(new Date(sh.endAt));assert(shiftDate===today||(shiftDate<today&&endDate>=today&&now<new Date(sh.endAt)),'Karyawan hanya dapat absen pada shift yang berlangsung hari ini.');assert(now>=new Date(sh.startAt),'Check-in belum dapat dilakukan sebelum jadwal shift dimulai.');assert(now<new Date(sh.endAt),'Jadwal shift sudah berakhir.');const eid=a.role==='admin'&&p.employeeId?p.employeeId:a.employeeId;assert(sh.employeeIds.includes(eid),'Karyawan tidak terdaftar dalam roster.');
-  assert(!s.attendance.some(at=>at.shiftId===sh.id&&at.employeeId===eid),'Absensi shift sudah tercatat.');assert(!s.attendance.some(at=>at.employeeId===eid&&!at.checkOut&&at.status==='hadir'),'Selesaikan absensi sebelumnya.');
-  if(sh.status==='planned'){sh.status='open';sh.openedAt=stamp;}s.attendance.push({id:id(),shiftId:sh.id,employeeId:eid,status:'hadir',checkIn:stamp,checkOut:null,notes:String(p.notes||'').slice(0,2000)});return;
- }
- if(action==='attendance.out'){const at=find(s,'attendance',p.id);assert(a.role==='admin'||at.employeeId===a.employeeId,'Anda tidak dapat mengubah absensi orang lain.');const sh=shiftEditable(s,at.shiftId);assert(!at.checkOut&&at.status==='hadir','Absensi sudah selesai.');assert(a.role==='admin'||localDate(new Date(sh.endAt))===today||sh.date===today,'Karyawan hanya dapat check-out pada hari berjalan; hubungi admin untuk koreksi absensi lama.');assertPeriodEditable(sh.date.slice(0,7));assert(now>new Date(at.checkIn),'Check-out harus setelah check-in.');at.checkOut=stamp;maybeFinalizeShift(sh);return;}
- if(action==='attendance.correct'){admin(a);const prev=p.id?find(s,'attendance',p.id):s.attendance.find(at=>at.shiftId===p.shiftId&&at.employeeId===p.employeeId);const sh=find(s,'shifts',p.shiftId);assert(['planned','open','closed'].includes(sh.status),'Shift tidak valid.');if(prev){const oldShift=find(s,'shifts',prev.shiftId);assertPeriodEditable(oldShift.date.slice(0,7));}assertPeriodEditable(sh.date.slice(0,7));find(s,'employees',p.employeeId);assert(sh.employeeIds.includes(p.employeeId),'Karyawan tidak terdaftar pada roster shift tujuan.');assert(!s.attendance.some(at=>at.id!==prev?.id&&at.shiftId===sh.id&&at.employeeId===p.employeeId),'Absensi karyawan sudah ada pada shift tujuan.');const status=z.enum(['hadir','sakit','izin','libur']).parse(p.status);const reason=str.parse(p.reason);const ci=status==='hadir'?z.string().datetime({offset:true}).parse(p.checkIn):null;const co=status==='hadir'&&p.checkOut?z.string().datetime({offset:true}).parse(p.checkOut):null;if(status==='hadir')assert(!!ci,'Jam check-in wajib diisi untuk status hadir.');if(ci)assert(new Date(ci)>=new Date(sh.startAt)&&new Date(ci)<=new Date(sh.endAt),'Jam masuk harus dalam rentang shift.');if(ci&&co){assert(new Date(co)>new Date(ci),'Jam keluar harus setelah masuk.');assert(new Date(co)<=new Date(sh.endAt),'Jam keluar harus dalam rentang shift.');}if(status==='hadir'&&!co)assert(!s.attendance.some(at=>at.id!==prev?.id&&at.employeeId===p.employeeId&&at.status==='hadir'&&!at.checkOut&&at.shiftId!==sh.id),'Karyawan masih memiliki absensi masuk aktif di shift lain.');const at={id:prev?.id||id(),shiftId:sh.id,employeeId:p.employeeId,status,checkIn:ci,checkOut:co,notes:reason};s.attendance=s.attendance.filter(x=>x.id!==at.id).concat(at);if(prev&&prev.shiftId!==sh.id){const oldShift=find(s,'shifts',prev.shiftId);refreshClosedShift(oldShift);maybeFinalizeShift(oldShift);}if(sh.status==='planned'&&ci&&sh.date===today){sh.status='open';sh.openedAt=ci;}refreshClosedShift(sh);maybeFinalizeShift(sh);return;}
- if(action==='attendance.delete'){admin(a);const at=find(s,'attendance',p.id);const sh=find(s,'shifts',at.shiftId);const reason=str.parse(p.reason);void reason;assert(['planned','open','closed'].includes(sh.status),'Shift tidak valid.');assertPeriodEditable(sh.date.slice(0,7));s.attendance=s.attendance.filter(x=>x.id!==at.id);refreshClosedShift(sh);maybeFinalizeShift(sh);return;}
- if(action==='order.create'){
-  const sh=find(s,'shifts',p.shiftId);canShift(sh);const pastPlanned=sh.status==='planned'&&now>=new Date(sh.endAt);const historical=sh.status==='closed'||pastPlanned;assert(sh.status==='open'||historical,'Pilih shift berjalan atau jadwal shift yang sudah lewat.');assertPeriodEditable(sh.date.slice(0,7));if(!historical)assert(a.role==='admin'||s.attendance.some(at=>at.shiftId===sh.id&&at.employeeId===a.employeeId&&at.status==='hadir'&&!at.checkOut),'Lakukan absen masuk dahulu.');
-  const cart=z.array(z.object({productId:str,quantity:z.number().int().min(1).max(100),notes:optional})).min(1).max(100).parse(p.items);const deduction=new Map<string,number>();
-  const items=cart.map(c=>{const prod=find(s,'products',c.productId);assert(prod.status==='tersedia','Menu tidak tersedia.');const recipe=s.recipes.find(r=>r.productId===prod.id);if(!recipe)return {...c,name:prod.name,price:prod.price,hppPerUnit:0,hppMissing:true};let hpp=0;for(const i of recipe.ingredients){const ing=find(s,'ingredients',i.ingredientId);hpp+=ingredientUnitCost(ing)*i.amount;if(tracksStock(ing))deduction.set(ing.id,(deduction.get(ing.id)||0)+i.amount*c.quantity);}return {...c,name:prod.name,price:prod.price,hppPerUnit:Math.round(hpp),hppMissing:false};});
-  deduction.forEach((qty,iid)=>{const ing=find(s,'ingredients',iid);assert(ing.stock>=qty,'Stok '+ing.name+' tidak cukup.');ing.stock=Math.round((ing.stock-qty)*1e6)/1e6;});
-  const subtotal=items.reduce((v,i)=>v+i.price*i.quantity,0);const discount=amount.parse(p.discount||0);assert(discount<=subtotal,'Diskon melebihi subtotal.');const tax=p.taxEnabled===false?0:Math.round((subtotal-discount)*(s.settings[0]?.taxPercentage||0)/100);const total=subtotal-discount+tax;
-  const paid=!!p.paid;assert(!historical||paid,'Pesanan pada shift lama harus langsung dicatat sebagai lunas.');const paymentMethod=z.enum(['tunai','qris','transfer','ewallet']).parse(p.paymentMethod||'tunai');const cashPaid=paymentMethod==='tunai'?amount.parse(p.cashPaid||0):total;assert(!paid||paymentMethod!=='tunai'||cashPaid>=total,'Uang tunai kurang.');
-  const orderType=z.enum(['dine_in','takeaway']).parse(p.orderType);let tableId='';if(orderType==='dine_in'){const table=find(s,'tables',p.tableId);if(!historical){assert(['kosong','terisi'].includes(table.status),'Meja tidak tersedia.');table.status='terisi';}tableId=table.id;}
-  const oid=id();const order={id:oid,no:'WS-'+sh.date.replaceAll('-','')+'-'+oid.slice(0,8).toUpperCase(),createdAt:stamp,date:sh.date,shiftId:sh.id,cashierId:a.employeeId,items,hppComplete:items.every(i=>!i.hppMissing),subtotal,discount,tax,taxEnabled:p.taxEnabled!==false,taxPercentage:s.settings[0]?.taxPercentage||0,total,hpp:items.reduce((v,i)=>v+i.hppPerUnit*i.quantity,0),deductions:[...deduction].map(([ingredientId,quantity])=>({ingredientId,quantity})),paid,paidAt:paid?stamp:null,paymentMethod,cashPaid,change:paid?Math.max(0,cashPaid-total):0,status:historical?'selesai':paid?'diproses':'menunggu_pembayaran',orderType,tableId,historicalEntry:historical};s.orders.push(order);if(pastPlanned)maybeFinalizeShift(sh);if(historical)refreshClosedShift(sh);return order;
- }
- if(action==='order.pay'){const o=find(s,'orders',p.id);openShift(o.shiftId);assert(o.status==='menunggu_pembayaran'&&!o.paid,'Pesanan sudah dibayar atau dibatalkan.');const method=z.enum(['tunai','qris','transfer','ewallet']).parse(p.paymentMethod);const cash=method==='tunai'?amount.parse(p.cashPaid):o.total;assert(cash>=o.total,'Uang tunai kurang.');Object.assign(o,{paid:true,paidAt:stamp,status:'diproses',paymentMethod:method,cashPaid:cash,change:cash-o.total});return;}
- if(action==='order.hpp.correct'){
-  admin(a);const o=find(s,'orders',p.id),sh=find(s,'shifts',o.shiftId);assertPeriodEditable(sh.date.slice(0,7));assert(o.status!=='dibatalkan','Pesanan dibatalkan tidak perlu dilengkapi HPP.');assert(hasMissingHpp(o),'HPP pesanan sudah lengkap.');
-  const reason=str.parse(p.reason),rows=z.array(z.object({index:z.number().int().min(0),hppPerUnit:amount})).min(1).max(100).parse(p.items);
-  const flagged=o.items.map((item:any,index:number)=>item.hppMissing?index:-1).filter((index:number)=>index>=0),targets=flagged.length?flagged:o.items.map((_:any,index:number)=>index);
-  assert(new Set(rows.map(r=>r.index)).size===rows.length&&rows.length===targets.length&&rows.every(r=>targets.includes(r.index)),'Lengkapi HPP semua item yang belum memiliki HPP.');
-  const before=o.hpp;for(const row of rows){o.items[row.index].hppPerUnit=row.hppPerUnit;o.items[row.index].hppMissing=false;}
-  o.hpp=o.items.reduce((sum:number,item:any)=>sum+item.hppPerUnit*item.quantity,0);amount.parse(o.hpp);o.hppComplete=true;o.hppReviewedAt=stamp;o.hppCorrection={before,after:o.hpp,reason,employeeId:a.employeeId,at:stamp};
-  refreshClosedShift(sh);invalidatePayroll(sh.date.slice(0,7));return;
- }
- if(action==='order.correct'){admin(a);const o=find(s,'orders',p.id);assert(o.status!=='dibatalkan','Pesanan yang dibatalkan tidak dapat dikoreksi.');const sh=find(s,'shifts',o.shiftId);assert(sh.status==='open'||sh.status==='closed','Pesanan pada shift terjadwal tidak dapat dikoreksi.');assertPeriodEditable(sh.date.slice(0,7));const reason=str.parse(p.reason);const discount=amount.parse(p.discount);assert(discount<=o.subtotal,'Diskon melebihi subtotal.');const taxEnabled=z.boolean().parse(p.taxEnabled);const tax=taxEnabled?Math.round((o.subtotal-discount)*(o.taxPercentage??s.settings[0]?.taxPercentage??0)/100):0;const total=o.subtotal-discount+tax;const method=z.enum(['tunai','qris','transfer','ewallet']).parse(p.paymentMethod);const cash=method==='tunai'?amount.parse(p.cashPaid):total;assert(!o.paid||method!=='tunai'||cash>=total,'Uang tunai kurang.');o.discount=discount;o.tax=tax;o.taxEnabled=taxEnabled;o.taxPercentage=o.taxPercentage??s.settings[0]?.taxPercentage??0;o.total=total;o.paymentMethod=method;o.cashPaid=cash;o.change=o.paid?Math.max(0,cash-total):0;o.correctionNote=reason;o.correctedAt=stamp;refreshClosedShift(sh);return;}
- if(action==='order.delete'){admin(a);const o=find(s,'orders',p.id);const sh=find(s,'shifts',o.shiftId);assert(sh.status==='open'||sh.status==='closed','Pesanan pada shift terjadwal tidak dapat dihapus.');assertPeriodEditable(sh.date.slice(0,7));const reason=str.parse(p.reason);if(o.status!=='dibatalkan')for(const d of o.deductions||[]){const ing=find(s,'ingredients',d.ingredientId);ing.stock=Math.round((ing.stock+d.quantity)*1e6)/1e6;}if(o.tableId&&!s.orders.some(x=>x.id!==o.id&&x.tableId===o.tableId&&!['selesai','dibatalkan'].includes(x.status)))find(s,'tables',o.tableId).status='dibersihkan';s.orders=s.orders.filter(x=>x.id!==o.id);void reason;refreshClosedShift(sh);return;}
- if(action==='order.status'){const o=find(s,'orders',p.id);const sh=shiftEditable(s,o.shiftId);canShift(sh);assertPeriodEditable(sh.date.slice(0,7));const transitions:Record<string,string>= {diproses:'sedang_dibuat',sedang_dibuat:'siap_disajikan',siap_disajikan:'selesai'};
-  if(p.status==='dibatalkan'){admin(a);assert(['menunggu_pembayaran','diproses'].includes(o.status),'Pesanan sudah diproduksi; pembatalan otomatis stok tidak diperbolehkan.');assert(!o.paid||p.refundRecorded===true,'Konfirmasikan pengembalian pembayaran terlebih dahulu.');o.cancelReason=str.parse(p.reason);o.refundRecorded=!!o.paid;o.cancelledAt=stamp;for(const d of o.deductions){const ing=find(s,'ingredients',d.ingredientId);ing.stock+=d.quantity;}}
-  else assert(transitions[o.status]===p.status&&o.paid,'Perubahan status pesanan tidak valid.');o.status=p.status;o.sceneStatusAt=stamp;if(p.status==='selesai')o.sceneFinishedAt=stamp;
-  if(o.tableId&&['selesai','dibatalkan'].includes(o.status)&&!s.orders.some(x=>x.id!==o.id&&x.tableId===o.tableId&&!['selesai','dibatalkan'].includes(x.status)))find(s,'tables',o.tableId).status='dibersihkan';maybeFinalizeShift(sh);return;
- }
- if(action==='table.status'){const t=find(s,'tables',p.id);const status=z.enum(['kosong','reserved','dibersihkan']).parse(p.status);assert(!s.orders.some(o=>o.tableId===t.id&&!['selesai','dibatalkan'].includes(o.status)),'Meja memiliki pesanan aktif.');t.status=status;return;}
- if(action==='shift.close'){admin(a);const sh=find(s,'shifts',p.id);assertPeriodEditable(sh.date.slice(0,7));assert(sh.status==='open','Shift tidak sedang berjalan.');assert(!s.orders.some(o=>o.shiftId===sh.id&&!['selesai','dibatalkan'].includes(o.status)),'Selesaikan atau batalkan seluruh pesanan shift.');const attendance=s.attendance.filter(at=>at.shiftId===sh.id&&at.status==='hadir');assert(attendance.every(at=>!!at.checkOut),'Ada karyawan yang belum absen keluar.');validateTiers(s.tiers);const totals=shiftTotals(s,sh);assert(totals.wage!==undefined,'Laba tidak cocok dengan tier gaji.');sh.snapshot={...totals,employees:attendance.map(at=>({employeeId:at.employeeId,wage:totals.wage})),tiers:structuredClone(s.tiers)};sh.status='closed';sh.closedAt=stamp;s.payrolls=s.payrolls.filter(pr=>pr.period!==sh.date.slice(0,7)||pr.status==='lunas');return;}
- if(action==='payroll.generate'){admin(a);const period=z.string().regex(/^\d{4}-\d{2}$/).parse(p.period);assertPeriodEditable(period);assertHppComplete(period);s.shifts.filter(sh=>sh.date.startsWith(period)&&['open','planned'].includes(sh.status)&&now>=new Date(sh.endAt)).forEach(sh=>maybeFinalizeShift(sh));assert(!s.shifts.some(sh=>sh.date.startsWith(period)&&(sh.status==='open'||sh.status==='planned'&&now>=new Date(sh.endAt))),'Lengkapi check-out karyawan dan selesaikan pesanan shift yang telah lewat.');assert(!s.payrolls.some(pr=>pr.period===period&&pr.status==='lunas'),'Payroll periode yang telah dibayar dikunci.');const closed=s.shifts.filter(sh=>sh.date.startsWith(period)&&sh.status==='closed');assert(closed.length>0,'Belum ada shift selesai pada periode ini.');closed.forEach(sh=>refreshClosedShift(sh));const totals=new Map<string,{base:number;count:number}>();closed.forEach(sh=>sh.snapshot.employees.forEach((e:any)=>{const old=totals.get(e.employeeId)||{base:0,count:0};totals.set(e.employeeId,{base:old.base+e.wage,count:old.count+1});}));const bases=[...totals.values()].reduce((n,x)=>n+x.base,0),count=[...totals.values()].reduce((n,x)=>n+x.count,0);const general=s.expenses.filter(e=>e.date.startsWith(period)&&!e.shiftId&&e.category!=='bahan_baku').reduce((n,e)=>n+e.amount,0);const net=closed.reduce((n,sh)=>n+sh.snapshot.profit,0)-general-bases;const bonusPool=Math.round(Math.max(0,net)*(s.settings[0].bonusPercentage/100));let allocated=0;const entries=[...totals.entries()].sort(([a],[b])=>a.localeCompare(b));s.payrolls=s.payrolls.filter(pr=>pr.period!==period);entries.forEach(([eid,v],i)=>{const bonus=i===entries.length-1?bonusPool-allocated:Math.floor(bonusPool*v.count/count);allocated+=bonus;s.payrolls.push({id:id(),employeeId:eid,period,shifts:v.count,base:v.base,bonus,total:v.base+bonus,status:'belum_dibayar',generatedAt:stamp,bonusPercentage:s.settings[0].bonusPercentage,rulesVersion:OPERATIONS_VERSION});});return;}
- if(action==='payroll.pay'){admin(a);const pr=find(s,'payrolls',p.id);assert(pr.status==='belum_dibayar','Gaji sudah dibayar.');assertHppComplete(pr.period);assertPayrollCurrent(pr.period);assert(!s.shifts.some(sh=>sh.date.startsWith(pr.period)&&(sh.status==='open'||sh.status==='planned')),'Masih ada jadwal atau shift yang belum selesai pada periode ini. Selesaikan atau hapus jadwal yang tidak digunakan sebelum membayar.');pr.rulesVersion=OPERATIONS_VERSION;pr.status='lunas';pr.paidAt=stamp;return;}
- if(action==='note.add'){s.notes.push({id:id(),text:z.string().trim().min(1).max(2000).parse(p.text),color:z.enum(['yellow','blue','green','pink','purple']).parse(p.color),authorId:a.employeeId,authorName:a.name,createdAt:stamp});return;}
- if(action==='note.delete'){const n=find(s,'notes',p.id);assert(a.role==='admin'||n.authorId===a.employeeId,'Hanya pembuat atau admin dapat menghapus catatan.');s.notes=s.notes.filter(x=>x.id!==n.id);return;}
- if(action==='feedback.add'){s.feedback.push({id:id(),customerName:optional.parse(p.customerName),phone:optional.parse(p.phone),rating:z.number().int().min(1).max(5).parse(p.rating),message:z.string().trim().min(1).max(2000).parse(p.message),status:'baru',createdAt:stamp,response:''});return;}
- if(action==='feedback.respond'){admin(a);const f=find(s,'feedback',p.id);f.status=z.enum(['baru','diproses','selesai']).parse(p.status);f.response=optional.parse(p.response);return;}
- if(action==='book.borrow'){const b=find(s,'books',p.bookId);assert(b.status==='tersedia'&&s.loans.filter(l=>l.bookId===b.id&&!l.returnDate).length<b.totalCopies,'Buku tidak tersedia.');const due=date.parse(p.dueDate);assert(due>=today,'Tanggal kembali sudah lewat.');s.loans.push({id:id(),bookId:b.id,bookTitle:b.title,borrowerName:str.parse(p.borrowerName),borrowerContact:str.parse(p.borrowerContact),borrowerType:z.enum(['pengunjung','staf']).parse(p.borrowerType),borrowDate:today,dueDate:due,returnDate:null,notes:optional.parse(p.notes)});return;}
- if(action==='book.return'){const l=find(s,'loans',p.id);assert(!l.returnDate,'Buku sudah dikembalikan.');l.returnDate=today;return;}
- if(action==='demo'){admin(a);assert(s.products.length===0&&s.orders.length===0,'Menu contoh hanya tersedia saat katalog kosong.');s.ingredients=[{id:id(),name:'Biji kopi',unit:'gram',unitCost:180,trackStock:true,stock:5000,minStock:500},{id:id(),name:'Susu segar',unit:'ml',unitCost:20,trackStock:true,stock:10000,minStock:1000},{id:id(),name:'Sirup gula aren',unit:'ml',unitCost:50,trackStock:true,stock:2000,minStock:200},{id:id(),name:'Croissant',unit:'pcs',unitCost:9000,trackStock:true,stock:20,minStock:5}];s.products=[{id:id(),name:'Es Kopi Susu Winds',price:25000,category:'kopi',description:'Espresso, susu segar, dan gula aren.',image:'',status:'tersedia',sortOrder:0},{id:id(),name:'Americano',price:22000,category:'kopi',description:'Espresso house blend dengan air mineral.',image:'',status:'tersedia',sortOrder:1},{id:id(),name:'Butter Croissant',price:28000,category:'snack',description:'Croissant hangat dengan lapisan mentega.',image:'',status:'tersedia',sortOrder:2}];s.recipes=s.products.map((p,i)=>({id:id(),productId:p.id,ingredients:i===0?[{ingredientId:s.ingredients[0].id,amount:18},{ingredientId:s.ingredients[1].id,amount:150},{ingredientId:s.ingredients[2].id,amount:20}]:i===1?[{ingredientId:s.ingredients[0].id,amount:18}]:[{ingredientId:s.ingredients[3].id,amount:1}]}));s.tables=Array.from({length:6},(_,i)=>({id:id(),number:String(i+1).padStart(2,'0'),zone:i<4?'Indoor':'Teras',capacity:i<4?4:2,status:'kosong',notes:'',image:''}));return;}
- if(action==='backup.restore'){
-  admin(a);assert(context.allowActiveRestore||s.orders.length===0&&s.shifts.length===0&&s.payrolls.length===0,'Pemulihan aktif harus melalui menu Cadangan & pemulihan.');
-  const b=p.backup;assert(b?.format==='winds-space-v1'&&b.data,'Format cadangan tidak dikenali.');
-  const restored=blankState();const ownerRecord=structuredClone(find(s,'employees','owner'));const actorRecord=a.employeeId==='owner'?null:structuredClone(find(s,'employees',a.employeeId));
-  for(const kind of kinds){const input=kind==='categories'&&!b.data[kind]?defaultCategories():b.data[kind];assert(Array.isArray(input)&&input.length<=10000,'Koleksi cadangan tidak valid: '+kind);restored[kind]=input.map((r:any)=>{
-   assert(r&&typeof r==='object'&&typeof r.id==='string'&&r.id.length<=100,'ID cadangan tidak valid.');
-   if(schemas[kind]){
-    // Preserve generated fields such as shift snapshots, but validate editable fields.
-    const parsed=schemas[kind]!.parse(r);return {...stripOperationalSecrets(r),...parsed};
-   }return stripOperationalSecrets(structuredClone(r));
-  });}
-  restored.employees=restored.employees.filter(e=>e.id!=='owner'&&(!e.email||e.email!==ownerRecord.email));restored.employees.unshift(ownerRecord);if(actorRecord){restored.employees=restored.employees.filter(e=>e.id!==actorRecord.id);restored.employees.push(actorRecord);}
-  assert(restored.settings.length===1&&restored.settings[0].id==='cafe','Pengaturan cadangan tidak valid.');validateTiers(restored.tiers);
-  assert(restored.categories.length>0,'Cadangan harus memiliki kategori menu.');assert(new Set(restored.categories.map(c=>c.name.toLocaleLowerCase('id-ID'))).size===restored.categories.length,'Nama kategori cadangan berulang.');restored.products.forEach(product=>find(restored,'categories',product.category));
-  const ids=kinds.flatMap(k=>restored[k].map(r=>r.id));assert(new Set(ids).size===ids.length,'ID cadangan berulang.');
-  assert(new Set(restored.employees.filter(e=>e.email).map(e=>e.email)).size===restored.employees.filter(e=>e.email).length,'Email karyawan berulang.');
-  restored.recipes.forEach(r=>{find(restored,'products',r.productId);r.ingredients.forEach((i:any)=>find(restored,'ingredients',i.ingredientId));});
-  restored.shifts.forEach(sh=>{assert(['planned','open','closed'].includes(sh.status),'Status shift tidak valid.');assert(new Date(sh.endAt)>new Date(sh.startAt),'Rentang shift tidak valid.');sh.employeeIds.forEach((id:string)=>find(restored,'employees',id));if(sh.status==='closed'){assert(sh.snapshot&&Array.isArray(sh.snapshot.employees),'Snapshot gaji tidak tersedia.');['revenue','hpp','costs','wage','tax'].forEach(k=>amount.parse(sh.snapshot[k]));assert(Number.isSafeInteger(sh.snapshot.profit),'Laba snapshot tidak valid.');sh.snapshot.employees.forEach((e:any)=>{find(restored,'employees',e.employeeId);amount.parse(e.wage);});}});
-  restored.attendance.forEach(at=>{find(restored,'employees',at.employeeId);find(restored,'shifts',at.shiftId);assert(['hadir','sakit','izin','libur'].includes(at.status),'Status absensi tidak valid.');if(at.status==='hadir'){z.string().datetime({offset:true}).parse(at.checkIn);if(at.checkOut)z.string().datetime({offset:true}).parse(at.checkOut);}});
-  const attendanceKeys=restored.attendance.map(at=>at.shiftId+':'+at.employeeId);assert(new Set(attendanceKeys).size===attendanceKeys.length,'Absensi ganda.');
-  restored.orders.forEach(o=>{find(restored,'shifts',o.shiftId);assert(Array.isArray(o.items)&&Array.isArray(o.deductions),'Detail transaksi tidak valid.');assert(['menunggu_pembayaran','diproses','sedang_dibuat','siap_disajikan','selesai','dibatalkan'].includes(o.status),'Status pesanan tidak valid.');['subtotal','discount','tax','total','hpp','cashPaid','change'].forEach(k=>amount.parse(o[k]));o.items.forEach((i:any)=>{find(restored,'products',i.productId);amount.parse(i.price);amount.parse(i.hppPerUnit);z.number().int().positive().parse(i.quantity);});assert(o.subtotal===o.items.reduce((n:number,i:any)=>n+i.price*i.quantity,0)&&o.total===o.subtotal-o.discount+o.tax&&o.hpp===o.items.reduce((n:number,i:any)=>n+i.hppPerUnit*i.quantity,0),'Jumlah transaksi tidak cocok.');});
-  restored.expenses.forEach(e=>{if(e.shiftId)find(restored,'shifts',e.shiftId)});
-  restored.payrolls.forEach(pr=>{find(restored,'employees',pr.employeeId);['base','bonus','total','shifts'].forEach(k=>amount.parse(pr[k]));assert(pr.total===pr.base+pr.bonus&&['lunas','belum_dibayar'].includes(pr.status),'Payroll tidak valid.');});
-  restored.loans.forEach(l=>{find(restored,'books',l.bookId);str.parse(l.borrowerName);date.parse(l.borrowDate);date.parse(l.dueDate);if(l.returnDate)date.parse(l.returnDate);});
-  restored.chat.forEach(m=>{str.max(2000).parse(m.text);assert(['general','announcement'].includes(m.channel),'Kanal tidak valid.');image.parse(m.image||'');});
-  restored.notes.forEach(n=>{str.max(2000).parse(n.text);assert(['yellow','blue','green','pink','purple'].includes(n.color),'Warna catatan tidak valid.');});
-  restored.feedback.forEach(f=>{str.max(2000).parse(f.message);z.number().int().min(1).max(5).parse(f.rating);});
-  Object.assign(s,restored);return;
- }
- fail('Tindakan tidak dikenal.');
+  if (action === 'shift.open') {
+    const sh = find(s, 'shifts', p.id);
+    canShift(sh);
+    assert(sh.status === 'planned', 'Shift sudah dimulai.');
+    assert(
+      !s.payrolls.some((pr) => pr.period === sh.date.slice(0, 7) && pr.status === 'lunas'),
+      'Periode payroll sudah dibayar dan dikunci.',
+    );
+    assert(!s.shifts.some((x) => x.status === 'open'), 'Tutup shift sebelumnya terlebih dahulu.');
+    assert(
+      now >= new Date(sh.startAt) && now < new Date(sh.endAt),
+      'Shift hanya dapat dibuka dalam jadwalnya.',
+    );
+    sh.status = 'open';
+    sh.openedAt = stamp;
+    return;
+  }
+  if (action === 'attendance.in') {
+    const sh = find(s, 'shifts', p.shiftId);
+    canShift(sh);
+    assert(sh.status === 'planned' || sh.status === 'open', 'Shift sudah selesai.');
+    assertPeriodEditable(sh.date.slice(0, 7));
+    const shiftDate = sh.date;
+    const endDate = localDate(new Date(sh.endAt));
+    assert(
+      shiftDate === today || (shiftDate < today && endDate >= today && now < new Date(sh.endAt)),
+      'Karyawan hanya dapat absen pada shift yang berlangsung hari ini.',
+    );
+    assert(
+      now >= new Date(sh.startAt),
+      'Check-in belum dapat dilakukan sebelum jadwal shift dimulai.',
+    );
+    assert(now < new Date(sh.endAt), 'Jadwal shift sudah berakhir.');
+    const eid = a.role === 'admin' && p.employeeId ? p.employeeId : a.employeeId;
+    assert(sh.employeeIds.includes(eid), 'Karyawan tidak terdaftar dalam roster.');
+    assert(
+      !s.attendance.some((at) => at.shiftId === sh.id && at.employeeId === eid),
+      'Absensi shift sudah tercatat.',
+    );
+    assert(
+      !s.attendance.some((at) => at.employeeId === eid && !at.checkOut && at.status === 'hadir'),
+      'Selesaikan absensi sebelumnya.',
+    );
+    if (sh.status === 'planned') {
+      sh.status = 'open';
+      sh.openedAt = stamp;
+    }
+    s.attendance.push({
+      id: id(),
+      shiftId: sh.id,
+      employeeId: eid,
+      status: 'hadir',
+      checkIn: stamp,
+      checkOut: null,
+      notes: String(p.notes || '').slice(0, 2000),
+    });
+    return;
+  }
+  if (action === 'attendance.out') {
+    const at = find(s, 'attendance', p.id);
+    assert(
+      a.role === 'admin' || at.employeeId === a.employeeId,
+      'Anda tidak dapat mengubah absensi orang lain.',
+    );
+    const sh = shiftEditable(s, at.shiftId);
+    assert(!at.checkOut && at.status === 'hadir', 'Absensi sudah selesai.');
+    assert(
+      a.role === 'admin' || localDate(new Date(sh.endAt)) === today || sh.date === today,
+      'Karyawan hanya dapat check-out pada hari berjalan; hubungi admin untuk koreksi absensi lama.',
+    );
+    assertPeriodEditable(sh.date.slice(0, 7));
+    assert(now > new Date(at.checkIn), 'Check-out harus setelah check-in.');
+    at.checkOut = stamp;
+    maybeFinalizeShift(sh);
+    return;
+  }
+  if (action === 'attendance.correct') {
+    admin(a);
+    const prev = p.id
+      ? find(s, 'attendance', p.id)
+      : s.attendance.find((at) => at.shiftId === p.shiftId && at.employeeId === p.employeeId);
+    const sh = find(s, 'shifts', p.shiftId);
+    assert(['planned', 'open', 'closed'].includes(sh.status), 'Shift tidak valid.');
+    if (prev) {
+      const oldShift = find(s, 'shifts', prev.shiftId);
+      assertPeriodEditable(oldShift.date.slice(0, 7));
+    }
+    assertPeriodEditable(sh.date.slice(0, 7));
+    find(s, 'employees', p.employeeId);
+    assert(
+      sh.employeeIds.includes(p.employeeId),
+      'Karyawan tidak terdaftar pada roster shift tujuan.',
+    );
+    assert(
+      !s.attendance.some(
+        (at) => at.id !== prev?.id && at.shiftId === sh.id && at.employeeId === p.employeeId,
+      ),
+      'Absensi karyawan sudah ada pada shift tujuan.',
+    );
+    const status = z.enum(['hadir', 'sakit', 'izin', 'libur']).parse(p.status);
+    const reason = str.parse(p.reason);
+    const ci = status === 'hadir' ? z.string().datetime({ offset: true }).parse(p.checkIn) : null;
+    const co =
+      status === 'hadir' && p.checkOut
+        ? z.string().datetime({ offset: true }).parse(p.checkOut)
+        : null;
+    if (status === 'hadir') assert(!!ci, 'Jam check-in wajib diisi untuk status hadir.');
+    if (ci)
+      assert(
+        new Date(ci) >= new Date(sh.startAt) && new Date(ci) <= new Date(sh.endAt),
+        'Jam masuk harus dalam rentang shift.',
+      );
+    if (ci && co) {
+      assert(new Date(co) > new Date(ci), 'Jam keluar harus setelah masuk.');
+      assert(new Date(co) <= new Date(sh.endAt), 'Jam keluar harus dalam rentang shift.');
+    }
+    if (status === 'hadir' && !co)
+      assert(
+        !s.attendance.some(
+          (at) =>
+            at.id !== prev?.id &&
+            at.employeeId === p.employeeId &&
+            at.status === 'hadir' &&
+            !at.checkOut &&
+            at.shiftId !== sh.id,
+        ),
+        'Karyawan masih memiliki absensi masuk aktif di shift lain.',
+      );
+    const at = {
+      id: prev?.id || id(),
+      shiftId: sh.id,
+      employeeId: p.employeeId,
+      status,
+      checkIn: ci,
+      checkOut: co,
+      notes: reason,
+    };
+    s.attendance = s.attendance.filter((x) => x.id !== at.id).concat(at);
+    if (prev && prev.shiftId !== sh.id) {
+      const oldShift = find(s, 'shifts', prev.shiftId);
+      refreshClosedShift(oldShift);
+      maybeFinalizeShift(oldShift);
+    }
+    if (sh.status === 'planned' && ci && sh.date === today) {
+      sh.status = 'open';
+      sh.openedAt = ci;
+    }
+    refreshClosedShift(sh);
+    maybeFinalizeShift(sh);
+    return;
+  }
+  if (action === 'attendance.delete') {
+    admin(a);
+    const at = find(s, 'attendance', p.id);
+    const sh = find(s, 'shifts', at.shiftId);
+    const reason = str.parse(p.reason);
+    void reason;
+    assert(['planned', 'open', 'closed'].includes(sh.status), 'Shift tidak valid.');
+    assertPeriodEditable(sh.date.slice(0, 7));
+    s.attendance = s.attendance.filter((x) => x.id !== at.id);
+    refreshClosedShift(sh);
+    maybeFinalizeShift(sh);
+    return;
+  }
+  if (action === 'order.create') {
+    const sh = find(s, 'shifts', p.shiftId);
+    canShift(sh);
+    const pastPlanned = sh.status === 'planned' && now >= new Date(sh.endAt);
+    const historical = sh.status === 'closed' || pastPlanned;
+    assert(
+      sh.status === 'open' || historical,
+      'Pilih shift berjalan atau jadwal shift yang sudah lewat.',
+    );
+    assertPeriodEditable(sh.date.slice(0, 7));
+    if (!historical)
+      assert(
+        a.role === 'admin' ||
+          s.attendance.some(
+            (at) =>
+              at.shiftId === sh.id &&
+              at.employeeId === a.employeeId &&
+              at.status === 'hadir' &&
+              !at.checkOut,
+          ),
+        'Lakukan absen masuk dahulu.',
+      );
+    const cart = z
+      .array(
+        z.object({ productId: str, quantity: z.number().int().min(1).max(100), notes: optional }),
+      )
+      .min(1)
+      .max(100)
+      .parse(p.items);
+    const deduction = new Map<string, number>();
+    const items = cart.map((c) => {
+      const prod = find(s, 'products', c.productId);
+      assert(prod.status === 'tersedia', 'Menu tidak tersedia.');
+      const recipe = s.recipes.find((r) => r.productId === prod.id);
+      if (!recipe)
+        return { ...c, name: prod.name, price: prod.price, hppPerUnit: 0, hppMissing: true };
+      let hpp = 0;
+      for (const i of recipe.ingredients) {
+        const ing = find(s, 'ingredients', i.ingredientId);
+        hpp += ingredientUnitCost(ing) * i.amount;
+        if (tracksStock(ing))
+          deduction.set(ing.id, (deduction.get(ing.id) || 0) + i.amount * c.quantity);
+      }
+      return {
+        ...c,
+        name: prod.name,
+        price: prod.price,
+        hppPerUnit: Math.round(hpp),
+        hppMissing: false,
+      };
+    });
+    deduction.forEach((qty, iid) => {
+      const ing = find(s, 'ingredients', iid);
+      assert(ing.stock >= qty, 'Stok ' + ing.name + ' tidak cukup.');
+      ing.stock = Math.round((ing.stock - qty) * 1e6) / 1e6;
+    });
+    const subtotal = items.reduce((v, i) => v + i.price * i.quantity, 0);
+    const discount = amount.parse(p.discount || 0);
+    assert(discount <= subtotal, 'Diskon melebihi subtotal.');
+    const tax =
+      p.taxEnabled === false
+        ? 0
+        : Math.round(((subtotal - discount) * (s.settings[0]?.taxPercentage || 0)) / 100);
+    const total = subtotal - discount + tax;
+    const paid = !!p.paid;
+    assert(!historical || paid, 'Pesanan pada shift lama harus langsung dicatat sebagai lunas.');
+    const paymentMethod = z
+      .enum(['tunai', 'qris', 'transfer', 'ewallet'])
+      .parse(p.paymentMethod || 'tunai');
+    const cashPaid = paymentMethod === 'tunai' ? amount.parse(p.cashPaid || 0) : total;
+    assert(!paid || paymentMethod !== 'tunai' || cashPaid >= total, 'Uang tunai kurang.');
+    const orderType = z.enum(['dine_in', 'takeaway']).parse(p.orderType);
+    let tableId = '';
+    if (orderType === 'dine_in') {
+      const table = find(s, 'tables', p.tableId);
+      if (!historical) {
+        assert(['kosong', 'terisi'].includes(table.status), 'Meja tidak tersedia.');
+        table.status = 'terisi';
+      }
+      tableId = table.id;
+    }
+    const oid = id();
+    const order = {
+      id: oid,
+      no: 'WS-' + sh.date.replaceAll('-', '') + '-' + oid.slice(0, 8).toUpperCase(),
+      createdAt: stamp,
+      date: sh.date,
+      shiftId: sh.id,
+      cashierId: a.employeeId,
+      items,
+      hppComplete: items.every((i) => !i.hppMissing),
+      subtotal,
+      discount,
+      tax,
+      taxEnabled: p.taxEnabled !== false,
+      taxPercentage: s.settings[0]?.taxPercentage || 0,
+      total,
+      hpp: items.reduce((v, i) => v + i.hppPerUnit * i.quantity, 0),
+      deductions: [...deduction].map(([ingredientId, quantity]) => ({ ingredientId, quantity })),
+      paid,
+      paidAt: paid ? stamp : null,
+      paymentMethod,
+      cashPaid,
+      change: paid ? Math.max(0, cashPaid - total) : 0,
+      status: historical ? 'selesai' : paid ? 'diproses' : 'menunggu_pembayaran',
+      orderType,
+      tableId,
+      historicalEntry: historical,
+    };
+    s.orders.push(order);
+    if (pastPlanned) maybeFinalizeShift(sh);
+    if (historical) refreshClosedShift(sh);
+    return order;
+  }
+  if (action === 'order.pay') {
+    const o = find(s, 'orders', p.id);
+    openShift(o.shiftId);
+    assert(o.status === 'menunggu_pembayaran' && !o.paid, 'Pesanan sudah dibayar atau dibatalkan.');
+    const method = z.enum(['tunai', 'qris', 'transfer', 'ewallet']).parse(p.paymentMethod);
+    const cash = method === 'tunai' ? amount.parse(p.cashPaid) : o.total;
+    assert(cash >= o.total, 'Uang tunai kurang.');
+    Object.assign(o, {
+      paid: true,
+      paidAt: stamp,
+      status: 'diproses',
+      paymentMethod: method,
+      cashPaid: cash,
+      change: cash - o.total,
+    });
+    return;
+  }
+  if (action === 'order.hpp.correct') {
+    admin(a);
+    const o = find(s, 'orders', p.id),
+      sh = find(s, 'shifts', o.shiftId);
+    assertPeriodEditable(sh.date.slice(0, 7));
+    assert(o.status !== 'dibatalkan', 'Pesanan dibatalkan tidak perlu dilengkapi HPP.');
+    assert(hasMissingHpp(o), 'HPP pesanan sudah lengkap.');
+    const reason = str.parse(p.reason),
+      rows = z
+        .array(z.object({ index: z.number().int().min(0), hppPerUnit: amount }))
+        .min(1)
+        .max(100)
+        .parse(p.items);
+    const flagged = o.items
+        .map((item: any, index: number) => (item.hppMissing ? index : -1))
+        .filter((index: number) => index >= 0),
+      targets = flagged.length ? flagged : o.items.map((_: any, index: number) => index);
+    assert(
+      new Set(rows.map((r) => r.index)).size === rows.length &&
+        rows.length === targets.length &&
+        rows.every((r) => targets.includes(r.index)),
+      'Lengkapi HPP semua item yang belum memiliki HPP.',
+    );
+    const before = o.hpp;
+    for (const row of rows) {
+      o.items[row.index].hppPerUnit = row.hppPerUnit;
+      o.items[row.index].hppMissing = false;
+    }
+    o.hpp = o.items.reduce((sum: number, item: any) => sum + item.hppPerUnit * item.quantity, 0);
+    amount.parse(o.hpp);
+    o.hppComplete = true;
+    o.hppReviewedAt = stamp;
+    o.hppCorrection = { before, after: o.hpp, reason, employeeId: a.employeeId, at: stamp };
+    refreshClosedShift(sh);
+    invalidatePayroll(sh.date.slice(0, 7));
+    return;
+  }
+  if (action === 'order.correct') {
+    admin(a);
+    const o = find(s, 'orders', p.id);
+    assert(o.status !== 'dibatalkan', 'Pesanan yang dibatalkan tidak dapat dikoreksi.');
+    const sh = find(s, 'shifts', o.shiftId);
+    assert(
+      sh.status === 'open' || sh.status === 'closed',
+      'Pesanan pada shift terjadwal tidak dapat dikoreksi.',
+    );
+    assertPeriodEditable(sh.date.slice(0, 7));
+    const reason = str.parse(p.reason);
+    const discount = amount.parse(p.discount);
+    assert(discount <= o.subtotal, 'Diskon melebihi subtotal.');
+    const taxEnabled = z.boolean().parse(p.taxEnabled);
+    const tax = taxEnabled
+      ? Math.round(
+          ((o.subtotal - discount) * (o.taxPercentage ?? s.settings[0]?.taxPercentage ?? 0)) / 100,
+        )
+      : 0;
+    const total = o.subtotal - discount + tax;
+    const method = z.enum(['tunai', 'qris', 'transfer', 'ewallet']).parse(p.paymentMethod);
+    const cash = method === 'tunai' ? amount.parse(p.cashPaid) : total;
+    assert(!o.paid || method !== 'tunai' || cash >= total, 'Uang tunai kurang.');
+    o.discount = discount;
+    o.tax = tax;
+    o.taxEnabled = taxEnabled;
+    o.taxPercentage = o.taxPercentage ?? s.settings[0]?.taxPercentage ?? 0;
+    o.total = total;
+    o.paymentMethod = method;
+    o.cashPaid = cash;
+    o.change = o.paid ? Math.max(0, cash - total) : 0;
+    o.correctionNote = reason;
+    o.correctedAt = stamp;
+    refreshClosedShift(sh);
+    return;
+  }
+  if (action === 'order.delete') {
+    admin(a);
+    const o = find(s, 'orders', p.id);
+    const sh = find(s, 'shifts', o.shiftId);
+    assert(
+      sh.status === 'open' || sh.status === 'closed',
+      'Pesanan pada shift terjadwal tidak dapat dihapus.',
+    );
+    assertPeriodEditable(sh.date.slice(0, 7));
+    const reason = str.parse(p.reason);
+    if (o.status !== 'dibatalkan')
+      for (const d of o.deductions || []) {
+        const ing = find(s, 'ingredients', d.ingredientId);
+        ing.stock = Math.round((ing.stock + d.quantity) * 1e6) / 1e6;
+      }
+    if (
+      o.tableId &&
+      !s.orders.some(
+        (x) =>
+          x.id !== o.id && x.tableId === o.tableId && !['selesai', 'dibatalkan'].includes(x.status),
+      )
+    )
+      find(s, 'tables', o.tableId).status = 'dibersihkan';
+    s.orders = s.orders.filter((x) => x.id !== o.id);
+    void reason;
+    refreshClosedShift(sh);
+    return;
+  }
+  if (action === 'order.status') {
+    const o = find(s, 'orders', p.id);
+    const sh = shiftEditable(s, o.shiftId);
+    canShift(sh);
+    assertPeriodEditable(sh.date.slice(0, 7));
+    const transitions: Record<string, string> = {
+      diproses: 'sedang_dibuat',
+      sedang_dibuat: 'siap_disajikan',
+      siap_disajikan: 'selesai',
+    };
+    if (p.status === 'dibatalkan') {
+      admin(a);
+      assert(
+        ['menunggu_pembayaran', 'diproses'].includes(o.status),
+        'Pesanan sudah diproduksi; pembatalan otomatis stok tidak diperbolehkan.',
+      );
+      assert(
+        !o.paid || p.refundRecorded === true,
+        'Konfirmasikan pengembalian pembayaran terlebih dahulu.',
+      );
+      o.cancelReason = str.parse(p.reason);
+      o.refundRecorded = !!o.paid;
+      o.cancelledAt = stamp;
+      for (const d of o.deductions) {
+        const ing = find(s, 'ingredients', d.ingredientId);
+        ing.stock += d.quantity;
+      }
+    } else
+      assert(transitions[o.status] === p.status && o.paid, 'Perubahan status pesanan tidak valid.');
+    o.status = p.status;
+    o.sceneStatusAt = stamp;
+    if (p.status === 'selesai') o.sceneFinishedAt = stamp;
+    if (
+      o.tableId &&
+      ['selesai', 'dibatalkan'].includes(o.status) &&
+      !s.orders.some(
+        (x) =>
+          x.id !== o.id && x.tableId === o.tableId && !['selesai', 'dibatalkan'].includes(x.status),
+      )
+    )
+      find(s, 'tables', o.tableId).status = 'dibersihkan';
+    maybeFinalizeShift(sh);
+    return;
+  }
+  if (action === 'table.status') {
+    const t = find(s, 'tables', p.id);
+    const status = z.enum(['kosong', 'reserved', 'dibersihkan']).parse(p.status);
+    assert(
+      !s.orders.some((o) => o.tableId === t.id && !['selesai', 'dibatalkan'].includes(o.status)),
+      'Meja memiliki pesanan aktif.',
+    );
+    t.status = status;
+    return;
+  }
+  if (action === 'shift.close') {
+    admin(a);
+    const sh = find(s, 'shifts', p.id);
+    assertPeriodEditable(sh.date.slice(0, 7));
+    assert(sh.status === 'open', 'Shift tidak sedang berjalan.');
+    assert(
+      !s.orders.some((o) => o.shiftId === sh.id && !['selesai', 'dibatalkan'].includes(o.status)),
+      'Selesaikan atau batalkan seluruh pesanan shift.',
+    );
+    const attendance = s.attendance.filter((at) => at.shiftId === sh.id && at.status === 'hadir');
+    assert(
+      attendance.every((at) => !!at.checkOut),
+      'Ada karyawan yang belum absen keluar.',
+    );
+    validateTiers(s.tiers);
+    const totals = shiftTotals(s, sh);
+    assert(totals.wage !== undefined, 'Laba tidak cocok dengan tier gaji.');
+    sh.snapshot = {
+      ...totals,
+      employees: attendance.map((at) => ({ employeeId: at.employeeId, wage: totals.wage })),
+      tiers: structuredClone(s.tiers),
+    };
+    sh.status = 'closed';
+    sh.closedAt = stamp;
+    s.payrolls = s.payrolls.filter(
+      (pr) => pr.period !== sh.date.slice(0, 7) || pr.status === 'lunas',
+    );
+    return;
+  }
+  if (action === 'payroll.generate') {
+    admin(a);
+    const period = z
+      .string()
+      .regex(/^\d{4}-\d{2}$/)
+      .parse(p.period);
+    assertPeriodEditable(period);
+    assertHppComplete(period);
+    s.shifts
+      .filter(
+        (sh) =>
+          sh.date.startsWith(period) &&
+          ['open', 'planned'].includes(sh.status) &&
+          now >= new Date(sh.endAt),
+      )
+      .forEach((sh) => maybeFinalizeShift(sh));
+    assert(
+      !s.shifts.some(
+        (sh) =>
+          sh.date.startsWith(period) &&
+          (sh.status === 'open' || (sh.status === 'planned' && now >= new Date(sh.endAt))),
+      ),
+      'Lengkapi check-out karyawan dan selesaikan pesanan shift yang telah lewat.',
+    );
+    assert(
+      !s.payrolls.some((pr) => pr.period === period && pr.status === 'lunas'),
+      'Payroll periode yang telah dibayar dikunci.',
+    );
+    const closed = s.shifts.filter((sh) => sh.date.startsWith(period) && sh.status === 'closed');
+    assert(closed.length > 0, 'Belum ada shift selesai pada periode ini.');
+    closed.forEach((sh) => refreshClosedShift(sh));
+    const totals = new Map<string, { base: number; count: number }>();
+    closed.forEach((sh) =>
+      sh.snapshot.employees.forEach((e: any) => {
+        const old = totals.get(e.employeeId) || { base: 0, count: 0 };
+        totals.set(e.employeeId, { base: old.base + e.wage, count: old.count + 1 });
+      }),
+    );
+    const bases = [...totals.values()].reduce((n, x) => n + x.base, 0),
+      count = [...totals.values()].reduce((n, x) => n + x.count, 0);
+    const general = s.expenses
+      .filter((e) => e.date.startsWith(period) && !e.shiftId && e.category !== 'bahan_baku')
+      .reduce((n, e) => n + e.amount, 0);
+    const net = closed.reduce((n, sh) => n + sh.snapshot.profit, 0) - general - bases;
+    const bonusPool = Math.round(Math.max(0, net) * (s.settings[0].bonusPercentage / 100));
+    let allocated = 0;
+    const entries = [...totals.entries()].sort(([a], [b]) => a.localeCompare(b));
+    s.payrolls = s.payrolls.filter((pr) => pr.period !== period);
+    entries.forEach(([eid, v], i) => {
+      const bonus =
+        i === entries.length - 1
+          ? bonusPool - allocated
+          : Math.floor((bonusPool * v.count) / count);
+      allocated += bonus;
+      s.payrolls.push({
+        id: id(),
+        employeeId: eid,
+        period,
+        shifts: v.count,
+        base: v.base,
+        bonus,
+        total: v.base + bonus,
+        status: 'belum_dibayar',
+        generatedAt: stamp,
+        bonusPercentage: s.settings[0].bonusPercentage,
+        rulesVersion: OPERATIONS_VERSION,
+      });
+    });
+    return;
+  }
+  if (action === 'payroll.pay') {
+    admin(a);
+    const pr = find(s, 'payrolls', p.id);
+    assert(pr.status === 'belum_dibayar', 'Gaji sudah dibayar.');
+    assertHppComplete(pr.period);
+    assertPayrollCurrent(pr.period);
+    assert(
+      !s.shifts.some(
+        (sh) => sh.date.startsWith(pr.period) && (sh.status === 'open' || sh.status === 'planned'),
+      ),
+      'Masih ada jadwal atau shift yang belum selesai pada periode ini. Selesaikan atau hapus jadwal yang tidak digunakan sebelum membayar.',
+    );
+    pr.rulesVersion = OPERATIONS_VERSION;
+    pr.status = 'lunas';
+    pr.paidAt = stamp;
+    return;
+  }
+  if (action === 'note.add') {
+    s.notes.push({
+      id: id(),
+      text: z.string().trim().min(1).max(2000).parse(p.text),
+      color: z.enum(['yellow', 'blue', 'green', 'pink', 'purple']).parse(p.color),
+      authorId: a.employeeId,
+      authorName: a.name,
+      createdAt: stamp,
+    });
+    return;
+  }
+  if (action === 'note.delete') {
+    const n = find(s, 'notes', p.id);
+    assert(
+      a.role === 'admin' || n.authorId === a.employeeId,
+      'Hanya pembuat atau admin dapat menghapus catatan.',
+    );
+    s.notes = s.notes.filter((x) => x.id !== n.id);
+    return;
+  }
+  if (action === 'feedback.add') {
+    s.feedback.push({
+      id: id(),
+      customerName: optional.parse(p.customerName),
+      phone: optional.parse(p.phone),
+      rating: z.number().int().min(1).max(5).parse(p.rating),
+      message: z.string().trim().min(1).max(2000).parse(p.message),
+      status: 'baru',
+      createdAt: stamp,
+      response: '',
+    });
+    return;
+  }
+  if (action === 'feedback.respond') {
+    admin(a);
+    const f = find(s, 'feedback', p.id);
+    f.status = z.enum(['baru', 'diproses', 'selesai']).parse(p.status);
+    f.response = optional.parse(p.response);
+    return;
+  }
+  if (action === 'book.borrow') {
+    const b = find(s, 'books', p.bookId);
+    assert(
+      b.status === 'tersedia' &&
+        s.loans.filter((l) => l.bookId === b.id && !l.returnDate).length < b.totalCopies,
+      'Buku tidak tersedia.',
+    );
+    const due = date.parse(p.dueDate);
+    assert(due >= today, 'Tanggal kembali sudah lewat.');
+    s.loans.push({
+      id: id(),
+      bookId: b.id,
+      bookTitle: b.title,
+      borrowerName: str.parse(p.borrowerName),
+      borrowerContact: str.parse(p.borrowerContact),
+      borrowerType: z.enum(['pengunjung', 'staf']).parse(p.borrowerType),
+      borrowDate: today,
+      dueDate: due,
+      returnDate: null,
+      notes: optional.parse(p.notes),
+    });
+    return;
+  }
+  if (action === 'book.return') {
+    const l = find(s, 'loans', p.id);
+    assert(!l.returnDate, 'Buku sudah dikembalikan.');
+    l.returnDate = today;
+    return;
+  }
+  if (action === 'demo') {
+    admin(a);
+    assert(
+      s.products.length === 0 && s.orders.length === 0,
+      'Menu contoh hanya tersedia saat katalog kosong.',
+    );
+    s.ingredients = [
+      {
+        id: id(),
+        name: 'Biji kopi',
+        unit: 'gram',
+        unitCost: 180,
+        trackStock: true,
+        stock: 5000,
+        minStock: 500,
+      },
+      {
+        id: id(),
+        name: 'Susu segar',
+        unit: 'ml',
+        unitCost: 20,
+        trackStock: true,
+        stock: 10000,
+        minStock: 1000,
+      },
+      {
+        id: id(),
+        name: 'Sirup gula aren',
+        unit: 'ml',
+        unitCost: 50,
+        trackStock: true,
+        stock: 2000,
+        minStock: 200,
+      },
+      {
+        id: id(),
+        name: 'Croissant',
+        unit: 'pcs',
+        unitCost: 9000,
+        trackStock: true,
+        stock: 20,
+        minStock: 5,
+      },
+    ];
+    s.products = [
+      {
+        id: id(),
+        name: 'Es Kopi Susu Winds',
+        price: 25000,
+        category: 'kopi',
+        description: 'Espresso, susu segar, dan gula aren.',
+        image: '',
+        status: 'tersedia',
+        sortOrder: 0,
+      },
+      {
+        id: id(),
+        name: 'Americano',
+        price: 22000,
+        category: 'kopi',
+        description: 'Espresso house blend dengan air mineral.',
+        image: '',
+        status: 'tersedia',
+        sortOrder: 1,
+      },
+      {
+        id: id(),
+        name: 'Butter Croissant',
+        price: 28000,
+        category: 'snack',
+        description: 'Croissant hangat dengan lapisan mentega.',
+        image: '',
+        status: 'tersedia',
+        sortOrder: 2,
+      },
+    ];
+    s.recipes = s.products.map((p, i) => ({
+      id: id(),
+      productId: p.id,
+      ingredients:
+        i === 0
+          ? [
+              { ingredientId: s.ingredients[0].id, amount: 18 },
+              { ingredientId: s.ingredients[1].id, amount: 150 },
+              { ingredientId: s.ingredients[2].id, amount: 20 },
+            ]
+          : i === 1
+            ? [{ ingredientId: s.ingredients[0].id, amount: 18 }]
+            : [{ ingredientId: s.ingredients[3].id, amount: 1 }],
+    }));
+    s.tables = Array.from({ length: 6 }, (_, i) => ({
+      id: id(),
+      number: String(i + 1).padStart(2, '0'),
+      zone: i < 4 ? 'Indoor' : 'Teras',
+      capacity: i < 4 ? 4 : 2,
+      status: 'kosong',
+      notes: '',
+      image: '',
+    }));
+    return;
+  }
+  if (action === 'backup.restore') {
+    admin(a);
+    assert(
+      context.allowActiveRestore ||
+        (s.orders.length === 0 && s.shifts.length === 0 && s.payrolls.length === 0),
+      'Pemulihan aktif harus melalui menu Cadangan & pemulihan.',
+    );
+    const b = p.backup;
+    assert(b?.format === 'winds-space-v1' && b.data, 'Format cadangan tidak dikenali.');
+    const restored = blankState();
+    const ownerRecord = structuredClone(find(s, 'employees', 'owner'));
+    const actorRecord =
+      a.employeeId === 'owner' ? null : structuredClone(find(s, 'employees', a.employeeId));
+    for (const kind of kinds) {
+      const input = kind === 'categories' && !b.data[kind] ? defaultCategories() : b.data[kind];
+      assert(
+        Array.isArray(input) && input.length <= 10000,
+        'Koleksi cadangan tidak valid: ' + kind,
+      );
+      restored[kind] = input.map((r: any) => {
+        assert(
+          r && typeof r === 'object' && typeof r.id === 'string' && r.id.length <= 100,
+          'ID cadangan tidak valid.',
+        );
+        if (schemas[kind]) {
+          // Preserve generated fields such as shift snapshots, but validate editable fields.
+          const parsed = schemas[kind]!.parse(r);
+          return { ...stripOperationalSecrets(r), ...parsed };
+        }
+        return stripOperationalSecrets(structuredClone(r));
+      });
+    }
+    restored.employees = restored.employees.filter(
+      (e) => e.id !== 'owner' && (!e.email || e.email !== ownerRecord.email),
+    );
+    restored.employees.unshift(ownerRecord);
+    if (actorRecord) {
+      restored.employees = restored.employees.filter((e) => e.id !== actorRecord.id);
+      restored.employees.push(actorRecord);
+    }
+    assert(
+      restored.settings.length === 1 && restored.settings[0].id === 'cafe',
+      'Pengaturan cadangan tidak valid.',
+    );
+    validateTiers(restored.tiers);
+    assert(restored.categories.length > 0, 'Cadangan harus memiliki kategori menu.');
+    assert(
+      new Set(restored.categories.map((c) => c.name.toLocaleLowerCase('id-ID'))).size ===
+        restored.categories.length,
+      'Nama kategori cadangan berulang.',
+    );
+    restored.products.forEach((product) => find(restored, 'categories', product.category));
+    const ids = kinds.flatMap((k) => restored[k].map((r) => r.id));
+    assert(new Set(ids).size === ids.length, 'ID cadangan berulang.');
+    assert(
+      new Set(restored.employees.filter((e) => e.email).map((e) => e.email)).size ===
+        restored.employees.filter((e) => e.email).length,
+      'Email karyawan berulang.',
+    );
+    restored.recipes.forEach((r) => {
+      find(restored, 'products', r.productId);
+      r.ingredients.forEach((i: any) => find(restored, 'ingredients', i.ingredientId));
+    });
+    restored.shifts.forEach((sh) => {
+      assert(['planned', 'open', 'closed'].includes(sh.status), 'Status shift tidak valid.');
+      assert(new Date(sh.endAt) > new Date(sh.startAt), 'Rentang shift tidak valid.');
+      sh.employeeIds.forEach((id: string) => find(restored, 'employees', id));
+      if (sh.status === 'closed') {
+        assert(
+          sh.snapshot && Array.isArray(sh.snapshot.employees),
+          'Snapshot gaji tidak tersedia.',
+        );
+        ['revenue', 'hpp', 'costs', 'wage', 'tax'].forEach((k) => amount.parse(sh.snapshot[k]));
+        assert(Number.isSafeInteger(sh.snapshot.profit), 'Laba snapshot tidak valid.');
+        sh.snapshot.employees.forEach((e: any) => {
+          find(restored, 'employees', e.employeeId);
+          amount.parse(e.wage);
+        });
+      }
+    });
+    restored.attendance.forEach((at) => {
+      find(restored, 'employees', at.employeeId);
+      find(restored, 'shifts', at.shiftId);
+      assert(
+        ['hadir', 'sakit', 'izin', 'libur'].includes(at.status),
+        'Status absensi tidak valid.',
+      );
+      if (at.status === 'hadir') {
+        z.string().datetime({ offset: true }).parse(at.checkIn);
+        if (at.checkOut) z.string().datetime({ offset: true }).parse(at.checkOut);
+      }
+    });
+    const attendanceKeys = restored.attendance.map((at) => at.shiftId + ':' + at.employeeId);
+    assert(new Set(attendanceKeys).size === attendanceKeys.length, 'Absensi ganda.');
+    restored.orders.forEach((o) => {
+      find(restored, 'shifts', o.shiftId);
+      assert(
+        Array.isArray(o.items) && Array.isArray(o.deductions),
+        'Detail transaksi tidak valid.',
+      );
+      assert(
+        [
+          'menunggu_pembayaran',
+          'diproses',
+          'sedang_dibuat',
+          'siap_disajikan',
+          'selesai',
+          'dibatalkan',
+        ].includes(o.status),
+        'Status pesanan tidak valid.',
+      );
+      ['subtotal', 'discount', 'tax', 'total', 'hpp', 'cashPaid', 'change'].forEach((k) =>
+        amount.parse(o[k]),
+      );
+      o.items.forEach((i: any) => {
+        find(restored, 'products', i.productId);
+        amount.parse(i.price);
+        amount.parse(i.hppPerUnit);
+        z.number().int().positive().parse(i.quantity);
+      });
+      assert(
+        o.subtotal === o.items.reduce((n: number, i: any) => n + i.price * i.quantity, 0) &&
+          o.total === o.subtotal - o.discount + o.tax &&
+          o.hpp === o.items.reduce((n: number, i: any) => n + i.hppPerUnit * i.quantity, 0),
+        'Jumlah transaksi tidak cocok.',
+      );
+    });
+    restored.expenses.forEach((e) => {
+      if (e.shiftId) find(restored, 'shifts', e.shiftId);
+    });
+    restored.payrolls.forEach((pr) => {
+      find(restored, 'employees', pr.employeeId);
+      ['base', 'bonus', 'total', 'shifts'].forEach((k) => amount.parse(pr[k]));
+      assert(
+        pr.total === pr.base + pr.bonus && ['lunas', 'belum_dibayar'].includes(pr.status),
+        'Payroll tidak valid.',
+      );
+    });
+    restored.loans.forEach((l) => {
+      find(restored, 'books', l.bookId);
+      str.parse(l.borrowerName);
+      date.parse(l.borrowDate);
+      date.parse(l.dueDate);
+      if (l.returnDate) date.parse(l.returnDate);
+    });
+    restored.chat.forEach((m) => {
+      str.max(2000).parse(m.text);
+      assert(['general', 'announcement'].includes(m.channel), 'Kanal tidak valid.');
+      image.parse(m.image || '');
+    });
+    restored.notes.forEach((n) => {
+      str.max(2000).parse(n.text);
+      assert(
+        ['yellow', 'blue', 'green', 'pink', 'purple'].includes(n.color),
+        'Warna catatan tidak valid.',
+      );
+    });
+    restored.feedback.forEach((f) => {
+      str.max(2000).parse(f.message);
+      z.number().int().min(1).max(5).parse(f.rating);
+    });
+    Object.assign(s, restored);
+    return;
+  }
+  fail('Tindakan tidak dikenal.');
 }

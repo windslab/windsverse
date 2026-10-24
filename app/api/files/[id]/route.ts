@@ -1,2 +1,15 @@
-import {env} from 'cloudflare:workers';
-export async function GET(req:Request,{params}:{params:Promise<{id:string}>}){const {id}=await params;if(!/^[a-f0-9-]{36}$/.test(id))return new Response('Not found',{status:404});const obj=await env.BUCKET?.get(id);if(!obj)return new Response('Not found',{status:404});return new Response(obj.body,{headers:{'Content-Type':obj.httpMetadata?.contentType||'application/octet-stream','X-Content-Type-Options':'nosniff','Cache-Control':'public, max-age=86400','Content-Security-Policy':"default-src 'none'"}})}
+import { env } from 'cloudflare:workers';
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  if (!/^[a-f0-9-]{36}$/.test(id)) return new Response('Not found', { status: 404 });
+  const obj = await env.BUCKET?.get(id);
+  if (!obj) return new Response('Not found', { status: 404 });
+  return new Response(obj.body, {
+    headers: {
+      'Content-Type': obj.httpMetadata?.contentType || 'application/octet-stream',
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'public, max-age=86400',
+      'Content-Security-Policy': "default-src 'none'",
+    },
+  });
+}

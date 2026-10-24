@@ -1,0 +1,11 @@
+# Sites/Vinext integration and generated files are left untouched.
+node_modules
+dist
+.wrangler
+build
+scripts
+public
+vendor
+drizzle
+package-lock.json
+*.md

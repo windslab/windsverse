@@ -1,9 +1,181 @@
 'use client';
-import {useEffect,useState} from 'react';
-import {Coffee,BookOpen,Star} from 'lucide-react';
-import {money,type Row} from '@/lib/model';
-import {BrandMark} from '@/components/brand-mark';
-import {Toaster} from '@/components/ui/sonner';
-import {toast} from 'sonner';
-import {Tabs,TabsList,TabsTrigger,TabsContent} from '@/components/ui/tabs';
-export default function PublicMenu(){const [data,setData]=useState<any>(null),[error,setError]=useState(''),[q,setQ]=useState(''),[category,setCategory]=useState('all');useEffect(()=>{const load=()=>fetch('/api/public').then(async r=>{const d:any=await r.json();if(!r.ok)throw Error(d.error);setData(d);setError('')}).catch(e=>setError(e.message));void load();const t=setInterval(load,10000);return()=>clearInterval(t)},[]);return <main className="public-menu"><Toaster/><header className="public-head"><BrandMark logo={data?.settings?.[0]?.logo}/><div><h1>{data?.settings[0]?.name||'Winds Space'}</h1><p>{data?.settings[0]?.tagline||'Coffee, Space & Conversation'}</p></div><a className="button" href="/login">Area staf</a></header>{error&&<p role="alert" className="error">{error}</p>}<Tabs defaultValue="menu"><TabsList><TabsTrigger value="menu">Menu kafe</TabsTrigger><TabsTrigger value="books">Rak buku</TabsTrigger><TabsTrigger value="feedback">Kritik & saran</TabsTrigger></TabsList><input className="search" aria-label="Cari menu atau buku" placeholder="Cari menu atau buku…" value={q} onChange={e=>setQ(e.target.value)}/><TabsContent value="menu"><div className="row wrap category-filters">{[{id:"all",name:"Semua"},...(data?.categories||[])].map((c:Row)=><button key={c.id} className={"button "+(category===c.id?"primary":"")} aria-pressed={category===c.id} onClick={()=>setCategory(c.id)}>{c.name}</button>)}</div><div className="product-grid">{data?.products.filter((p:Row)=>p.name.toLowerCase().includes(q.toLowerCase())&&(category==='all'||p.category===category)).map((p:Row)=><article className="product-card" key={p.id}>{p.image?<img src={p.image} alt={p.name}/>:<div className="product-icon"><Coffee size={44}/></div>}<span className="eyebrow">{data?.categories?.find((c:Row)=>c.id===p.category)?.name||p.category}</span><h2>{p.name}</h2><p>{p.description}</p><div className="row between"><strong>{money(p.price)}</strong><span className="badge">{p.status}</span></div></article>)}</div>{data?.products.length===0&&<p className="empty">Menu belum tersedia.</p>}</TabsContent><TabsContent value="books"><div className="product-grid">{data?.books.filter((b:Row)=>b.title.toLowerCase().includes(q.toLowerCase())).map((b:Row)=><article className="panel" key={b.id}><BookOpen/><h2>{b.title}</h2><p>{b.author}</p><small>{b.shelfLocation} · {b.available} tersedia</small><p>{b.synopsis}</p></article>)}</div></TabsContent><TabsContent value="feedback"><form className="panel form-grid" onSubmit={async e=>{e.preventDefault();const f=e.currentTarget,fd=new FormData(f);try{const r=await fetch('/api/public',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customerName:fd.get('name'),phone:fd.get('phone'),rating:Number(fd.get('rating')),message:fd.get('message')})});const d:any=await r.json();if(!r.ok)throw Error(d.error);toast.success('Terima kasih atas masukan Anda.');f.reset()}catch(e:any){toast.error(e.message)}}}><h2>Bagaimana pengalaman Anda?</h2><label>Nama (opsional)<input name="name" maxLength={200}/></label><label>Kontak (opsional)<input name="phone" maxLength={100}/></label><fieldset><legend>Penilaian</legend><div className="row">{[1,2,3,4,5].map(n=><label key={n} className="row"><input type="radio" name="rating" value={n} required/>{n}<Star size={14}/></label>)}</div></fieldset><label>Masukan<textarea name="message" required maxLength={2000}/></label><button className="button primary">Kirim masukan</button></form></TabsContent></Tabs><footer>{data?.settings[0]?.address}<p>{data?.settings[0]?.phone}</p></footer></main>}
+import { useEffect, useState } from 'react';
+import { Coffee, BookOpen, Star } from 'lucide-react';
+import { money, type Row } from '@/lib/model';
+import { BrandMark } from '@/components/brand-mark';
+import { Toaster } from '@/components/ui/sonner';
+import { toast } from 'sonner';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+export default function PublicMenu() {
+  const [data, setData] = useState<any>(null),
+    [error, setError] = useState(''),
+    [q, setQ] = useState(''),
+    [category, setCategory] = useState('all');
+  useEffect(() => {
+    const load = () =>
+      fetch('/api/public')
+        .then(async (r) => {
+          const d: any = await r.json();
+          if (!r.ok) throw Error(d.error);
+          setData(d);
+          setError('');
+        })
+        .catch((e) => setError(e.message));
+    void load();
+    const t = setInterval(load, 10000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <main className="public-menu">
+      <Toaster />
+      <header className="public-head">
+        <BrandMark logo={data?.settings?.[0]?.logo} />
+        <div>
+          <h1>{data?.settings[0]?.name || 'Winds Space'}</h1>
+          <p>{data?.settings[0]?.tagline || 'Coffee, Space & Conversation'}</p>
+        </div>
+        <a className="button" href="/login">
+          Area staf
+        </a>
+      </header>
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      <Tabs defaultValue="menu">
+        <TabsList>
+          <TabsTrigger value="menu">Menu kafe</TabsTrigger>
+          <TabsTrigger value="books">Rak buku</TabsTrigger>
+          <TabsTrigger value="feedback">Kritik & saran</TabsTrigger>
+        </TabsList>
+        <input
+          className="search"
+          aria-label="Cari menu atau buku"
+          placeholder="Cari menu atau buku…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        <TabsContent value="menu">
+          <div className="row wrap category-filters">
+            {[{ id: 'all', name: 'Semua' }, ...(data?.categories || [])].map((c: Row) => (
+              <button
+                key={c.id}
+                className={'button ' + (category === c.id ? 'primary' : '')}
+                aria-pressed={category === c.id}
+                onClick={() => setCategory(c.id)}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+          <div className="product-grid">
+            {data?.products
+              .filter(
+                (p: Row) =>
+                  p.name.toLowerCase().includes(q.toLowerCase()) &&
+                  (category === 'all' || p.category === category),
+              )
+              .map((p: Row) => (
+                <article className="product-card" key={p.id}>
+                  {p.image ? (
+                    <img src={p.image} alt={p.name} />
+                  ) : (
+                    <div className="product-icon">
+                      <Coffee size={44} />
+                    </div>
+                  )}
+                  <span className="eyebrow">
+                    {data?.categories?.find((c: Row) => c.id === p.category)?.name || p.category}
+                  </span>
+                  <h2>{p.name}</h2>
+                  <p>{p.description}</p>
+                  <div className="row between">
+                    <strong>{money(p.price)}</strong>
+                    <span className="badge">{p.status}</span>
+                  </div>
+                </article>
+              ))}
+          </div>
+          {data?.products.length === 0 && <p className="empty">Menu belum tersedia.</p>}
+        </TabsContent>
+        <TabsContent value="books">
+          <div className="product-grid">
+            {data?.books
+              .filter((b: Row) => b.title.toLowerCase().includes(q.toLowerCase()))
+              .map((b: Row) => (
+                <article className="panel" key={b.id}>
+                  <BookOpen />
+                  <h2>{b.title}</h2>
+                  <p>{b.author}</p>
+                  <small>
+                    {b.shelfLocation} · {b.available} tersedia
+                  </small>
+                  <p>{b.synopsis}</p>
+                </article>
+              ))}
+          </div>
+        </TabsContent>
+        <TabsContent value="feedback">
+          <form
+            className="panel form-grid"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const f = e.currentTarget,
+                fd = new FormData(f);
+              try {
+                const r = await fetch('/api/public', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    customerName: fd.get('name'),
+                    phone: fd.get('phone'),
+                    rating: Number(fd.get('rating')),
+                    message: fd.get('message'),
+                  }),
+                });
+                const d: any = await r.json();
+                if (!r.ok) throw Error(d.error);
+                toast.success('Terima kasih atas masukan Anda.');
+                f.reset();
+              } catch (e: any) {
+                toast.error(e.message);
+              }
+            }}
+          >
+            <h2>Bagaimana pengalaman Anda?</h2>
+            <label>
+              Nama (opsional)
+              <input name="name" maxLength={200} />
+            </label>
+            <label>
+              Kontak (opsional)
+              <input name="phone" maxLength={100} />
+            </label>
+            <fieldset>
+              <legend>Penilaian</legend>
+              <div className="row">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <label key={n} className="row">
+                    <input type="radio" name="rating" value={n} required />
+                    {n}
+                    <Star size={14} />
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <label>
+              Masukan
+              <textarea name="message" required maxLength={2000} />
+            </label>
+            <button className="button primary">Kirim masukan</button>
+          </form>
+        </TabsContent>
+      </Tabs>
+      <footer>
+        {data?.settings[0]?.address}
+        <p>{data?.settings[0]?.phone}</p>
+      </footer>
+    </main>
+  );
+}

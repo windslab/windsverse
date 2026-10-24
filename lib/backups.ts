@@ -1,126 +1,994 @@
-import {env} from 'cloudflare:workers';
-import {database,read,commit} from './store';
-import {apply,Fault} from './engine';
-import {blank,kinds,defaultCategories,type State,type Actor} from './model';
-import {stateChanges,stateMap,stripOperationalSecrets,validateArchivedAudit} from './audit';
+import { env } from 'cloudflare:workers';
+import { database, read, commit } from './store';
+import { apply, Fault } from './engine';
+import { blank, kinds, defaultCategories, type State, type Actor } from './model';
+import { stateChanges, stateMap, stripOperationalSecrets, validateArchivedAudit } from './audit';
 
-export const PART_LIMIT=16*1024*1024,CHUNK_SIZE=1024*1024,IMPORT_LIMIT=32*1024*1024;
-const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
-const encoder=new TextEncoder();
-type Part={id:string;backup_id:string;part_id:string;kind:string;object_key:string;size:number;sha256:string;metadata:string;status:string};
-type Backup={id:string;status:string;created_at:string;actor_id:string;reason:string;source_revision:number;progress:string;version:number};
-const bucket=()=>{if(!env.BUCKET)throw new Fault('Penyimpanan cadangan belum tersedia.',503);return env.BUCKET;};
-export function validId(id:unknown):asserts id is string{if(typeof id!=='string'||!UUID.test(id))throw new Fault('ID tidak valid.');}
-export const hashBytes=async(bytes:ArrayBuffer|Uint8Array)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes as BufferSource))).map(n=>n.toString(16).padStart(2,'0')).join('');
-const path=(backupId:string,partId:string)=>`backups/${backupId}/parts/${partId}`;
-export async function backupRow(id:string){validId(id);const row=await database().prepare('SELECT * FROM backups WHERE id=?').bind(id).first<Backup>();if(!row)throw new Fault('Cadangan tidak ditemukan.',404);return row;}
-export async function parts(id:string){return (await database().prepare('SELECT * FROM backup_parts WHERE backup_id=? ORDER BY part_id').bind(id).all<Part>()).results;}
-async function putPart(id:string,partId:string,kind:string,value:unknown,metadata:Record<string,unknown>={}){
- const bytes=value instanceof Uint8Array?value:encoder.encode(JSON.stringify(value));if(bytes.byteLength>PART_LIMIT)throw new Fault('Satu bagian cadangan melebihi 16 MB. Arsipkan data lama sebelum membuat cadangan.');
- const sha=await hashBytes(bytes),key=path(id,partId);await bucket().put(key,bytes,{httpMetadata:{contentType:'application/octet-stream'}});
- await database().prepare('INSERT INTO backup_parts(id,backup_id,part_id,kind,object_key,size,sha256,metadata,status) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET size=excluded.size,sha256=excluded.sha256,metadata=excluded.metadata,status=excluded.status').bind(id+':'+partId,id,partId,kind,key,bytes.byteLength,sha,JSON.stringify(metadata),'ready').run();
+export const PART_LIMIT = 16 * 1024 * 1024,
+  CHUNK_SIZE = 1024 * 1024,
+  IMPORT_LIMIT = 32 * 1024 * 1024;
+const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+const encoder = new TextEncoder();
+type Part = {
+  id: string;
+  backup_id: string;
+  part_id: string;
+  kind: string;
+  object_key: string;
+  size: number;
+  sha256: string;
+  metadata: string;
+  status: string;
+};
+type Backup = {
+  id: string;
+  status: string;
+  created_at: string;
+  actor_id: string;
+  reason: string;
+  source_revision: number;
+  progress: string;
+  version: number;
+};
+const bucket = () => {
+  if (!env.BUCKET) throw new Fault('Penyimpanan cadangan belum tersedia.', 503);
+  return env.BUCKET;
+};
+export function validId(id: unknown): asserts id is string {
+  if (typeof id !== 'string' || !UUID.test(id)) throw new Fault('ID tidak valid.');
 }
-function imageIds(value:unknown){const ids=new Set<string>();const visit=(v:unknown)=>{if(typeof v==='string'){const m=v.match(/^\/api\/files\/([a-f0-9-]{36})$/);if(m&&UUID.test(m[1]))ids.add(m[1]);}else if(Array.isArray(v))v.forEach(visit);else if(v&&typeof v==='object')Object.values(v).forEach(visit);};visit(value);return [...ids];}
-function remapImages(value:any,map:Record<string,string>):any{if(typeof value==='string'){const m=value.match(/^\/api\/files\/([a-f0-9-]{36})$/);return m&&map[m[1]]?'/api/files/'+map[m[1]]:value;}if(Array.isArray(value))return value.map(v=>remapImages(v,map));if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,remapImages(v,map)]));return value;}
-async function event(actor:Actor,action:string,detail:unknown){await database().prepare('INSERT INTO audit(id,actor_id,action,detail,created_at) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),actor.id,action,JSON.stringify({actorName:actor.name,...detail as object}),new Date().toISOString()).run();}
-export async function createBackup(actor:Actor,reason:string){
- const db=database(),now=new Date().toISOString();
- // A transactional batch captures the operational state and immutable audit row boundaries together.
- const rows=await db.batch([db.prepare('SELECT revision FROM control WHERE id=1'),db.prepare('SELECT kind,data FROM records'),db.prepare('SELECT coalesce(max(rowid),0) AS n FROM audit'),db.prepare('SELECT coalesce(max(rowid),0) AS n FROM audit_changes'),db.prepare("SELECT DISTINCT backup_id FROM restore_jobs WHERE status='completed'")]);
- const revision=Number((rows[0].results[0] as any)?.revision);if(!Number.isSafeInteger(revision))throw new Fault('Data kafe belum tersedia.');
- const state=blank();for(const row of rows[1].results as any[])if(kinds.includes(row.kind))state[row.kind as keyof State].push(stripOperationalSecrets(JSON.parse(row.data)));
- if(!state.categories.length)state.categories=defaultCategories();
- const id=crypto.randomUUID(),progress={auditMax:(rows[2].results[0] as any).n,changeMax:(rows[3].results[0] as any).n,auditCursor:0,changeCursor:0,recordCount:kinds.reduce((n,k)=>n+state[k].length,0),snapshotAt:now,archiveIds:(rows[4].results as any[]).map(r=>r.backup_id),archiveIndex:0};
- await db.prepare('INSERT INTO backups(id,status,created_at,actor_id,reason,source_revision,progress) VALUES(?,?,?,?,?,?,?)').bind(id,'copying',now,actor.id,reason.slice(0,2000),revision,JSON.stringify(progress)).run();
- try{await putPart(id,'state','state',{format:'winds-space-v1',exportedAt:now,data:state});
-  const assets=imageIds(state);if(assets.length)await db.batch(assets.map(asset=>db.prepare('INSERT INTO backup_parts(id,backup_id,part_id,kind,object_key,metadata,status) VALUES(?,?,?,?,?,?,?)').bind(id+':image-'+asset,id,'image-'+asset,'image',path(id,'image-'+asset),JSON.stringify({originalId:asset}),'pending')));
-  await event(actor,'backup.create',{backupId:id,reason,sourceRevision:revision});return id;
- }catch(error){await db.prepare("UPDATE backups SET status='failed' WHERE id=?").bind(id).run();throw error;}
+export const hashBytes = async (bytes: ArrayBuffer | Uint8Array) =>
+  Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes as BufferSource)))
+    .map((n) => n.toString(16).padStart(2, '0'))
+    .join('');
+const path = (backupId: string, partId: string) => `backups/${backupId}/parts/${partId}`;
+export async function backupRow(id: string) {
+  validId(id);
+  const row = await database().prepare('SELECT * FROM backups WHERE id=?').bind(id).first<Backup>();
+  if (!row) throw new Fault('Cadangan tidak ditemukan.', 404);
+  return row;
 }
-export async function stepBackup(id:string){
- const row=await backupRow(id);if(row.status==='ready')return summary(row);if(row.status==='importing'){try{return await stepImport(row);}catch(error){if(error instanceof Fault&&error.status<500)await database().prepare("UPDATE backups SET status='failed' WHERE id=? AND status='importing'").bind(id).run();throw error;}}if(row.status!=='copying')throw new Fault('Cadangan ini tidak dapat dilanjutkan.');
- const db=database(),p=JSON.parse(row.progress);let changed=false;
- if(p.auditCursor<p.auditMax){const data=(await db.prepare('SELECT rowid AS cursor,id,actor_id,action,detail,created_at FROM audit WHERE rowid>? AND rowid<=? ORDER BY rowid LIMIT 200').bind(p.auditCursor,p.auditMax).all<any>()).results;const cursor=data.at(-1)?.cursor??p.auditMax;await putPart(id,'audit-'+cursor,'audit',data.map(({cursor,...r})=>r));p.auditCursor=cursor;changed=true;}
- else if(p.changeCursor<p.changeMax){const data=(await db.prepare('SELECT rowid AS cursor,id,audit_id,kind,record_id,before_data,after_data FROM audit_changes WHERE rowid>? AND rowid<=? ORDER BY rowid LIMIT 20').bind(p.changeCursor,p.changeMax).all<any>()).results;const cursor=data.at(-1)?.cursor??p.changeMax;await putPart(id,'changes-'+cursor,'changes',data.map(({cursor,...r})=>r));p.changeCursor=cursor;changed=true;}
- else if(p.archiveIndex<p.archiveIds.length){const source=p.archiveIds[p.archiveIndex],oldParts=(await parts(source)).filter(part=>['audit','changes','archive_audit','archive_changes'].includes(part.kind));let count=0;
-  for(const old of oldParts){const partId='history-'+(await hashBytes(encoder.encode(old.sha256+old.kind))).slice(0,40);if(await db.prepare('SELECT id FROM backup_parts WHERE id=?').bind(id+':'+partId).first())continue;const bytes=await partBytes(old);await putPart(id,partId,old.kind.endsWith('changes')?'archive_changes':'archive_audit',bytes,{sourceBackupId:source});if(++count>=5)break;}
-  if(count<5)p.archiveIndex++;changed=true;
- }else{const pending=(await db.prepare("SELECT * FROM backup_parts WHERE backup_id=? AND status='pending' LIMIT 5").bind(id).all<Part>()).results;
-  for(const part of pending){const original=JSON.parse(part.metadata).originalId,obj=await bucket().get(original);if(!obj){await db.prepare("UPDATE backup_parts SET status='missing' WHERE id=?").bind(part.id).run();continue;}const bytes=new Uint8Array(await obj.arrayBuffer());if(bytes.byteLength>2*1024*1024)throw new Fault('Gambar sumber melebihi batas unggahan 2 MB.');await putPart(id,part.part_id,'image',bytes,{originalId:original,contentType:obj.httpMetadata?.contentType||imageType(bytes)});}
-  if(!pending.length){await db.prepare("UPDATE backups SET status='ready',version=version+1 WHERE id=? AND status='copying'").bind(id).run();return summary(await backupRow(id));}
- }
- if(changed)await db.prepare("UPDATE backups SET progress=?,version=version+1 WHERE id=? AND version=? AND status='copying'").bind(JSON.stringify(p),id,row.version).run();
- return summary(await backupRow(id));
+export async function parts(id: string) {
+  return (
+    await database()
+      .prepare('SELECT * FROM backup_parts WHERE backup_id=? ORDER BY part_id')
+      .bind(id)
+      .all<Part>()
+  ).results;
 }
-export async function summary(row:Backup,provided?:any[]){const stats=provided?{results:provided}:await database().prepare("SELECT kind,status,count(*) AS n,coalesce(sum(size),0) AS bytes FROM backup_parts WHERE backup_id=? GROUP BY kind,status").bind(row.id).all<any>();const p=JSON.parse(row.progress);return {id:row.id,status:row.status,createdAt:row.created_at,snapshotAt:p.snapshotAt||row.created_at,reason:row.reason,revision:row.source_revision,recordCount:p.recordCount??null,files:stats.results.filter(r=>r.kind==='image'&&r.status==='ready').reduce((n,r)=>n+r.n,0),missingFiles:stats.results.filter(r=>r.status==='missing').reduce((n,r)=>n+r.n,0),pendingFiles:stats.results.filter(r=>r.status==='pending').reduce((n,r)=>n+r.n,0),bytes:stats.results.reduce((n,r)=>n+r.bytes,0),phase:row.status==='importing'?'Membaca paket':p.auditCursor<p.auditMax?'Menyalin riwayat audit':p.changeCursor<p.changeMax?'Menyalin nilai sebelum/sesudah':p.archiveIndex<p.archiveIds?.length?'Menyalin audit pemulihan lama':'Menyalin gambar'};}
-export async function partBytes(part:Part){if(part.status!=='ready')throw new Fault('Bagian cadangan belum lengkap.');const object=await bucket().get(part.object_key);if(!object)throw new Fault('Berkas cadangan tidak ditemukan.',409);const bytes=new Uint8Array(await object.arrayBuffer());if(bytes.byteLength!==part.size||await hashBytes(bytes)!==part.sha256)throw new Fault('Pemeriksaan integritas cadangan gagal.',409);return bytes;}
-async function stateFrom(id:string){const row=await backupRow(id);if(row.status!=='ready')throw new Fault('Cadangan belum selesai.',409);const part=await database().prepare("SELECT * FROM backup_parts WHERE backup_id=? AND kind='state'").bind(id).first<Part>();if(!part)throw new Fault('Data utama cadangan tidak ditemukan.');try{return JSON.parse(new TextDecoder().decode(await partBytes(part)));}catch(error){if(error instanceof Fault)throw error;throw new Fault('Data utama cadangan bukan JSON yang valid.');}}
-function validatedState(current:State,actor:Actor,backup:any){const state=structuredClone(current);apply(state,actor,'backup.restore',{backup},new Date(),{allowActiveRestore:true});return state;}
-export async function previewRestore(id:string,actor:Actor){
- const loaded=await read(),backup=await stateFrom(id),restored=validatedState(loaded.state,actor,backup),changes=stateChanges(stateMap(loaded.state),restored),assets=await parts(id),ticket=crypto.randomUUID();const assetIds=new Set(assets.filter(p=>p.kind==='image').map(p=>JSON.parse(p.metadata).originalId));if(imageIds(backup.data).some(asset=>!assetIds.has(asset)))throw new Fault('Ada gambar yang tidak tercantum dalam manifest cadangan.');
- const expires=Date.now()+15*60_000;await bucket().put(`restore-tickets/${ticket}`,JSON.stringify({backupId:id,actorId:actor.id,revision:loaded.control.revision,expires}));
- return {ticket,revision:loaded.control.revision,expiresAt:new Date(expires).toISOString(),counts:{added:changes.filter(c=>c.before===null).length,changed:changes.filter(c=>c.before!==null&&c.after!==null).length,deleted:changes.filter(c=>c.after===null).length},collections:kinds.map(kind=>({kind,before:loaded.state[kind].length,after:restored[kind].length})),missingFiles:assets.filter(p=>p.status==='missing').length,files:assets.filter(p=>p.kind==='image'&&p.status==='ready').length};
+async function putPart(
+  id: string,
+  partId: string,
+  kind: string,
+  value: unknown,
+  metadata: Record<string, unknown> = {},
+) {
+  const bytes = value instanceof Uint8Array ? value : encoder.encode(JSON.stringify(value));
+  if (bytes.byteLength > PART_LIMIT)
+    throw new Fault(
+      'Satu bagian cadangan melebihi 16 MB. Arsipkan data lama sebelum membuat cadangan.',
+    );
+  const sha = await hashBytes(bytes),
+    key = path(id, partId);
+  await bucket().put(key, bytes, { httpMetadata: { contentType: 'application/octet-stream' } });
+  await database()
+    .prepare(
+      'INSERT INTO backup_parts(id,backup_id,part_id,kind,object_key,size,sha256,metadata,status) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET size=excluded.size,sha256=excluded.sha256,metadata=excluded.metadata,status=excluded.status',
+    )
+    .bind(
+      id + ':' + partId,
+      id,
+      partId,
+      kind,
+      key,
+      bytes.byteLength,
+      sha,
+      JSON.stringify(metadata),
+      'ready',
+    )
+    .run();
 }
-export async function startRestore(ticket:string,actor:Actor,reason:string){
- validId(ticket);const object=await bucket().get(`restore-tickets/${ticket}`);if(!object)throw new Fault('Pratinjau pemulihan tidak tersedia. Buat pratinjau ulang.',409);const t:any=await object.json();if(t.actorId!==actor.id||t.expires<Date.now())throw new Fault('Pratinjau sudah kedaluwarsa. Periksa ulang isi cadangan.',409);
- const loaded=await read();if(loaded.control.revision!==t.revision)throw new Fault('Data berubah setelah pratinjau. Buat pratinjau ulang.',409);
- const backup=await stateFrom(t.backupId);validatedState(loaded.state,actor,backup);
- const safety=await createBackup(actor,'Sebelum pemulihan: '+reason);if((await backupRow(safety)).source_revision!==t.revision)throw new Fault('Ada aktivitas baru saat membuat cadangan pengaman. Buat pratinjau ulang.',409);
- const images=(await parts(t.backupId)).filter(p=>p.kind==='image'&&p.status==='ready'),map=Object.fromEntries(images.map(p=>[JSON.parse(p.metadata).originalId,crypto.randomUUID()])),id=crypto.randomUUID();
- await database().prepare('INSERT INTO restore_jobs(id,backup_id,actor_id,status,created_at,expected_revision,safety_backup_id,progress) VALUES(?,?,?,?,?,?,?,?)').bind(id,t.backupId,actor.id,'safety',new Date().toISOString(),t.revision,safety,JSON.stringify({reason,map,imageCursor:0,auditCursor:0})).run();await event(actor,'backup.restore.requested',{backupId:t.backupId,safetyBackupId:safety,jobId:id,reason});return {id,status:'safety',safetyBackupId:safety};
+function imageIds(value: unknown) {
+  const ids = new Set<string>();
+  const visit = (v: unknown) => {
+    if (typeof v === 'string') {
+      const m = v.match(/^\/api\/files\/([a-f0-9-]{36})$/);
+      if (m && UUID.test(m[1])) ids.add(m[1]);
+    } else if (Array.isArray(v)) v.forEach(visit);
+    else if (v && typeof v === 'object') Object.values(v).forEach(visit);
+  };
+  visit(value);
+  return [...ids];
 }
-async function restoreRow(id:string,actor:Actor){validId(id);const row=await database().prepare('SELECT * FROM restore_jobs WHERE id=?').bind(id).first<any>();if(!row||row.actor_id!==actor.id)throw new Fault('Pemulihan tidak ditemukan.',404);if(!['safety','images','ready','completed'].includes(row.status))throw new Fault('Pemulihan sudah dibatalkan. Buat pratinjau baru.',409);if(row.status!=='completed'&&Date.now()-Date.parse(row.created_at)>60*60_000)throw new Fault('Proses pemulihan kedaluwarsa. Buat pratinjau ulang.',409);return row;}
-export async function stepRestore(id:string,actor:Actor){
- const row=await restoreRow(id,actor);if(['completed','ready'].includes(row.status))return {id,status:row.status,safetyBackupId:row.safety_backup_id};const loaded=await read();if(loaded.control.revision!==row.expected_revision){await database().prepare("UPDATE restore_jobs SET status='conflict' WHERE id=? AND status<>'completed'").bind(id).run();throw new Fault('Ada transaksi/perubahan baru. Pemulihan dihentikan agar data baru tidak tertimpa. Buat pratinjau ulang.',409);}
- if(row.status==='safety'){const safety=await stepBackup(row.safety_backup_id);if(safety.status==='ready')await database().prepare("UPDATE restore_jobs SET status='images' WHERE id=? AND status='safety'").bind(id).run();return {id,status:safety.status==='ready'?'images':'safety',safetyBackupId:row.safety_backup_id,phase:'Membuat cadangan kondisi saat ini · '+safety.phase};}
- const p=JSON.parse(row.progress),images=(await parts(row.backup_id)).filter(part=>part.kind==='image'&&part.status==='ready'),end=Math.min(images.length,p.imageCursor+5);
- for(let index=p.imageCursor;index<end;index++){const part=images[index],bytes=await partBytes(part),meta=JSON.parse(part.metadata),type=imageType(bytes);if(type!==meta.contentType)throw new Fault('Format gambar cadangan tidak sesuai.');await bucket().put(p.map[meta.originalId],bytes,{httpMetadata:{contentType:type}});}
- const previous=p.imageCursor,oldAudit=p.auditCursor||0;p.imageCursor=end;const auditParts=(await parts(row.backup_id)).filter(part=>part.kind.includes('audit')||part.kind.includes('changes'));p.auditCursor=oldAudit;if(end>=images.length){const limit=Math.min(auditParts.length,oldAudit+5);for(let index=oldAudit;index<limit;index++)await partBytes(auditParts[index]);p.auditCursor=limit;}const status=end>=images.length&&p.auditCursor>=auditParts.length?'ready':'images';await database().prepare("UPDATE restore_jobs SET status=?,progress=? WHERE id=? AND status='images' AND json_extract(progress,'$.imageCursor')=? AND coalesce(json_extract(progress,'$.auditCursor'),0)=?").bind(status,JSON.stringify(p),id,previous,oldAudit).run();return {id,status,safetyBackupId:row.safety_backup_id,phase:end<images.length?`Menyiapkan gambar ${end}/${images.length}`:`Memeriksa integritas audit ${p.auditCursor}/${auditParts.length}`};
+function remapImages(value: any, map: Record<string, string>): any {
+  if (typeof value === 'string') {
+    const m = value.match(/^\/api\/files\/([a-f0-9-]{36})$/);
+    return m && map[m[1]] ? '/api/files/' + map[m[1]] : value;
+  }
+  if (Array.isArray(value)) return value.map((v) => remapImages(v, map));
+  if (value && typeof value === 'object')
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, remapImages(v, map)]));
+  return value;
 }
-export async function finishRestore(id:string,actor:Actor){
- const row=await restoreRow(id,actor);if(row.status==='completed')return {ok:true,safetyBackupId:row.safety_backup_id};if(row.status!=='ready')throw new Fault('Cadangan pengaman atau gambar belum selesai.',409);
- if((await backupRow(row.safety_backup_id)).status!=='ready')throw new Fault('Cadangan pengaman belum lengkap.',409);
- const loaded=await read();if(loaded.control.revision!==row.expected_revision){await database().prepare("UPDATE restore_jobs SET status='conflict' WHERE id=? AND status<>'completed'").bind(id).run();throw new Fault('Data berubah. Pemulihan dibatalkan; buat pratinjau ulang.',409);}
- const p=JSON.parse(row.progress),backup=await stateFrom(row.backup_id);backup.data=remapImages(backup.data,p.map);
- await commit(loaded,actor,'backup.restore',{backup,reason:p.reason},row.expected_revision,row.id,{backupId:row.backup_id,safetyBackupId:row.safety_backup_id,jobId:id});return {ok:true,safetyBackupId:row.safety_backup_id};
+async function event(actor: Actor, action: string, detail: unknown) {
+  await database()
+    .prepare('INSERT INTO audit(id,actor_id,action,detail,created_at) VALUES(?,?,?,?,?)')
+    .bind(
+      crypto.randomUUID(),
+      actor.id,
+      action,
+      JSON.stringify({ actorName: actor.name, ...(detail as object) }),
+      new Date().toISOString(),
+    )
+    .run();
 }
-function imageType(bytes:Uint8Array){if(bytes[0]===137&&bytes[1]===80&&bytes[2]===78&&bytes[3]===71)return 'image/png';if(bytes[0]===255&&bytes[1]===216&&bytes[2]===255)return 'image/jpeg';if(new TextDecoder().decode(bytes.slice(0,4))==='RIFF'&&new TextDecoder().decode(bytes.slice(8,12))==='WEBP')return 'image/webp';throw new Fault('Gambar cadangan bukan PNG, JPEG, atau WebP.');}
-function toBase64(bytes:Uint8Array){let value='';for(let i=0;i<bytes.length;i+=32768)value+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(value);}
-function fromBase64(value:string){if(value.length>Math.ceil(CHUNK_SIZE/3)*4+8||!/^[A-Za-z0-9+/]*={0,2}$/.test(value))throw new Fault('Potongan cadangan tidak valid.');return Uint8Array.from(atob(value),c=>c.charCodeAt(0));}
-export async function exportBackup(id:string){
- const row=await backupRow(id);if(row.status!=='ready')throw new Fault('Cadangan belum selesai.',409);const snapshotAt=JSON.parse(row.progress).snapshotAt||row.created_at;const items=await parts(id);const manifest=items.map(p=>({partId:p.part_id,kind:p.kind,size:p.size,sha256:p.sha256,metadata:JSON.parse(p.metadata),status:p.status}));
- async function* lines(){yield encoder.encode(JSON.stringify({type:'header',format:'winds-space-backup-v2',createdAt:snapshotAt,revision:row.source_revision,reason:row.reason,parts:manifest})+'\n');
-  for(const part of items.filter(p=>p.status==='ready')){const object=await bucket().get(part.object_key);if(!object)throw Error('Berkas cadangan hilang');const reader=object.body.getReader();let buffer=new Uint8Array(CHUNK_SIZE),used=0,index=0;
-   try{while(true){const {value,done}=await reader.read();if(done)break;let offset=0;while(offset<value.length){const n=Math.min(CHUNK_SIZE-used,value.length-offset);buffer.set(value.subarray(offset,offset+n),used);used+=n;offset+=n;if(used===CHUNK_SIZE){yield encoder.encode(JSON.stringify({type:'chunk',partId:part.part_id,index:index++,data:toBase64(buffer)})+'\n');buffer=new Uint8Array(CHUNK_SIZE);used=0;}}}if(used)yield encoder.encode(JSON.stringify({type:'chunk',partId:part.part_id,index:index++,data:toBase64(buffer.subarray(0,used))})+'\n');}finally{await reader.cancel();}
-  }yield encoder.encode('{"type":"end"}\n');
- }
- const iterator=lines();return new Response(new ReadableStream<Uint8Array>({async pull(controller){try{const next=await iterator.next();if(next.done)controller.close();else controller.enqueue(next.value);}catch(error){controller.error(error);}},async cancel(){await iterator.return(undefined);}}),{headers:{'Content-Type':'application/x-ndjson','Content-Disposition':`attachment; filename="winds-space-${snapshotAt.slice(0,10)}-${id.slice(0,8)}.winds.jsonl"`,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+export async function createBackup(actor: Actor, reason: string) {
+  const db = database(),
+    now = new Date().toISOString();
+  // A transactional batch captures the operational state and immutable audit row boundaries together.
+  const rows = await db.batch([
+    db.prepare('SELECT revision FROM control WHERE id=1'),
+    db.prepare('SELECT kind,data FROM records'),
+    db.prepare('SELECT coalesce(max(rowid),0) AS n FROM audit'),
+    db.prepare('SELECT coalesce(max(rowid),0) AS n FROM audit_changes'),
+    db.prepare("SELECT DISTINCT backup_id FROM restore_jobs WHERE status='completed'"),
+  ]);
+  const revision = Number((rows[0].results[0] as any)?.revision);
+  if (!Number.isSafeInteger(revision)) throw new Fault('Data kafe belum tersedia.');
+  const state = blank();
+  for (const row of rows[1].results as any[])
+    if (kinds.includes(row.kind))
+      state[row.kind as keyof State].push(stripOperationalSecrets(JSON.parse(row.data)));
+  if (!state.categories.length) state.categories = defaultCategories();
+  const id = crypto.randomUUID(),
+    progress = {
+      auditMax: (rows[2].results[0] as any).n,
+      changeMax: (rows[3].results[0] as any).n,
+      auditCursor: 0,
+      changeCursor: 0,
+      recordCount: kinds.reduce((n, k) => n + state[k].length, 0),
+      snapshotAt: now,
+      archiveIds: (rows[4].results as any[]).map((r) => r.backup_id),
+      archiveIndex: 0,
+    };
+  await db
+    .prepare(
+      'INSERT INTO backups(id,status,created_at,actor_id,reason,source_revision,progress) VALUES(?,?,?,?,?,?,?)',
+    )
+    .bind(id, 'copying', now, actor.id, reason.slice(0, 2000), revision, JSON.stringify(progress))
+    .run();
+  try {
+    await putPart(id, 'state', 'state', { format: 'winds-space-v1', exportedAt: now, data: state });
+    const assets = imageIds(state);
+    if (assets.length)
+      await db.batch(
+        assets.map((asset) =>
+          db
+            .prepare(
+              'INSERT INTO backup_parts(id,backup_id,part_id,kind,object_key,metadata,status) VALUES(?,?,?,?,?,?,?)',
+            )
+            .bind(
+              id + ':image-' + asset,
+              id,
+              'image-' + asset,
+              'image',
+              path(id, 'image-' + asset),
+              JSON.stringify({ originalId: asset }),
+              'pending',
+            ),
+        ),
+      );
+    await event(actor, 'backup.create', { backupId: id, reason, sourceRevision: revision });
+    return id;
+  } catch (error) {
+    await db.prepare("UPDATE backups SET status='failed' WHERE id=?").bind(id).run();
+    throw error;
+  }
 }
-export async function uploadPackage(req:Request,actor:Actor){
- const length=Number(req.headers.get('content-length'));if(length>IMPORT_LIMIT)throw new Fault('Paket unggahan maksimal 32 MB. Cadangan besar tetap dapat dipulihkan dari daftar server.',413);if(!req.body)throw new Fault('Paket kosong.');const reader=req.body.getReader(),chunks:Uint8Array[]= [];let total=0;try{while(true){const part=await reader.read();if(part.done)break;total+=part.value.byteLength;if(total>IMPORT_LIMIT)throw new Fault('Paket unggahan maksimal 32 MB.',413);chunks.push(part.value);}}finally{await reader.cancel();}const bytes=new Uint8Array(total);let cursor=0;for(const chunk of chunks){bytes.set(chunk,cursor);cursor+=chunk.length;}const id=crypto.randomUUID();
- if(bytes.byteLength<=1024*1024){let legacy:any;try{legacy=JSON.parse(new TextDecoder().decode(bytes));}catch{}if(legacy?.format==='winds-space-v1'&&legacy.data){const progress={auditMax:0,changeMax:0,auditCursor:0,changeCursor:0,archiveIds:[],archiveIndex:0,recordCount:kinds.reduce((n,k)=>n+(Array.isArray(legacy.data[k])?legacy.data[k].length:0),0),snapshotAt:typeof legacy.exportedAt==='string'&&Number.isFinite(Date.parse(legacy.exportedAt))?legacy.exportedAt:new Date().toISOString(),legacy:true};await database().prepare('INSERT INTO backups(id,status,created_at,actor_id,reason,source_revision,progress) VALUES(?,?,?,?,?,?,?)').bind(id,'copying',new Date().toISOString(),actor.id,'JSON lama · audit dan gambar hanya yang tersedia',0,JSON.stringify(progress)).run();await putPart(id,'state','state',legacy);const assets=imageIds(legacy.data);if(assets.length)await database().batch(assets.map(asset=>database().prepare('INSERT INTO backup_parts(id,backup_id,part_id,kind,object_key,metadata,status) VALUES(?,?,?,?,?,?,?)').bind(id+':image-'+asset,id,'image-'+asset,'image',path(id,'image-'+asset),JSON.stringify({originalId:asset}),'pending')));await event(actor,'backup.import',{backupId:id,legacy:true});return id;}}
- await bucket().put(`backups/${id}/upload`,bytes);await database().prepare('INSERT INTO backups(id,status,created_at,actor_id,reason,source_revision,progress) VALUES(?,?,?,?,?,?,?)').bind(id,'importing',new Date().toISOString(),actor.id,'Paket dari perangkat',0,JSON.stringify({offset:0,partIndex:0,chunkIndex:0,recordCount:null})).run();await event(actor,'backup.import',{backupId:id});return id;
+export async function stepBackup(id: string) {
+  const row = await backupRow(id);
+  if (row.status === 'ready') return summary(row);
+  if (row.status === 'importing') {
+    try {
+      return await stepImport(row);
+    } catch (error) {
+      if (error instanceof Fault && error.status < 500)
+        await database()
+          .prepare("UPDATE backups SET status='failed' WHERE id=? AND status='importing'")
+          .bind(id)
+          .run();
+      throw error;
+    }
+  }
+  if (row.status !== 'copying') throw new Fault('Cadangan ini tidak dapat dilanjutkan.');
+  const db = database(),
+    p = JSON.parse(row.progress);
+  let changed = false;
+  if (p.auditCursor < p.auditMax) {
+    const data = (
+      await db
+        .prepare(
+          'SELECT rowid AS cursor,id,actor_id,action,detail,created_at FROM audit WHERE rowid>? AND rowid<=? ORDER BY rowid LIMIT 200',
+        )
+        .bind(p.auditCursor, p.auditMax)
+        .all<any>()
+    ).results;
+    const cursor = data.at(-1)?.cursor ?? p.auditMax;
+    await putPart(
+      id,
+      'audit-' + cursor,
+      'audit',
+      data.map(({ cursor, ...r }) => r),
+    );
+    p.auditCursor = cursor;
+    changed = true;
+  } else if (p.changeCursor < p.changeMax) {
+    const data = (
+      await db
+        .prepare(
+          'SELECT rowid AS cursor,id,audit_id,kind,record_id,before_data,after_data FROM audit_changes WHERE rowid>? AND rowid<=? ORDER BY rowid LIMIT 20',
+        )
+        .bind(p.changeCursor, p.changeMax)
+        .all<any>()
+    ).results;
+    const cursor = data.at(-1)?.cursor ?? p.changeMax;
+    await putPart(
+      id,
+      'changes-' + cursor,
+      'changes',
+      data.map(({ cursor, ...r }) => r),
+    );
+    p.changeCursor = cursor;
+    changed = true;
+  } else if (p.archiveIndex < p.archiveIds.length) {
+    const source = p.archiveIds[p.archiveIndex],
+      oldParts = (await parts(source)).filter((part) =>
+        ['audit', 'changes', 'archive_audit', 'archive_changes'].includes(part.kind),
+      );
+    let count = 0;
+    for (const old of oldParts) {
+      const partId =
+        'history-' + (await hashBytes(encoder.encode(old.sha256 + old.kind))).slice(0, 40);
+      if (
+        await db
+          .prepare('SELECT id FROM backup_parts WHERE id=?')
+          .bind(id + ':' + partId)
+          .first()
+      )
+        continue;
+      const bytes = await partBytes(old);
+      await putPart(
+        id,
+        partId,
+        old.kind.endsWith('changes') ? 'archive_changes' : 'archive_audit',
+        bytes,
+        { sourceBackupId: source },
+      );
+      if (++count >= 5) break;
+    }
+    if (count < 5) p.archiveIndex++;
+    changed = true;
+  } else {
+    const pending = (
+      await db
+        .prepare("SELECT * FROM backup_parts WHERE backup_id=? AND status='pending' LIMIT 5")
+        .bind(id)
+        .all<Part>()
+    ).results;
+    for (const part of pending) {
+      const original = JSON.parse(part.metadata).originalId,
+        obj = await bucket().get(original);
+      if (!obj) {
+        await db.prepare("UPDATE backup_parts SET status='missing' WHERE id=?").bind(part.id).run();
+        continue;
+      }
+      const bytes = new Uint8Array(await obj.arrayBuffer());
+      if (bytes.byteLength > 2 * 1024 * 1024)
+        throw new Fault('Gambar sumber melebihi batas unggahan 2 MB.');
+      await putPart(id, part.part_id, 'image', bytes, {
+        originalId: original,
+        contentType: obj.httpMetadata?.contentType || imageType(bytes),
+      });
+    }
+    if (!pending.length) {
+      await db
+        .prepare(
+          "UPDATE backups SET status='ready',version=version+1 WHERE id=? AND status='copying'",
+        )
+        .bind(id)
+        .run();
+      return summary(await backupRow(id));
+    }
+  }
+  if (changed)
+    await db
+      .prepare(
+        "UPDATE backups SET progress=?,version=version+1 WHERE id=? AND version=? AND status='copying'",
+      )
+      .bind(JSON.stringify(p), id, row.version)
+      .run();
+  return summary(await backupRow(id));
 }
-async function readLines(key:string,offset:number,max:number){const object=await bucket().get(key,{range:{offset}});if(!object)throw new Fault('Paket tidak ditemukan.');const reader=object.body.getReader(),lines:{value:any;bytes:number}[]=[];let pending=new Uint8Array(0);try{while(lines.length<max){const next=await reader.read();if(next.done)break;const joined=new Uint8Array(pending.length+next.value.length);joined.set(pending);joined.set(next.value,pending.length);let start=0;for(let i=0;i<joined.length&&lines.length<max;i++)if(joined[i]===10){const line=joined.subarray(start,i);if(line.length>2*1024*1024)throw new Fault('Baris paket terlalu besar.');let value;try{value=JSON.parse(new TextDecoder().decode(line));}catch{throw new Fault('Paket bukan cadangan Winds Space yang valid.');}lines.push({value,bytes:i-start+1});start=i+1;}pending=joined.slice(start);if(pending.length>2*1024*1024)throw new Fault('Baris paket terlalu besar.');}return lines;}finally{await reader.cancel();}}
-function validateManifest(header:any){if(header?.type!=='header'||header.format!=='winds-space-backup-v2'||!Array.isArray(header.parts)||header.parts.length>5000||typeof header.createdAt!=='string'||!Number.isFinite(Date.parse(header.createdAt)))throw new Fault('Format paket tidak dikenali. Gunakan paket .winds.jsonl.');const seen=new Set<string>(),imageSeen=new Set<string>();let state=0;
- for(const p of header.parts){if(!p||typeof p.partId!=='string'||!/^[A-Za-z0-9_-]{1,100}$/.test(p.partId)||seen.has(p.partId)||!['state','image','audit','changes','archive_audit','archive_changes'].includes(p.kind)||!['ready','missing'].includes(p.status))throw new Fault('Manifest paket tidak valid.');seen.add(p.partId);if(p.kind==='state')state++;if(!Number.isSafeInteger(p.size)||p.size<0||p.size>PART_LIMIT||p.status==='ready'&&!/^[a-f0-9]{64}$/.test(p.sha256)||p.status==='missing'&&p.kind!=='image')throw new Fault('Ukuran atau hash paket tidak valid.');if(p.kind==='image'){validId(p.metadata?.originalId);if(imageSeen.has(p.metadata.originalId))throw new Fault('Gambar paket berulang.');imageSeen.add(p.metadata.originalId);if(p.status==='ready'&&(!['image/png','image/jpeg','image/webp'].includes(p.metadata.contentType)||p.size>2*1024*1024))throw new Fault('Gambar paket tidak valid.');}p.metadata=p.kind==='image'?{originalId:p.metadata.originalId,contentType:p.metadata.contentType||''}:{source:'Paket unggahan'};}
- if(state!==1)throw new Fault('Paket harus mempunyai satu data utama.');return header;
+export async function summary(row: Backup, provided?: any[]) {
+  const stats = provided
+    ? { results: provided }
+    : await database()
+        .prepare(
+          'SELECT kind,status,count(*) AS n,coalesce(sum(size),0) AS bytes FROM backup_parts WHERE backup_id=? GROUP BY kind,status',
+        )
+        .bind(row.id)
+        .all<any>();
+  const p = JSON.parse(row.progress);
+  return {
+    id: row.id,
+    status: row.status,
+    createdAt: row.created_at,
+    snapshotAt: p.snapshotAt || row.created_at,
+    reason: row.reason,
+    revision: row.source_revision,
+    recordCount: p.recordCount ?? null,
+    files: stats.results
+      .filter((r) => r.kind === 'image' && r.status === 'ready')
+      .reduce((n, r) => n + r.n, 0),
+    missingFiles: stats.results.filter((r) => r.status === 'missing').reduce((n, r) => n + r.n, 0),
+    pendingFiles: stats.results.filter((r) => r.status === 'pending').reduce((n, r) => n + r.n, 0),
+    bytes: stats.results.reduce((n, r) => n + r.bytes, 0),
+    phase:
+      row.status === 'importing'
+        ? 'Membaca paket'
+        : p.auditCursor < p.auditMax
+          ? 'Menyalin riwayat audit'
+          : p.changeCursor < p.changeMax
+            ? 'Menyalin nilai sebelum/sesudah'
+            : p.archiveIndex < p.archiveIds?.length
+              ? 'Menyalin audit pemulihan lama'
+              : 'Menyalin gambar',
+  };
 }
-async function stepImport(row:Backup):Promise<any>{
- const id=row.id,db=database(),p=JSON.parse(row.progress),raw=`backups/${id}/upload`;
- if(!p.header){const line=(await readLines(raw,0,1))[0];if(!line)throw new Fault('Paket kosong.');const header=validateManifest(line.value);await bucket().put(`backups/${id}/import-header`,JSON.stringify(header));
-  if(header.parts.length)await db.batch(header.parts.map((part:any)=>db.prepare('INSERT OR IGNORE INTO backup_parts(id,backup_id,part_id,kind,object_key,size,sha256,metadata,status) VALUES(?,?,?,?,?,?,?,?,?)').bind(id+':'+part.partId,id,part.partId,part.kind,path(id,part.partId),part.size,part.sha256,JSON.stringify(part.metadata),part.status==='missing'?'missing':'pending')));
-  p.offset=line.bytes;p.header=true;p.snapshotAt=header.createdAt;await db.prepare('UPDATE backups SET progress=?,source_revision=?,version=version+1 WHERE id=? AND version=?').bind(JSON.stringify(p),Number.isSafeInteger(header.revision)?header.revision:0,id,row.version).run();return summary(await backupRow(id));
- }
- const header:any=await (await bucket().get(`backups/${id}/import-header`))!.json(),items=header.parts.filter((part:any)=>part.status==='ready'),current=items[p.partIndex];
- if(current&&p.chunkIndex>=Math.ceil(current.size/CHUNK_SIZE)){
-  const bytes=new Uint8Array(current.size);for(let index=0;index<p.chunkIndex;index++){const chunk=await bucket().get(`backups/${id}/chunks/${current.partId}/${index}`);if(!chunk)throw new Fault('Potongan paket hilang.');bytes.set(new Uint8Array(await chunk.arrayBuffer()),index*CHUNK_SIZE);}
-  if(await hashBytes(bytes)!==current.sha256)throw new Fault('Hash paket tidak sesuai. Paket rusak atau telah diubah.');if(current.kind==='image'&&imageType(bytes)!==current.metadata.contentType)throw new Fault('Tipe gambar tidak sesuai.');if(current.kind.includes('audit')||current.kind.includes('changes'))try{validateArchivedAudit(current.kind,bytes);}catch{throw new Fault('Format arsip audit dalam paket tidak valid.');}await bucket().put(path(id,current.partId),bytes);
-  await db.prepare("UPDATE backup_parts SET status='ready' WHERE id=?").bind(id+':'+current.partId).run();p.partIndex++;p.chunkIndex=0;
- }else{
-  const lines=await readLines(raw,p.offset,current?1:1);if(!lines.length)throw new Fault('Paket terpotong; penutup tidak ditemukan.');const line=lines[0],value=line.value;
-  if(!current){if(value.type!=='end')throw new Fault('Penutup paket tidak valid.');const head=await bucket().head(raw);if(!head||p.offset+line.bytes!==head.size)throw new Fault('Ada data tak dikenal setelah penutup paket.');await db.prepare("UPDATE backups SET status='ready',version=version+1 WHERE id=? AND version=?").bind(id,row.version).run();return summary(await backupRow(id));}
-  if(value.type!=='chunk'||value.partId!==current.partId||value.index!==p.chunkIndex||typeof value.data!=='string')throw new Fault('Urutan potongan paket tidak sesuai.');const bytes=fromBase64(value.data),expected=Math.min(CHUNK_SIZE,current.size-p.chunkIndex*CHUNK_SIZE);if(bytes.byteLength!==expected)throw new Fault('Ukuran potongan paket tidak sesuai.');await bucket().put(`backups/${id}/chunks/${current.partId}/${p.chunkIndex}`,bytes);p.offset+=line.bytes;p.chunkIndex++;
- }
- await db.prepare('UPDATE backups SET progress=?,version=version+1 WHERE id=? AND version=?').bind(JSON.stringify(p),id,row.version).run();return summary(await backupRow(id));
+export async function partBytes(part: Part) {
+  if (part.status !== 'ready') throw new Fault('Bagian cadangan belum lengkap.');
+  const object = await bucket().get(part.object_key);
+  if (!object) throw new Fault('Berkas cadangan tidak ditemukan.', 409);
+  const bytes = new Uint8Array(await object.arrayBuffer());
+  if (bytes.byteLength !== part.size || (await hashBytes(bytes)) !== part.sha256)
+    throw new Fault('Pemeriksaan integritas cadangan gagal.', 409);
+  return bytes;
+}
+async function stateFrom(id: string) {
+  const row = await backupRow(id);
+  if (row.status !== 'ready') throw new Fault('Cadangan belum selesai.', 409);
+  const part = await database()
+    .prepare("SELECT * FROM backup_parts WHERE backup_id=? AND kind='state'")
+    .bind(id)
+    .first<Part>();
+  if (!part) throw new Fault('Data utama cadangan tidak ditemukan.');
+  try {
+    return JSON.parse(new TextDecoder().decode(await partBytes(part)));
+  } catch (error) {
+    if (error instanceof Fault) throw error;
+    throw new Fault('Data utama cadangan bukan JSON yang valid.');
+  }
+}
+function validatedState(current: State, actor: Actor, backup: any) {
+  const state = structuredClone(current);
+  apply(state, actor, 'backup.restore', { backup }, new Date(), { allowActiveRestore: true });
+  return state;
+}
+export async function previewRestore(id: string, actor: Actor) {
+  const loaded = await read(),
+    backup = await stateFrom(id),
+    restored = validatedState(loaded.state, actor, backup),
+    changes = stateChanges(stateMap(loaded.state), restored),
+    assets = await parts(id),
+    ticket = crypto.randomUUID();
+  const assetIds = new Set(
+    assets.filter((p) => p.kind === 'image').map((p) => JSON.parse(p.metadata).originalId),
+  );
+  if (imageIds(backup.data).some((asset) => !assetIds.has(asset)))
+    throw new Fault('Ada gambar yang tidak tercantum dalam manifest cadangan.');
+  const expires = Date.now() + 15 * 60_000;
+  await bucket().put(
+    `restore-tickets/${ticket}`,
+    JSON.stringify({ backupId: id, actorId: actor.id, revision: loaded.control.revision, expires }),
+  );
+  return {
+    ticket,
+    revision: loaded.control.revision,
+    expiresAt: new Date(expires).toISOString(),
+    counts: {
+      added: changes.filter((c) => c.before === null).length,
+      changed: changes.filter((c) => c.before !== null && c.after !== null).length,
+      deleted: changes.filter((c) => c.after === null).length,
+    },
+    collections: kinds.map((kind) => ({
+      kind,
+      before: loaded.state[kind].length,
+      after: restored[kind].length,
+    })),
+    missingFiles: assets.filter((p) => p.status === 'missing').length,
+    files: assets.filter((p) => p.kind === 'image' && p.status === 'ready').length,
+  };
+}
+export async function startRestore(ticket: string, actor: Actor, reason: string) {
+  validId(ticket);
+  const object = await bucket().get(`restore-tickets/${ticket}`);
+  if (!object) throw new Fault('Pratinjau pemulihan tidak tersedia. Buat pratinjau ulang.', 409);
+  const t: any = await object.json();
+  if (t.actorId !== actor.id || t.expires < Date.now())
+    throw new Fault('Pratinjau sudah kedaluwarsa. Periksa ulang isi cadangan.', 409);
+  const loaded = await read();
+  if (loaded.control.revision !== t.revision)
+    throw new Fault('Data berubah setelah pratinjau. Buat pratinjau ulang.', 409);
+  const backup = await stateFrom(t.backupId);
+  validatedState(loaded.state, actor, backup);
+  const safety = await createBackup(actor, 'Sebelum pemulihan: ' + reason);
+  if ((await backupRow(safety)).source_revision !== t.revision)
+    throw new Fault(
+      'Ada aktivitas baru saat membuat cadangan pengaman. Buat pratinjau ulang.',
+      409,
+    );
+  const images = (await parts(t.backupId)).filter(
+      (p) => p.kind === 'image' && p.status === 'ready',
+    ),
+    map = Object.fromEntries(
+      images.map((p) => [JSON.parse(p.metadata).originalId, crypto.randomUUID()]),
+    ),
+    id = crypto.randomUUID();
+  await database()
+    .prepare(
+      'INSERT INTO restore_jobs(id,backup_id,actor_id,status,created_at,expected_revision,safety_backup_id,progress) VALUES(?,?,?,?,?,?,?,?)',
+    )
+    .bind(
+      id,
+      t.backupId,
+      actor.id,
+      'safety',
+      new Date().toISOString(),
+      t.revision,
+      safety,
+      JSON.stringify({ reason, map, imageCursor: 0, auditCursor: 0 }),
+    )
+    .run();
+  await event(actor, 'backup.restore.requested', {
+    backupId: t.backupId,
+    safetyBackupId: safety,
+    jobId: id,
+    reason,
+  });
+  return { id, status: 'safety', safetyBackupId: safety };
+}
+async function restoreRow(id: string, actor: Actor) {
+  validId(id);
+  const row = await database()
+    .prepare('SELECT * FROM restore_jobs WHERE id=?')
+    .bind(id)
+    .first<any>();
+  if (!row || row.actor_id !== actor.id) throw new Fault('Pemulihan tidak ditemukan.', 404);
+  if (!['safety', 'images', 'ready', 'completed'].includes(row.status))
+    throw new Fault('Pemulihan sudah dibatalkan. Buat pratinjau baru.', 409);
+  if (row.status !== 'completed' && Date.now() - Date.parse(row.created_at) > 60 * 60_000)
+    throw new Fault('Proses pemulihan kedaluwarsa. Buat pratinjau ulang.', 409);
+  return row;
+}
+export async function stepRestore(id: string, actor: Actor) {
+  const row = await restoreRow(id, actor);
+  if (['completed', 'ready'].includes(row.status))
+    return { id, status: row.status, safetyBackupId: row.safety_backup_id };
+  const loaded = await read();
+  if (loaded.control.revision !== row.expected_revision) {
+    await database()
+      .prepare("UPDATE restore_jobs SET status='conflict' WHERE id=? AND status<>'completed'")
+      .bind(id)
+      .run();
+    throw new Fault(
+      'Ada transaksi/perubahan baru. Pemulihan dihentikan agar data baru tidak tertimpa. Buat pratinjau ulang.',
+      409,
+    );
+  }
+  if (row.status === 'safety') {
+    const safety = await stepBackup(row.safety_backup_id);
+    if (safety.status === 'ready')
+      await database()
+        .prepare("UPDATE restore_jobs SET status='images' WHERE id=? AND status='safety'")
+        .bind(id)
+        .run();
+    return {
+      id,
+      status: safety.status === 'ready' ? 'images' : 'safety',
+      safetyBackupId: row.safety_backup_id,
+      phase: 'Membuat cadangan kondisi saat ini · ' + safety.phase,
+    };
+  }
+  const p = JSON.parse(row.progress),
+    images = (await parts(row.backup_id)).filter(
+      (part) => part.kind === 'image' && part.status === 'ready',
+    ),
+    end = Math.min(images.length, p.imageCursor + 5);
+  for (let index = p.imageCursor; index < end; index++) {
+    const part = images[index],
+      bytes = await partBytes(part),
+      meta = JSON.parse(part.metadata),
+      type = imageType(bytes);
+    if (type !== meta.contentType) throw new Fault('Format gambar cadangan tidak sesuai.');
+    await bucket().put(p.map[meta.originalId], bytes, { httpMetadata: { contentType: type } });
+  }
+  const previous = p.imageCursor,
+    oldAudit = p.auditCursor || 0;
+  p.imageCursor = end;
+  const auditParts = (await parts(row.backup_id)).filter(
+    (part) => part.kind.includes('audit') || part.kind.includes('changes'),
+  );
+  p.auditCursor = oldAudit;
+  if (end >= images.length) {
+    const limit = Math.min(auditParts.length, oldAudit + 5);
+    for (let index = oldAudit; index < limit; index++) await partBytes(auditParts[index]);
+    p.auditCursor = limit;
+  }
+  const status = end >= images.length && p.auditCursor >= auditParts.length ? 'ready' : 'images';
+  await database()
+    .prepare(
+      "UPDATE restore_jobs SET status=?,progress=? WHERE id=? AND status='images' AND json_extract(progress,'$.imageCursor')=? AND coalesce(json_extract(progress,'$.auditCursor'),0)=?",
+    )
+    .bind(status, JSON.stringify(p), id, previous, oldAudit)
+    .run();
+  return {
+    id,
+    status,
+    safetyBackupId: row.safety_backup_id,
+    phase:
+      end < images.length
+        ? `Menyiapkan gambar ${end}/${images.length}`
+        : `Memeriksa integritas audit ${p.auditCursor}/${auditParts.length}`,
+  };
+}
+export async function finishRestore(id: string, actor: Actor) {
+  const row = await restoreRow(id, actor);
+  if (row.status === 'completed') return { ok: true, safetyBackupId: row.safety_backup_id };
+  if (row.status !== 'ready') throw new Fault('Cadangan pengaman atau gambar belum selesai.', 409);
+  if ((await backupRow(row.safety_backup_id)).status !== 'ready')
+    throw new Fault('Cadangan pengaman belum lengkap.', 409);
+  const loaded = await read();
+  if (loaded.control.revision !== row.expected_revision) {
+    await database()
+      .prepare("UPDATE restore_jobs SET status='conflict' WHERE id=? AND status<>'completed'")
+      .bind(id)
+      .run();
+    throw new Fault('Data berubah. Pemulihan dibatalkan; buat pratinjau ulang.', 409);
+  }
+  const p = JSON.parse(row.progress),
+    backup = await stateFrom(row.backup_id);
+  backup.data = remapImages(backup.data, p.map);
+  await commit(
+    loaded,
+    actor,
+    'backup.restore',
+    { backup, reason: p.reason },
+    row.expected_revision,
+    row.id,
+    { backupId: row.backup_id, safetyBackupId: row.safety_backup_id, jobId: id },
+  );
+  return { ok: true, safetyBackupId: row.safety_backup_id };
+}
+function imageType(bytes: Uint8Array) {
+  if (bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71) return 'image/png';
+  if (bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return 'image/jpeg';
+  if (
+    new TextDecoder().decode(bytes.slice(0, 4)) === 'RIFF' &&
+    new TextDecoder().decode(bytes.slice(8, 12)) === 'WEBP'
+  )
+    return 'image/webp';
+  throw new Fault('Gambar cadangan bukan PNG, JPEG, atau WebP.');
+}
+function toBase64(bytes: Uint8Array) {
+  let value = '';
+  for (let i = 0; i < bytes.length; i += 32768)
+    value += String.fromCharCode(...bytes.subarray(i, i + 32768));
+  return btoa(value);
+}
+function fromBase64(value: string) {
+  if (value.length > Math.ceil(CHUNK_SIZE / 3) * 4 + 8 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value))
+    throw new Fault('Potongan cadangan tidak valid.');
+  return Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
+}
+export async function exportBackup(id: string) {
+  const row = await backupRow(id);
+  if (row.status !== 'ready') throw new Fault('Cadangan belum selesai.', 409);
+  const snapshotAt = JSON.parse(row.progress).snapshotAt || row.created_at;
+  const items = await parts(id);
+  const manifest = items.map((p) => ({
+    partId: p.part_id,
+    kind: p.kind,
+    size: p.size,
+    sha256: p.sha256,
+    metadata: JSON.parse(p.metadata),
+    status: p.status,
+  }));
+  async function* lines() {
+    yield encoder.encode(
+      JSON.stringify({
+        type: 'header',
+        format: 'winds-space-backup-v2',
+        createdAt: snapshotAt,
+        revision: row.source_revision,
+        reason: row.reason,
+        parts: manifest,
+      }) + '\n',
+    );
+    for (const part of items.filter((p) => p.status === 'ready')) {
+      const object = await bucket().get(part.object_key);
+      if (!object) throw Error('Berkas cadangan hilang');
+      const reader = object.body.getReader();
+      let buffer = new Uint8Array(CHUNK_SIZE),
+        used = 0,
+        index = 0;
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          let offset = 0;
+          while (offset < value.length) {
+            const n = Math.min(CHUNK_SIZE - used, value.length - offset);
+            buffer.set(value.subarray(offset, offset + n), used);
+            used += n;
+            offset += n;
+            if (used === CHUNK_SIZE) {
+              yield encoder.encode(
+                JSON.stringify({
+                  type: 'chunk',
+                  partId: part.part_id,
+                  index: index++,
+                  data: toBase64(buffer),
+                }) + '\n',
+              );
+              buffer = new Uint8Array(CHUNK_SIZE);
+              used = 0;
+            }
+          }
+        }
+        if (used)
+          yield encoder.encode(
+            JSON.stringify({
+              type: 'chunk',
+              partId: part.part_id,
+              index: index++,
+              data: toBase64(buffer.subarray(0, used)),
+            }) + '\n',
+          );
+      } finally {
+        await reader.cancel();
+      }
+    }
+    yield encoder.encode('{"type":"end"}\n');
+  }
+  const iterator = lines();
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const next = await iterator.next();
+          if (next.done) controller.close();
+          else controller.enqueue(next.value);
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+      async cancel() {
+        await iterator.return(undefined);
+      },
+    }),
+    {
+      headers: {
+        'Content-Type': 'application/x-ndjson',
+        'Content-Disposition': `attachment; filename="winds-space-${snapshotAt.slice(0, 10)}-${id.slice(0, 8)}.winds.jsonl"`,
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    },
+  );
+}
+export async function uploadPackage(req: Request, actor: Actor) {
+  const length = Number(req.headers.get('content-length'));
+  if (length > IMPORT_LIMIT)
+    throw new Fault(
+      'Paket unggahan maksimal 32 MB. Cadangan besar tetap dapat dipulihkan dari daftar server.',
+      413,
+    );
+  if (!req.body) throw new Fault('Paket kosong.');
+  const reader = req.body.getReader(),
+    chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      total += part.value.byteLength;
+      if (total > IMPORT_LIMIT) throw new Fault('Paket unggahan maksimal 32 MB.', 413);
+      chunks.push(part.value);
+    }
+  } finally {
+    await reader.cancel();
+  }
+  const bytes = new Uint8Array(total);
+  let cursor = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, cursor);
+    cursor += chunk.length;
+  }
+  const id = crypto.randomUUID();
+  if (bytes.byteLength <= 1024 * 1024) {
+    let legacy: any;
+    try {
+      legacy = JSON.parse(new TextDecoder().decode(bytes));
+    } catch {}
+    if (legacy?.format === 'winds-space-v1' && legacy.data) {
+      const progress = {
+        auditMax: 0,
+        changeMax: 0,
+        auditCursor: 0,
+        changeCursor: 0,
+        archiveIds: [],
+        archiveIndex: 0,
+        recordCount: kinds.reduce(
+          (n, k) => n + (Array.isArray(legacy.data[k]) ? legacy.data[k].length : 0),
+          0,
+        ),
+        snapshotAt:
+          typeof legacy.exportedAt === 'string' && Number.isFinite(Date.parse(legacy.exportedAt))
+            ? legacy.exportedAt
+            : new Date().toISOString(),
+        legacy: true,
+      };
+      await database()
+        .prepare(
+          'INSERT INTO backups(id,status,created_at,actor_id,reason,source_revision,progress) VALUES(?,?,?,?,?,?,?)',
+        )
+        .bind(
+          id,
+          'copying',
+          new Date().toISOString(),
+          actor.id,
+          'JSON lama · audit dan gambar hanya yang tersedia',
+          0,
+          JSON.stringify(progress),
+        )
+        .run();
+      await putPart(id, 'state', 'state', legacy);
+      const assets = imageIds(legacy.data);
+      if (assets.length)
+        await database().batch(
+          assets.map((asset) =>
+            database()
+              .prepare(
+                'INSERT INTO backup_parts(id,backup_id,part_id,kind,object_key,metadata,status) VALUES(?,?,?,?,?,?,?)',
+              )
+              .bind(
+                id + ':image-' + asset,
+                id,
+                'image-' + asset,
+                'image',
+                path(id, 'image-' + asset),
+                JSON.stringify({ originalId: asset }),
+                'pending',
+              ),
+          ),
+        );
+      await event(actor, 'backup.import', { backupId: id, legacy: true });
+      return id;
+    }
+  }
+  await bucket().put(`backups/${id}/upload`, bytes);
+  await database()
+    .prepare(
+      'INSERT INTO backups(id,status,created_at,actor_id,reason,source_revision,progress) VALUES(?,?,?,?,?,?,?)',
+    )
+    .bind(
+      id,
+      'importing',
+      new Date().toISOString(),
+      actor.id,
+      'Paket dari perangkat',
+      0,
+      JSON.stringify({ offset: 0, partIndex: 0, chunkIndex: 0, recordCount: null }),
+    )
+    .run();
+  await event(actor, 'backup.import', { backupId: id });
+  return id;
+}
+async function readLines(key: string, offset: number, max: number) {
+  const object = await bucket().get(key, { range: { offset } });
+  if (!object) throw new Fault('Paket tidak ditemukan.');
+  const reader = object.body.getReader(),
+    lines: { value: any; bytes: number }[] = [];
+  let pending = new Uint8Array(0);
+  try {
+    while (lines.length < max) {
+      const next = await reader.read();
+      if (next.done) break;
+      const joined = new Uint8Array(pending.length + next.value.length);
+      joined.set(pending);
+      joined.set(next.value, pending.length);
+      let start = 0;
+      for (let i = 0; i < joined.length && lines.length < max; i++)
+        if (joined[i] === 10) {
+          const line = joined.subarray(start, i);
+          if (line.length > 2 * 1024 * 1024) throw new Fault('Baris paket terlalu besar.');
+          let value;
+          try {
+            value = JSON.parse(new TextDecoder().decode(line));
+          } catch {
+            throw new Fault('Paket bukan cadangan Winds Space yang valid.');
+          }
+          lines.push({ value, bytes: i - start + 1 });
+          start = i + 1;
+        }
+      pending = joined.slice(start);
+      if (pending.length > 2 * 1024 * 1024) throw new Fault('Baris paket terlalu besar.');
+    }
+    return lines;
+  } finally {
+    await reader.cancel();
+  }
+}
+function validateManifest(header: any) {
+  if (
+    header?.type !== 'header' ||
+    header.format !== 'winds-space-backup-v2' ||
+    !Array.isArray(header.parts) ||
+    header.parts.length > 5000 ||
+    typeof header.createdAt !== 'string' ||
+    !Number.isFinite(Date.parse(header.createdAt))
+  )
+    throw new Fault('Format paket tidak dikenali. Gunakan paket .winds.jsonl.');
+  const seen = new Set<string>(),
+    imageSeen = new Set<string>();
+  let state = 0;
+  for (const p of header.parts) {
+    if (
+      !p ||
+      typeof p.partId !== 'string' ||
+      !/^[A-Za-z0-9_-]{1,100}$/.test(p.partId) ||
+      seen.has(p.partId) ||
+      !['state', 'image', 'audit', 'changes', 'archive_audit', 'archive_changes'].includes(
+        p.kind,
+      ) ||
+      !['ready', 'missing'].includes(p.status)
+    )
+      throw new Fault('Manifest paket tidak valid.');
+    seen.add(p.partId);
+    if (p.kind === 'state') state++;
+    if (
+      !Number.isSafeInteger(p.size) ||
+      p.size < 0 ||
+      p.size > PART_LIMIT ||
+      (p.status === 'ready' && !/^[a-f0-9]{64}$/.test(p.sha256)) ||
+      (p.status === 'missing' && p.kind !== 'image')
+    )
+      throw new Fault('Ukuran atau hash paket tidak valid.');
+    if (p.kind === 'image') {
+      validId(p.metadata?.originalId);
+      if (imageSeen.has(p.metadata.originalId)) throw new Fault('Gambar paket berulang.');
+      imageSeen.add(p.metadata.originalId);
+      if (
+        p.status === 'ready' &&
+        (!['image/png', 'image/jpeg', 'image/webp'].includes(p.metadata.contentType) ||
+          p.size > 2 * 1024 * 1024)
+      )
+        throw new Fault('Gambar paket tidak valid.');
+    }
+    p.metadata =
+      p.kind === 'image'
+        ? { originalId: p.metadata.originalId, contentType: p.metadata.contentType || '' }
+        : { source: 'Paket unggahan' };
+  }
+  if (state !== 1) throw new Fault('Paket harus mempunyai satu data utama.');
+  return header;
+}
+async function stepImport(row: Backup): Promise<any> {
+  const id = row.id,
+    db = database(),
+    p = JSON.parse(row.progress),
+    raw = `backups/${id}/upload`;
+  if (!p.header) {
+    const line = (await readLines(raw, 0, 1))[0];
+    if (!line) throw new Fault('Paket kosong.');
+    const header = validateManifest(line.value);
+    await bucket().put(`backups/${id}/import-header`, JSON.stringify(header));
+    if (header.parts.length)
+      await db.batch(
+        header.parts.map((part: any) =>
+          db
+            .prepare(
+              'INSERT OR IGNORE INTO backup_parts(id,backup_id,part_id,kind,object_key,size,sha256,metadata,status) VALUES(?,?,?,?,?,?,?,?,?)',
+            )
+            .bind(
+              id + ':' + part.partId,
+              id,
+              part.partId,
+              part.kind,
+              path(id, part.partId),
+              part.size,
+              part.sha256,
+              JSON.stringify(part.metadata),
+              part.status === 'missing' ? 'missing' : 'pending',
+            ),
+        ),
+      );
+    p.offset = line.bytes;
+    p.header = true;
+    p.snapshotAt = header.createdAt;
+    await db
+      .prepare(
+        'UPDATE backups SET progress=?,source_revision=?,version=version+1 WHERE id=? AND version=?',
+      )
+      .bind(
+        JSON.stringify(p),
+        Number.isSafeInteger(header.revision) ? header.revision : 0,
+        id,
+        row.version,
+      )
+      .run();
+    return summary(await backupRow(id));
+  }
+  const header: any = await (await bucket().get(`backups/${id}/import-header`))!.json(),
+    items = header.parts.filter((part: any) => part.status === 'ready'),
+    current = items[p.partIndex];
+  if (current && p.chunkIndex >= Math.ceil(current.size / CHUNK_SIZE)) {
+    const bytes = new Uint8Array(current.size);
+    for (let index = 0; index < p.chunkIndex; index++) {
+      const chunk = await bucket().get(`backups/${id}/chunks/${current.partId}/${index}`);
+      if (!chunk) throw new Fault('Potongan paket hilang.');
+      bytes.set(new Uint8Array(await chunk.arrayBuffer()), index * CHUNK_SIZE);
+    }
+    if ((await hashBytes(bytes)) !== current.sha256)
+      throw new Fault('Hash paket tidak sesuai. Paket rusak atau telah diubah.');
+    if (current.kind === 'image' && imageType(bytes) !== current.metadata.contentType)
+      throw new Fault('Tipe gambar tidak sesuai.');
+    if (current.kind.includes('audit') || current.kind.includes('changes'))
+      try {
+        validateArchivedAudit(current.kind, bytes);
+      } catch {
+        throw new Fault('Format arsip audit dalam paket tidak valid.');
+      }
+    await bucket().put(path(id, current.partId), bytes);
+    await db
+      .prepare("UPDATE backup_parts SET status='ready' WHERE id=?")
+      .bind(id + ':' + current.partId)
+      .run();
+    p.partIndex++;
+    p.chunkIndex = 0;
+  } else {
+    const lines = await readLines(raw, p.offset, current ? 1 : 1);
+    if (!lines.length) throw new Fault('Paket terpotong; penutup tidak ditemukan.');
+    const line = lines[0],
+      value = line.value;
+    if (!current) {
+      if (value.type !== 'end') throw new Fault('Penutup paket tidak valid.');
+      const head = await bucket().head(raw);
+      if (!head || p.offset + line.bytes !== head.size)
+        throw new Fault('Ada data tak dikenal setelah penutup paket.');
+      await db
+        .prepare("UPDATE backups SET status='ready',version=version+1 WHERE id=? AND version=?")
+        .bind(id, row.version)
+        .run();
+      return summary(await backupRow(id));
+    }
+    if (
+      value.type !== 'chunk' ||
+      value.partId !== current.partId ||
+      value.index !== p.chunkIndex ||
+      typeof value.data !== 'string'
+    )
+      throw new Fault('Urutan potongan paket tidak sesuai.');
+    const bytes = fromBase64(value.data),
+      expected = Math.min(CHUNK_SIZE, current.size - p.chunkIndex * CHUNK_SIZE);
+    if (bytes.byteLength !== expected) throw new Fault('Ukuran potongan paket tidak sesuai.');
+    await bucket().put(`backups/${id}/chunks/${current.partId}/${p.chunkIndex}`, bytes);
+    p.offset += line.bytes;
+    p.chunkIndex++;
+  }
+  await db
+    .prepare('UPDATE backups SET progress=?,version=version+1 WHERE id=? AND version=?')
+    .bind(JSON.stringify(p), id, row.version)
+    .run();
+  return summary(await backupRow(id));
 }
