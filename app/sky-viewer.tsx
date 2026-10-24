@@ -179,6 +179,8 @@ export default function SkyViewer(props: {
   onCatalog: (objects: SkyObjectOption[]) => void;
   onDetail: (loading: boolean) => void;
   onSelect: (info: SkyInfo | null) => void;
+  /** The Winds Space building in the wide-view illustration was tapped (canvas coordinates). */
+  onCafe?: (point: { x: number; y: number }) => void;
   onReady: () => void;
   onError: () => void;
   onTracking: (tracking: string | null) => void;
@@ -427,6 +429,10 @@ export default function SkyViewer(props: {
         const d = ray.ray.direction,
           a = (Math.atan2(d.x, -d.z) / D + 360) % 360;
         if (landscape.occludes(a, Math.asin(d.y) / D)) {
+          if (landscape.hitsCafe(a, Math.asin(d.y) / D)) {
+            latest.current.onCafe?.({ x: x - rect.left, y: y - rect.top });
+            return;
+          }
           choose(null);
           return;
         }

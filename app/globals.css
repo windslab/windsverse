@@ -5350,3 +5350,31 @@ td {
     display: none;
   }
 }
+
+/* Windstronout → café: zoom into the Winds Space illustration, fading to warm light. */
+.eyepiece-aperture[data-returning] {
+  animation: telescope-return 1s cubic-bezier(0.55, 0, 0.75, 0.2) forwards;
+}
+.eyepiece-aperture[data-returning]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background: #f6ead6;
+  animation: telescope-return-fade 1s ease-in forwards;
+}
+@keyframes telescope-return {
+  to {
+    transform: scale(5);
+  }
+}
+@keyframes telescope-return-fade {
+  0%,
+  45% {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

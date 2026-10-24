@@ -17,6 +17,7 @@ import { addCafeWalkSurfaces } from '@/lib/cafe-walk-surfaces';
 import { placeCafePeople } from './scene-people';
 import { EMPTY_CAFE_ACTIVITY, type CafeActivity } from '@/lib/cafe-activity';
 import { createToonOutline, toonGradient, toonify } from '@/lib/toon';
+import { createCafeSky, SKY_PHASES, type SkyPhase } from '@/lib/cafe-sky';
 
 function objectByModelName(root: THREE.Object3D, name: string) {
   return (
@@ -26,6 +27,12 @@ function objectByModelName(root: THREE.Object3D, name: string) {
 }
 
 const MAX_CAFE_DISTANCE = 14.5;
+/** First view: from the street side (the café front), low enough to show the sky. */
+function frontDirection() {
+  const az = (-82 * Math.PI) / 180,
+    el = (16 * Math.PI) / 180;
+  return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+}
 type FadingMaterial = { material: THREE.Material; opacity: number };
 function trafficVisibility(progress: number) {
   return (
@@ -227,6 +234,7 @@ export default function CafeScene({
   tvRequest = 0,
   tvExpandRequest = 0,
   telescopeRequest = 0,
+  cafeReturnRequest = 0,
   paused = false,
   onTelescopeReady,
   onTelescopeClick,
@@ -238,6 +246,8 @@ export default function CafeScene({
   tvExpandRequest?: number;
   paused?: boolean;
   telescopeRequest?: number;
+  /** Bumped when the telescope zooms into the Winds Space illustration to come back here. */
+  cafeReturnRequest?: number;
   onTelescopeReady?: () => void;
   onTelescopeClick?: () => void;
   onBookshelfClick?: () => void;
@@ -255,6 +265,7 @@ export default function CafeScene({
       reset: 0,
       tv: 0,
       telescopeRequest,
+      cafeReturnRequest,
       paused,
       onTelescopeReady,
       onTelescopeClick,
@@ -280,17 +291,22 @@ export default function CafeScene({
   viewRef.current.onTelescopeClick = onTelescopeClick;
   viewRef.current.paused = paused;
   viewRef.current.telescopeRequest = telescopeRequest;
+  viewRef.current.cafeReturnRequest = cafeReturnRequest;
   viewRef.current.onTelescopeReady = onTelescopeReady;
   const host = useRef<HTMLDivElement>(null),
     modeRef = useRef<'morning' | 'night'>('morning'),
+    phaseRef = useRef<SkyPhase>('live'),
     audioRef = useRef<AudioContext | null>(null),
     ambienceRef = useRef<SceneAmbience | null>(null),
     soundRef = useRef(false),
     [enteringScope, setEnteringScope] = useState(false),
     [modelReady, setModelReady] = useState(false),
     [mode, setMode] = useState<'morning' | 'night'>('morning'),
+    [skyPhase, setSkyPhase] = useState<SkyPhase>('live'),
+    [livePhase, setLivePhase] = useState<Exclude<SkyPhase, 'live'>>('siang'),
     [soundEnabled, setSoundEnabled] = useState(false);
   modeRef.current = mode;
+  phaseRef.current = skyPhase;
   soundRef.current = soundEnabled;
   useEffect(() => {
     ambienceRef.current?.setMode(mode);
@@ -366,6 +382,8 @@ export default function CafeScene({
       tvSight = new THREE.Raycaster(),
       tvDirection = new THREE.Vector3();
     const ripples: THREE.Mesh[] = [];
+    const leafMeshes: THREE.Mesh[] = [],
+      windTime = { value: 0 };
     const fish: THREE.Group[] = [];
     const mirrors: {
       mesh: Reflector;
@@ -390,12 +408,31 @@ export default function CafeScene({
       activeSounds = new Set<VehicleSound>();
     const addedMaterials: THREE.Material[] = [];
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#e9ded0');
+    // Windstronout's sky (atmosphere, clouds, stars, moon) with fog toward its horizon colour.
+    scene.background = new THREE.Color('#05070c');
+    const sky = createCafeSky();
+    scene.add(sky.group);
+    scene.fog = new THREE.Fog('#aeb39a', 22, 85);
+    let lastShadowSun = new THREE.Vector3(),
+      lastShadowAt = -Infinity,
+      lastPhase = '';
+    const sunColor = new THREE.Color(),
+      skyTint = new THREE.Color(),
+      groundTint = new THREE.Color(),
+      gradeTint = new THREE.Vector3(),
+      gradeLift = new THREE.Vector3();
+    const SUN_DAY = new THREE.Color('#fff1d6'),
+      SUN_GOLD = new THREE.Color('#ffa766'),
+      SKY_DAY = new THREE.Color('#fff5e5'),
+      SKY_DUSK = new THREE.Color('#ffc9a8'),
+      SKY_NIGHT = new THREE.Color('#51627f'),
+      GROUND_DAY = new THREE.Color('#9b8572'),
+      GROUND_NIGHT = new THREE.Color('#1d2230');
     const camera = new THREE.PerspectiveCamera(60, 1, 0.03, 100),
       overviewTarget = new THREE.Vector3(-0.35, 1, 0.15),
       overviewCamera = overviewTarget
         .clone()
-        .add(new THREE.Vector3(1, 0.64, 1).normalize().multiplyScalar(MAX_CAFE_DISTANCE));
+        .add(frontDirection().multiplyScalar(MAX_CAFE_DISTANCE));
     camera.position.copy(overviewCamera);
     const shelfParts = new Set<THREE.Object3D>();
     let shelf: THREE.Object3D | undefined,
@@ -407,6 +444,8 @@ export default function CafeScene({
     let lensTarget: THREE.Vector3 | undefined,
       lensNormal: THREE.Vector3 | undefined,
       lastTelescopeRequest = 0,
+      lastCafeReturn = 0,
+      returnToFrontAt = 0,
       telescopeMode = false,
       wasPaused = false;
     let transition:
@@ -484,9 +523,7 @@ export default function CafeScene({
     const moon = new THREE.DirectionalLight('#aabbd2', 0);
     moon.position.set(-5, 9, -4);
     scene.add(moon);
-    const daySky = new THREE.Color('#e9ded0'),
-      nightSky = new THREE.Color('#1a2330'),
-      dayGround = new THREE.Color('#e9ded0'),
+    const dayGround = new THREE.Color('#e9ded0'),
       nightGround = new THREE.Color('#252b34');
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(200, 200),
@@ -642,6 +679,7 @@ export default function CafeScene({
           mesh.castShadow = true;
           mesh.receiveShadow = true;
           const label = node.name.toLowerCase();
+          if (/leaves|daun|undergrowth|tree_base_plant/.test(label)) leafMeshes.push(mesh);
           if (/leaves|daun|undergrowth|tree_base_plant|pohon pasui/.test(label)) {
             if (label.includes('pasui - daun rindang')) {
               const phase = [...label].reduce((sum, char) => sum + char.charCodeAt(0), 0) * 0.17;
@@ -701,6 +739,47 @@ export default function CafeScene({
             mesh.castShadow = false;
           }
         });
+        // Wind: leaves sway in the vertex shader, each part with its own phase, so canopies
+        // flutter instead of rocking as one piece and nothing needs a per-frame matrix update.
+        const windMaterials = new Map<THREE.Material, THREE.Material>();
+        for (const leaf of leafMeshes) {
+          const amplitude = 0.018 / Math.max(leaf.getWorldScale(new THREE.Vector3()).x, 1e-4);
+          const swap = (material: THREE.Material) => {
+            const key = material;
+            let windy = windMaterials.get(key);
+            if (!windy) {
+              windy = material.clone();
+              windy.userData.windAmplitude = amplitude;
+              windy.onBeforeCompile = (shader) => {
+                shader.uniforms.windTime = windTime;
+                shader.uniforms.windAmplitude = { value: windy!.userData.windAmplitude };
+                shader.vertexShader = shader.vertexShader
+                  .replace(
+                    '#include <common>',
+                    '#include <common>\nuniform float windTime;\nuniform float windAmplitude;',
+                  )
+                  .replace(
+                    '#include <begin_vertex>',
+                    `#include <begin_vertex>
+                    vec4 windWorld = modelMatrix * vec4(transformed, 1.0);
+                    float gust = 0.65 + 0.35 * sin(windTime * 0.35 + windWorld.x * 0.2);
+                    float sway = sin(windTime * 1.7 + windWorld.x * 1.9 + windWorld.z * 1.3)
+                      + 0.45 * sin(windTime * 3.3 + windWorld.y * 4.0 + windWorld.x * 2.7);
+                    transformed.x += sway * windAmplitude * gust;
+                    transformed.z += 0.6 * cos(windTime * 1.4 + windWorld.z * 2.1) * windAmplitude * gust;
+                    transformed.y += 0.25 * sin(windTime * 2.6 + windWorld.x * 3.3) * windAmplitude;`,
+                  );
+              };
+              windy.customProgramCacheKey = () => 'cafe-wind';
+              windMaterials.set(key, windy);
+              addedMaterials.push(windy);
+            }
+            return windy;
+          };
+          leaf.material = Array.isArray(leaf.material)
+            ? leaf.material.map(swap)
+            : swap(leaf.material);
+        }
         // glTF PBR metal alone cannot reflect nearby walls. These two planar render targets do.
         for (const name of ['cermin1', 'cermin2']) {
           const surface = objectByModelName(model, name) as THREE.Mesh | undefined;
@@ -1077,8 +1156,11 @@ export default function CafeScene({
           (vehicle.userData.roadGlow as THREE.Mesh).visible = false;
         }
         if (disposed) return;
+        // Pond ripples and fish animate every frame, so they (and their parts) stay unfrozen.
+        const moving = new Set<THREE.Object3D>();
+        for (const item of [...ripples, ...fish]) item.traverse((n) => moving.add(n));
         model.traverse((node) => {
-          if (!foliage.some((leaf) => leaf.node === node)) {
+          if (!foliage.some((leaf) => leaf.node === node) && !moving.has(node)) {
             node.updateMatrix();
             node.matrixAutoUpdate = false;
           }
@@ -1144,7 +1226,28 @@ export default function CafeScene({
           }
           if (wasPaused) {
             wasPaused = false;
-            if (telescopeMode) moveCamera('cafe');
+            if (viewRef.current.cafeReturnRequest !== lastCafeReturn && lensTarget && lensNormal) {
+              // Back from the illustration: open on the telescope's own point of view, facing the
+              // café, then glide to the front view.
+              camera.position.copy(lensTarget).addScaledVector(lensNormal, 0.5);
+              camera.position.y += 0.12;
+              controls!.target.copy(overviewTarget);
+              camera.fov = 46;
+              camera.updateProjectionMatrix();
+              telescopeMode = false;
+              setEnteringScope(false);
+              controls!.enabled = true;
+              controls!.enableDamping = false;
+              controls!.update();
+              controls!.enableDamping = true;
+              transition = undefined;
+              returnToFrontAt = t + 1.3;
+            } else if (telescopeMode) moveCamera('cafe');
+            lastCafeReturn = viewRef.current.cafeReturnRequest;
+          }
+          if (returnToFrontAt && t >= returnToFrontAt) {
+            returnToFrontAt = 0;
+            moveCamera('cafe');
           }
           if (viewRef.current.telescopeRequest !== lastTelescopeRequest) {
             lastTelescopeRequest = viewRef.current.telescopeRequest;
@@ -1230,27 +1333,71 @@ export default function CafeScene({
               shelfMarker.current.style.top = (-markerPosition.y * 0.5 + 0.5) * 100 + '%';
             }
           }
-          const night = modeRef.current === 'night',
+          // Light follows the sun: dawn, morning, noon, afternoon, dusk and night.
+          sky.update(camera, phaseRef.current, t, delta, reduced);
+          const sk = sky.state,
+            lamps = 1 - THREE.MathUtils.smoothstep(sk.altitude, -5, 3),
+            night = lamps > 0.5,
             blend = reduced ? 1 : 1 - Math.exp(-delta * 2.4);
-          (scene.background as THREE.Color).lerp(night ? nightSky : daySky, blend);
+          if (sk.phase !== lastPhase) {
+            lastPhase = sk.phase;
+            setLivePhase(sk.phase);
+            setMode(night ? 'night' : 'morning');
+          }
+          sky.horizon((scene.fog as THREE.Fog).color);
           (floor.material as THREE.MeshToonMaterial).color.lerp(
-            night ? nightGround : dayGround,
+            groundTint.copy(nightGround).lerp(dayGround, sk.daylight),
             blend,
           );
-          ambient.intensity = THREE.MathUtils.lerp(ambient.intensity, night ? 0.48 : 1.8, blend);
-          sun.intensity = THREE.MathUtils.lerp(sun.intensity, night ? 0.03 : 2.1, blend);
-          fill.intensity = THREE.MathUtils.lerp(fill.intensity, night ? 0.18 : 0.7, blend);
-          moon.intensity = THREE.MathUtils.lerp(moon.intensity, night ? 0.55 : 0, blend);
-          warmBar.intensity = THREE.MathUtils.lerp(warmBar.intensity, night ? 2.3 : 1.4, blend);
+          const sunUp = THREE.MathUtils.smoothstep(sk.altitude, -2, 8);
+          sun.position.copy(sk.sun).multiplyScalar(20);
+          sun.color.copy(sunColor.copy(SUN_DAY).lerp(SUN_GOLD, sk.warm));
+          sun.intensity = THREE.MathUtils.lerp(sun.intensity, 2.3 * sunUp, blend);
+          // The moon takes over as the key light at night.
+          moon.position.copy(sk.moon.y > 0 ? sk.moon : sk.sun.clone().negate()).multiplyScalar(20);
+          moon.intensity = THREE.MathUtils.lerp(moon.intensity, 0.6 * sk.night, blend);
+          ambient.color.lerp(
+            skyTint.copy(SKY_NIGHT).lerp(SKY_DUSK, sk.twilight).lerp(SKY_DAY, sk.daylight),
+            blend,
+          );
+          if (sk.warm > 0) ambient.color.lerp(SKY_DUSK, sk.warm * 0.4);
+          ambient.groundColor.copy(GROUND_NIGHT).lerp(GROUND_DAY, sk.daylight);
+          ambient.intensity = THREE.MathUtils.lerp(
+            ambient.intensity,
+            0.55 + 1.25 * sk.daylight - 0.25 * sk.warm,
+            blend,
+          );
+          fill.intensity = THREE.MathUtils.lerp(fill.intensity, 0.18 + 0.52 * sk.daylight, blend);
+          warmBar.intensity = THREE.MathUtils.lerp(warmBar.intensity, 1.4 + 0.9 * lamps, blend);
           renderer.toneMappingExposure = THREE.MathUtils.lerp(
             renderer.toneMappingExposure,
-            night ? 0.98 : 1.13,
+            0.98 + 0.15 * sk.daylight,
             blend,
           );
+          // Soft, slightly lifted Ghibli-like grade: fresh by day, golden at the edges, blue at night.
+          gradeTint
+            .set(1.02, 1.0, 0.96)
+            .lerp(new THREE.Vector3(1.09, 0.96, 0.84), sk.warm)
+            .lerp(new THREE.Vector3(0.84, 0.92, 1.1), sk.night);
+          gradeLift
+            .set(0.03, 0.035, 0.04)
+            .lerp(new THREE.Vector3(0.05, 0.03, 0.035), sk.warm)
+            .lerp(new THREE.Vector3(0.012, 0.02, 0.045), sk.night);
+          toonOutline.setGrade(gradeTint, gradeLift, 1.08 - 0.2 * sk.night);
+          // Shadows are baked once per sun position; refresh when the sun has moved.
+          if (
+            sunUp > 0.01 &&
+            sk.sun.angleTo(lastShadowSun) > 0.01 &&
+            t - lastShadowAt > (sk.sun.angleTo(lastShadowSun) > 0.08 ? 0.25 : 4)
+          ) {
+            lastShadowSun = sk.sun.clone();
+            lastShadowAt = t;
+            renderer.shadowMap.needsUpdate = true;
+          }
           nightLights.forEach((light) => {
             light.intensity = THREE.MathUtils.lerp(
               light.intensity,
-              night ? light.userData.nightIntensity : 0,
+              light.userData.nightIntensity * lamps,
               blend,
             );
           });
@@ -1258,14 +1405,14 @@ export default function CafeScene({
             bulb.emissive.set('#ffd6a4');
             bulb.emissiveIntensity = THREE.MathUtils.lerp(
               bulb.emissiveIntensity,
-              night ? 2.7 : 0.3,
+              0.3 + 2.4 * lamps,
               blend,
             );
           });
           neonPanels.forEach((panel) => {
             const material = panel.material as THREE.MeshBasicMaterial;
-            panel.visible = night || material.opacity > 0.01;
-            material.opacity = THREE.MathUtils.lerp(material.opacity, night ? 0.95 : 0, blend);
+            panel.visible = lamps > 0.01 || material.opacity > 0.01;
+            material.opacity = THREE.MathUtils.lerp(material.opacity, 0.95 * lamps, blend);
           });
           mirrors.forEach(({ mesh, front, back, right, up, normal }) => {
             const cameraAtFront = normal.dot(mirrorView.subVectors(camera.position, front)) >= 0;
@@ -1288,6 +1435,7 @@ export default function CafeScene({
             node.rotation.z =
               z + (reduced ? 0 : Math.sin(t * 0.95 + phase * 1.3) * amplitude * 0.8);
           });
+          windTime.value = reduced ? 0 : t;
           ripples.forEach((ring) => {
             const phase = reduced ? 0.38 : (t * 0.28 + ring.userData.phase) % 1;
             ring.scale.setScalar(0.45 + phase * 3.5);
@@ -1536,6 +1684,7 @@ export default function CafeScene({
       (floor.material as THREE.Material).dispose();
       addedMaterials.forEach((m) => m.dispose());
       toonOutline.dispose();
+      sky.dispose();
       renderer?.dispose();
       renderer?.forceContextLoss();
       renderer?.domElement.remove();
@@ -1548,7 +1697,7 @@ export default function CafeScene({
         <div
           className={'cafe-scene ' + (!modelReady ? 'scene-loading' : '')}
           ref={host}
-          aria-label="Tampilan 3D kafe Winds Space dengan mode pagi dan malam."
+          aria-label="Tampilan 3D kafe Winds Space dengan langit dan cahaya yang mengikuti waktu."
         >
           <div className="scene-loading-label" aria-hidden={modelReady}>
             <Coffee size={20} /> Menyiapkan kafe 3D…
@@ -1614,19 +1763,26 @@ export default function CafeScene({
         <div className="scene-time-switch" role="group" aria-label="Waktu tampilan kafe">
           <button
             type="button"
-            className={mode === 'morning' ? 'active' : ''}
-            aria-pressed={mode === 'morning'}
-            onClick={() => setMode('morning')}
+            className="active"
+            aria-label={
+              'Waktu: ' +
+              (skyPhase === 'live'
+                ? 'mengikuti jam sekarang, ' + livePhase
+                : SKY_PHASES.find((p) => p.id === skyPhase)?.label) +
+              '. Ketuk untuk mengganti.'
+            }
+            onClick={() => {
+              const i = SKY_PHASES.findIndex((p) => p.id === skyPhase);
+              setSkyPhase(SKY_PHASES[(i + 1) % SKY_PHASES.length].id);
+            }}
           >
-            ☀ Pagi
-          </button>
-          <button
-            type="button"
-            className={mode === 'night' ? 'active' : ''}
-            aria-pressed={mode === 'night'}
-            onClick={() => setMode('night')}
-          >
-            ☾ Malam
+            {(skyPhase === 'live' ? livePhase : skyPhase) === 'malam' ||
+            (skyPhase === 'live' ? livePhase : skyPhase) === 'senja'
+              ? '☾'
+              : '☀'}{' '}
+            {skyPhase === 'live'
+              ? 'Live · ' + SKY_PHASES.find((p) => p.id === livePhase)?.label
+              : SKY_PHASES.find((p) => p.id === skyPhase)?.label}
           </button>
         </div>
       </div>

@@ -173,7 +173,10 @@ export function createSkyLandscape() {
       const u = coordinates(az, 0).u;
       return heights[Math.floor(u * 4096) % 4096];
     };
-    return { mesh, texture, material, ready, occludes, elevationAt };
+    /** Horizontal image position (0–1) under a direction, or null if the image is clear there. */
+    const imageAt = (az: number, alt: number) =>
+      occludes(az, alt) ? coordinates(az, alt).u : null;
+    return { mesh, texture, material, ready, occludes, elevationAt, imageAt };
   }
   const foreground = layer(
     '/sky/winds-panorama-foreground-v2.png',
@@ -238,6 +241,11 @@ export function createSkyLandscape() {
     elevationAt: (az: number) => Math.max(foreground.elevationAt(az), background.elevationAt(az)),
     occludes: (az: number, alt: number) =>
       foreground.occludes(az, alt) || background.occludes(az, alt),
+    /** True when a direction lands on the Winds Space building in the foreground illustration. */
+    hitsCafe: (az: number, alt: number) => {
+      const u = foreground.imageAt(az, alt);
+      return u !== null && u > 0.19 && u < 0.35;
+    },
     dispose: () => {
       disposed = true;
     },

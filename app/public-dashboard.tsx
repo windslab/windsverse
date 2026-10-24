@@ -60,6 +60,7 @@ export default function PublicDashboard() {
     [libraryOpen, setLibraryOpen] = useState(false),
     [cameraOpen, setCameraOpen] = useState(false),
     [radioOpen, setRadioOpen] = useState(false),
+    [cafeReturn, setCafeReturn] = useState(0),
     [libraryRequest, setLibraryRequest] = useState(0),
     [tvRequest, setTvRequest] = useState(0);
   const [telescopeOpen, setTelescopeOpen] = useState(false),
@@ -216,6 +217,7 @@ export default function PublicDashboard() {
               activity={snapshot}
               paused={telescopeOpen}
               telescopeRequest={telescopeRequest}
+              cafeReturnRequest={cafeReturn}
               onTelescopeReady={telescopeArrived}
               onTelescopeClick={visitTelescope}
               tvRequest={tvRequest}
@@ -411,7 +413,14 @@ export default function PublicDashboard() {
           <a href="/login">Masuk staf</a>
         </footer>
       </div>
-      <TelescopeView open={telescopeOpen} onOpenChange={setTelescopeOpen} />
+      <TelescopeView
+        open={telescopeOpen}
+        onOpenChange={setTelescopeOpen}
+        onReturnToCafe={() => {
+          setCafeReturn((n) => n + 1);
+          setTelescopeOpen(false);
+        }}
+      />
       <PublicLibrary open={libraryOpen} onOpenChange={setLibraryOpen} />
       {cameraOpen && <VintageCamera open={cameraOpen} onOpenChange={setCameraOpen} />}
       <Noisegasm open={radioOpen} onOpenChange={setRadioOpen} />
