@@ -1,0 +1,36 @@
+Star positions, magnitudes and B-V colours: Hipparcos catalogue via d3-celestial (Olaf Frohn).
+https://github.com/ofrohn/d3-celestial
+https://www.cosmos.esa.int/web/hipparcos
+Catalogue positions use J2000.
+Astronomical calculations: Astronomy Engine (Don Cross), MIT licence.
+https://github.com/cosinekitty/astronomy
+
+Moon colour map: NASA Scientific Visualization Studio, Ernie Wright; LRO/LROC/LOLA data.
+CGI Moon Kit (2025 colour map, 2048 x 1024).
+https://svs.gsfc.nasa.gov/4720/
+Surface orientation is illustrative; lunar libration is not modelled.
+
+Planet and ring textures: Solar System Scope / INOVE, CC BY 4.0.
+https://www.solarsystemscope.com/textures/
+https://creativecommons.org/licenses/by/4.0/
+Some unmapped terrain is artistically filled in by the source.
+Moon high-detail map: NASA SVS CGI Moon Kit, 2019 LROC/LOLA 8192 x 4096 map.
+JPEG conversion and 4096-pixel fallback for mobile devices.
+Planet diameter reference: NASA Planetary Fact Sheet.
+https://nssdc.gsfc.nasa.gov/planetary/factsheet/
+Eyepiece magnification = telescope focal length / eyepiece focal length x Barlow factor.
+Eyepiece 31.7 mm and 50.8 mm values describe barrel diameters, not focal lengths.
+
+Milky Way panorama: ESO/S. Brunier, eso0932a (2009).
+https://www.eso.org/public/images/eso0932a/
+License: Creative Commons Attribution 4.0 International, https://creativecommons.org/licenses/by/4.0/
+Adaptations: resized, brightness reduced, remapped to a celestial sphere in galactic coordinates. Photographic survey background; not a live feed, weather prediction, or simulation of naked-eye brightness.
+Galactic coordinate transformation: Astronomy Engine Rotation_GAL_EQJ.
+Pleiades center (J2000): RA 03h47m, Dec +24d07m; https://messier.lamost.org/seds/seds.org/messier/en/m/m045.html
+Wide mode: virtual 90-degree sky explorer, independent of the 1500-mm telescope and Barlow optics.
+Photo export: local rendering of the current simulated eyepiece view, with observation time and direction.
+
+Wide horizon: gambar 1.PNG (Winds Space foreground) and gambar 2.PNG (mountain background), supplied by the Winds Space owner. The original transparent images are stored as winds-horizon-foreground.png and winds-horizon-mountains.png. Both strips wrap 360 degrees, with separate ground baselines and seam blending. The orientation and virtual layer distances are illustrative, not georeferenced. Gentle perspective parallax uses a periodic observer offset around the telescope mount; the mountain layer is ten times farther than the foreground layer. Reduced-motion preferences disable this movement.
+Atmosphere: simplified clear-sky colour and visibility model based on current solar elevation at Pangkep. No live weather or physical scattering/refraction simulation. Twilight reference: https://aa.usno.navy.mil/faq/RST_defs
+
+Horizon contrast: a uniform altitude-only mist gradient; no localized halo or height-dependent fog texture.

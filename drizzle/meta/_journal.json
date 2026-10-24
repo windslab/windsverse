@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1791481904435,
+      "tag": "0000_eminent_sway",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791568100678,
+      "tag": "0001_peaceful_lady_vermin",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792322298011,
+      "tag": "0002_cold_iron_lad",
+      "breakpoints": true
+    }
+  ]
+}
