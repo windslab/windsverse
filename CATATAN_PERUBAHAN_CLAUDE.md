@@ -199,3 +199,22 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   Memoirs publik hanya untuk foto pilihan, tamu tidak bisa mengubah pengaturan/Memoirs, panel admin dan
   kamera digicam tampil. `typecheck`, `format:check`, `build` lulus; `engine.test` 21/25 seperti sebelumnya.
 - Belum diuji: kamera sungguhan di HP.
+
+## 11. Noisegasm: musik latar dengan radio tua (25 Okt 2026, branch `luna-ps1`)
+
+- Tombol **Noisegasm** di halaman depan (6 tombol, 3 baris). Radio kayu dengan kisi speaker yang menyala,
+  jendela frekuensi (jarum + judul berjalan), kenop volume, tombol sebelumnya/putar-jeda/berikutnya.
+  Pemutar mini di pojok kiri bawah selama ada musik.
+- Putar otomatis: dicoba saat halaman dibuka; bila browser menolak (aturan browser), mulai pada sentuhan,
+  klik, atau tombol pertama. Bila pengunjung menjeda, tidak diputar otomatis lagi di sesi itu.
+- Lagu unggahan diputar lewat `<audio>` → GainNode (kenop volume juga berfungsi di iPhone). Mode YouTube
+  memakai pemutar resmi YouTube; videonya tetap terlihat di pemutar mini (syarat YouTube).
+- Server: `lib/music.ts`, `app/api/music` (GET publik, POST pengaturan/ubah/urut/hapus, PUT unggah — admin),
+  `app/api/music/[id]` (streaming dengan Range untuk Safari). Lagu di R2 `music/<id>` (maks. 20 MB, 60 lagu),
+  data di `records` (kind `track`/`musicConfig`). Tanpa migrasi; tidak masuk data kafe.
+- **Cafe Management → Noisegasm** (`app/music-admin.tsx`, khusus admin): sumber (unggahan/YouTube), link
+  playlist/video YouTube, putar otomatis, volume awal, unggah banyak lagu ("Penyanyi - Judul" dipisah
+  otomatis), ubah judul, urutkan, hapus, dengar contoh.
+- Diuji lokal: unggah, file bukan lagu ditolak, tamu tidak bisa unggah, link non-YouTube ditolak, Range 206,
+  putar otomatis + pindah lagu, radio dan pemutar mini tampil. `typecheck`, `format:check`, `build` lulus.
+- Belum diuji: mode YouTube di browser, dan putar otomatis di HP sungguhan.

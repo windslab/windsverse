@@ -1,0 +1,393 @@
+/* Noisegasm: a 1950s valve radio in a walnut cabinet, plus a small now-playing pill. */
+.dialog {
+  width: min(460px, calc(100vw - 16px)) !important;
+  max-width: none !important;
+  padding: 18px !important;
+  border: 0 !important;
+  border-radius: 28px !important;
+  background: #f3ebdf !important;
+}
+.radio {
+  --wood-1: #7a4a2a;
+  --wood-2: #5a3219;
+  --wood-3: #3e2111;
+  --brass: #d8b26a;
+  --cream: #f1e3c4;
+  --amber: #ffb347;
+  position: relative;
+  margin-top: 6px;
+}
+.cabinetTop {
+  height: 46px;
+  margin: 0 18px;
+  border-radius: 120px 120px 0 0;
+  display: grid;
+  place-items: center;
+  background:
+    repeating-linear-gradient(
+      100deg,
+      rgba(0, 0, 0, 0.08) 0 2px,
+      transparent 2px 9px,
+      rgba(255, 255, 255, 0.04) 9px 11px
+    ),
+    linear-gradient(180deg, var(--wood-1), var(--wood-2));
+  box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.15);
+}
+.badge {
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f3d995, var(--brass) 55%, #9c7a37);
+  color: #3a2410;
+  font:
+    700 11px/1 Georgia,
+    serif;
+  letter-spacing: 0.32em;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 2px 4px rgba(0, 0, 0, 0.35);
+}
+.face {
+  padding: 16px;
+  border-radius: 22px;
+  display: grid;
+  gap: 14px;
+  background:
+    repeating-linear-gradient(
+      96deg,
+      rgba(0, 0, 0, 0.09) 0 2px,
+      transparent 2px 10px,
+      rgba(255, 255, 255, 0.05) 10px 12px
+    ),
+    linear-gradient(180deg, var(--wood-1), var(--wood-2) 60%, var(--wood-3));
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.15),
+    inset 0 -4px 10px rgba(0, 0, 0, 0.35),
+    0 18px 30px rgba(40, 20, 8, 0.35);
+}
+.grille {
+  position: relative;
+  height: 130px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 4px solid #2c170a;
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #c9b38c, #a88f66);
+  box-shadow: inset 0 4px 10px rgba(0, 0, 0, 0.45);
+}
+.grille::after {
+  /* Vertical wooden slats over the speaker cloth */
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0 22px,
+    var(--wood-2) 22px 30px,
+    transparent 30px 52px
+  );
+  opacity: 0.85;
+}
+.glow {
+  position: absolute;
+  inset: 20% 25%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 170, 70, 0.75), transparent 70%);
+  opacity: 0;
+  transition: opacity 1.2s;
+}
+.radio[data-on] .glow {
+  opacity: 1;
+  animation: flicker 3s ease-in-out infinite;
+}
+@keyframes flicker {
+  50% {
+    opacity: 0.8;
+  }
+}
+.dial {
+  position: relative;
+  height: 74px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 3px solid var(--brass);
+  background: linear-gradient(180deg, #2b1a0c, #1a0f06);
+  box-shadow: inset 0 3px 10px rgba(0, 0, 0, 0.7);
+}
+.radio[data-on] .dial {
+  background: linear-gradient(180deg, #4a2b0e, #2a1606);
+}
+.scale {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  top: 8px;
+  display: flex;
+  justify-content: space-between;
+  font:
+    600 10px 'Courier New',
+    monospace;
+  color: var(--amber);
+  border-bottom: 1px solid rgba(255, 179, 71, 0.5);
+  padding-bottom: 6px;
+  background: repeating-linear-gradient(90deg, rgba(255, 179, 71, 0.6) 0 1px, transparent 1px 8px)
+    bottom / 100% 5px no-repeat;
+}
+.needle {
+  position: absolute;
+  top: 4px;
+  width: 2px;
+  height: 34px;
+  background: #ff5a2a;
+  box-shadow: 0 0 6px #ff5a2a;
+  transition: left 0.8s cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+.marquee {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 9px;
+  overflow: hidden;
+  white-space: nowrap;
+  font:
+    600 14px Georgia,
+    serif;
+  color: var(--cream);
+  text-shadow: 0 0 8px rgba(255, 179, 71, 0.6);
+}
+.marquee span {
+  display: inline-block;
+}
+.marquee span[data-scroll] {
+  padding-left: 100%;
+  animation: scroll 14s linear infinite;
+}
+@keyframes scroll {
+  to {
+    transform: translateX(-100%);
+  }
+}
+.knobs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.knobWrap {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+.knobWrap small {
+  font:
+    700 9px Georgia,
+    serif;
+  letter-spacing: 0.2em;
+  color: var(--cream);
+}
+.knob {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  touch-action: none;
+  cursor: grab;
+  background:
+    repeating-conic-gradient(rgba(0, 0, 0, 0.18) 0 4deg, transparent 4deg 10deg),
+    radial-gradient(circle at 35% 30%, #f6dfa4, var(--brass) 50%, #8a6a2c);
+  box-shadow:
+    0 4px 0 #4a2c12,
+    0 6px 12px rgba(0, 0, 0, 0.45);
+}
+.knob:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 3px;
+}
+.knob i {
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #f8e7bb, #c99e52);
+}
+.knob i::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  width: 4px;
+  height: 14px;
+  margin-left: -2px;
+  border-radius: 2px;
+  background: #3a2410;
+}
+.keys {
+  display: flex;
+  gap: 6px;
+}
+.keys button {
+  width: 50px;
+  height: 46px;
+  border: 0;
+  border-radius: 6px 6px 10px 10px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, #fbf3e2, #e2d3b4);
+  color: #3a2410;
+  box-shadow:
+    0 5px 0 #a99572,
+    0 7px 10px rgba(0, 0, 0, 0.35);
+  transition:
+    transform 0.06s,
+    box-shadow 0.06s;
+}
+.keys button:active,
+.keys button[aria-pressed='true'] {
+  transform: translateY(4px);
+  box-shadow:
+    0 1px 0 #a99572,
+    0 2px 4px rgba(0, 0, 0, 0.3);
+}
+.power {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  color: var(--cream);
+}
+.power i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #4a2c12;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.power i[data-on] {
+  background: #ff9a3a;
+  box-shadow: 0 0 10px #ff9a3a;
+}
+.feet {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 40px;
+}
+.feet i {
+  width: 34px;
+  height: 10px;
+  border-radius: 0 0 8px 8px;
+  background: var(--wood-3);
+}
+.note {
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 12px;
+  color: #6f5c48;
+}
+
+/* Now-playing pill (bottom-left). Above dialogs so a YouTube video stays visible. */
+.mini {
+  position: fixed;
+  left: max(12px, env(safe-area-inset-left));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(330px, calc(100vw - 24px));
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(58, 36, 16, 0.92);
+  color: #f1e3c4;
+  box-shadow: 0 10px 24px rgba(30, 15, 5, 0.35);
+  backdrop-filter: blur(6px);
+}
+.mini[data-youtube] {
+  border-radius: 16px;
+}
+.miniVideo {
+  width: 96px;
+  height: 54px;
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: #000;
+}
+.miniVideo iframe {
+  width: 96px;
+  height: 54px;
+  display: block;
+}
+.miniMain {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 2px 4px 2px 8px;
+}
+.miniText {
+  display: grid;
+  min-width: 0;
+}
+.miniText small {
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  color: #e3b66a;
+}
+.miniText span {
+  font-size: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.miniToggle {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 0;
+  display: grid;
+  place-items: center;
+  background: #f1e3c4;
+  color: #3a2410;
+}
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.bars i {
+  width: 3px;
+  height: 4px;
+  border-radius: 1px;
+  background: #e3b66a;
+}
+.mini[data-on] .bars i {
+  animation: eq 0.9s ease-in-out infinite;
+}
+.mini[data-on] .bars i:nth-child(2) {
+  animation-delay: -0.3s;
+}
+.mini[data-on] .bars i:nth-child(3) {
+  animation-delay: -0.6s;
+}
+@keyframes eq {
+  50% {
+    height: 14px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .glow,
+  .marquee span[data-scroll],
+  .mini[data-on] .bars i {
+    animation: none !important;
+  }
+  .marquee span[data-scroll] {
+    padding-left: 0;
+    text-overflow: ellipsis;
+  }
+}

@@ -10,8 +10,11 @@ export async function read() {
   const db = database();
   const [c, r] = await db.batch([
     db.prepare('SELECT * FROM control WHERE id=1'),
-    // Camera photos (lib/photos.ts) are queried on their own and never enter the cafe state.
-    db.prepare("SELECT id,kind,data FROM records WHERE kind<>'photo'"),
+    // Camera (lib/photos.ts, lib/camera-config.ts) and music (lib/music.ts) rows are queried on
+    // their own and never enter the cafe state.
+    db.prepare(
+      "SELECT id,kind,data FROM records WHERE kind NOT IN ('photo','filmPreset','cameraConfig','track','musicConfig')",
+    ),
   ]);
   const state = blank();
   for (const x of r.results as any[])
