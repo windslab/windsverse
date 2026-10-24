@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import BackupPanel from './backup-panel';
 import AuditPanel from './audit-panel';
 import CameraAdmin from './camera-admin';
+import MusicAdmin from './music-admin';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
@@ -45,6 +46,7 @@ import {
   Receipt,
   CircleHelp,
   Aperture,
+  Radio,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -228,11 +230,20 @@ const nav = [
       ['notes', 'Catatan tim', StickyNote],
       ['feedback', 'Kritik & saran', MessageCircle],
       ['camera', 'Story of Winds', Aperture],
+      ['music', 'Noisegasm', Radio],
       ['settings', 'Pengaturan', Settings],
     ],
   },
 ];
-const restricted = ['financials', 'employees', 'products', 'feedback', 'settings', 'camera'];
+const restricted = [
+  'financials',
+  'employees',
+  'products',
+  'feedback',
+  'settings',
+  'camera',
+  'music',
+];
 export default function Cafe({ name }: { name: string }) {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [s, setS] = useState<State>(blank()),
@@ -2944,6 +2955,7 @@ export default function Cafe({ name }: { name: string }) {
       </>
     );
   if (tab === 'camera' && admin) content = <CameraAdmin />;
+  if (tab === 'music' && admin) content = <MusicAdmin />;
   if (tab === 'settings')
     content = (
       <>
