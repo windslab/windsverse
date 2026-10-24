@@ -160,3 +160,22 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Tes: tes baru untuk rombongan; `people.test` 8/8, `engine.test` 21/25 (4 gagal lama, sama seperti
   sebelumnya), `typecheck`, `format:check`, `build` lulus.
 - Belum dicek di browser: layar kasir dan lacak nama (database lokal kosong).
+
+## 9. Kamera vintage "Story of Winds" (24 Okt 2026, branch `luna-ps1`)
+
+- Tombol baru **Story of Winds** (kamera) di antara tombol fitur. Tombol TV lama berganti nama **Memoirs**.
+- `app/vintage-camera.tsx` + `.module.css`: badan kamera film (pelat krom, penghitung sisa, jendela
+  bidik 2:3), tuas penggulung yang harus digeser/diketuk sebelum tiap jepretan, tombol rana dengan
+  bunyi dan getar, lampu kilat layar, kamera depan/belakang, 5 film, album, unduh, hapus.
+  Halaman aturan + persetujuan sebelum pertama kali dipakai (disimpan di perangkat).
+- `lib/film.ts`: pengolahan foto di HP (warna, pudar, butiran, vinyet, kebocoran cahaya, tanggal
+  oranye untuk Sekali Pakai, bingkai krem bertulisan). JPEG ±200–350 KB, ±50–150 ms.
+- Server (`lib/photos.ts`, `app/api/photos`): foto di R2 (`photo/<id>`), catatan di tabel `records`
+  (kind `photo`), tanpa migrasi. Pemilik = hash token acak perangkat; hanya perangkat itu dan admin
+  yang bisa melihat/menghapus. 15 jepretan per perangkat per hari (reset 08.00 WITA = 00.00 UTC),
+  plus batas 60 per jaringan per hari. Foto yang dihapus tetap memotong jatah. Foto kedaluwarsa
+  30 hari dihapus bertahap setiap ada jepretan baru. Data kafe (`read()`) tidak memuat baris foto.
+- Diuji lokal (database lokal saja): roll 15 → jepretan ke-16 ditolak, perangkat lain 403, hapus
+  tidak mengembalikan jatah, file bukan JPEG/film asing ditolak, album dan penghitung tampil.
+  `typecheck`, `format:check`, `build` lulus; `engine.test` 21/25 seperti sebelumnya.
+- Belum diuji: kamera sungguhan di HP (panel browser memblokir kamera) dan tampilan admin "semua foto".

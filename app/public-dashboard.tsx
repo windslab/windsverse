@@ -12,10 +12,12 @@ import {
   Utensils,
   Tv,
   Telescope,
+  Camera,
 } from 'lucide-react';
 import { BrandMark } from '@/components/brand-mark';
 import PublicLibrary from './public-library';
 import TelescopeView from './telescope';
+const VintageCamera = dynamic(() => import('./vintage-camera'), { ssr: false });
 import PublicMenuSection from './public-menu-section';
 import type { Row } from '@/lib/model';
 import { EMPTY_CAFE_ACTIVITY, type CafeActivity } from '@/lib/cafe-activity';
@@ -54,6 +56,7 @@ export default function PublicDashboard() {
   const [catalog, setCatalog] = useState<{ categories: Row[]; products: Row[] } | null>(null),
     [catalogError, setCatalogError] = useState(''),
     [libraryOpen, setLibraryOpen] = useState(false),
+    [cameraOpen, setCameraOpen] = useState(false),
     [libraryRequest, setLibraryRequest] = useState(0),
     [tvRequest, setTvRequest] = useState(0);
   const [telescopeOpen, setTelescopeOpen] = useState(false),
@@ -229,9 +232,17 @@ export default function PublicDashboard() {
             <div className="landing-tv-actions">
               <button type="button" className="button landing-library-cta" onClick={visitTV}>
                 <Tv size={18} />
-                Story of Winds <ArrowRight size={18} />
+                Memoirs <ArrowRight size={18} />
               </button>
             </div>
+            <button
+              type="button"
+              className="button landing-library-cta"
+              onClick={() => setCameraOpen(true)}
+            >
+              <Camera size={18} />
+              Story of Winds <ArrowRight size={18} />
+            </button>
             <button
               type="button"
               className="button landing-library-cta landing-telescope-cta"
@@ -391,6 +402,7 @@ export default function PublicDashboard() {
       </div>
       <TelescopeView open={telescopeOpen} onOpenChange={setTelescopeOpen} />
       <PublicLibrary open={libraryOpen} onOpenChange={setLibraryOpen} />
+      {cameraOpen && <VintageCamera open={cameraOpen} onOpenChange={setCameraOpen} />}
     </main>
   );
 }

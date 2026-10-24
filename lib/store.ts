@@ -10,7 +10,8 @@ export async function read() {
   const db = database();
   const [c, r] = await db.batch([
     db.prepare('SELECT * FROM control WHERE id=1'),
-    db.prepare('SELECT id,kind,data FROM records'),
+    // Camera photos (lib/photos.ts) are queried on their own and never enter the cafe state.
+    db.prepare("SELECT id,kind,data FROM records WHERE kind<>'photo'"),
   ]);
   const state = blank();
   for (const x of r.results as any[])

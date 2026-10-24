@@ -1646,7 +1646,7 @@ export default function CafeScene({
         )}
       <Dialog open={tvExpanded} onOpenChange={setTvExpanded}>
         <DialogContent className="tv-expanded-dialog">
-          <DialogTitle className="sr-only">Story of Winds</DialogTitle>
+          <DialogTitle className="sr-only">Memoirs</DialogTitle>
           <DialogDescription className="sr-only">
             Slideshow foto dari album Google Drive Winds Space, dengan pilihan foto dan kontrol
             pemutaran.

@@ -4500,9 +4500,12 @@ td {
   }
 }
 
-.landing-scene-column .landing-tv-actions,
-.landing-scene-column .landing-telescope-cta {
+.landing-scene-column .landing-tv-actions {
   grid-column: auto;
+}
+/* Five destinations: Windstronout takes the last row on its own. */
+.landing-scene-column .landing-telescope-cta {
+  grid-column: 1 / -1;
 }
 
 /* Windstronout: controls follow the eyepiece on phones; object details have their own space. */
