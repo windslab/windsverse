@@ -218,3 +218,17 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Diuji lokal: unggah, file bukan lagu ditolak, tamu tidak bisa unggah, link non-YouTube ditolak, Range 206,
   putar otomatis + pindah lagu, radio dan pemutar mini tampil. `typecheck`, `format:check`, `build` lulus.
 - Belum diuji: mode YouTube di browser, dan putar otomatis di HP sungguhan.
+
+## 12. Noisegasm: gramofon 3D toon menggantikan radio (25 Okt 2026, branch `luna-ps1`)
+
+- `app/gramophone-3d.tsx` (dimuat hanya saat Noisegasm dibuka): gramofon dari bentuk dasar three.js —
+  kabinet kayu membulat dengan pita pink dan plakat krem, kaki bulat, engkol, piringan kuningan, piringan
+  hitam bertekstur alur + label pink "Noisegasm", lengan jarum, leher kuningan melengkung, corong bunga.
+- Toon: `MeshToonMaterial` + `createToonOutline` (garis tepi dari kedalaman) + hull hanya untuk bentuk
+  tertutup (kabinet, leher). Corong tidak memakai hull karena bagian dalamnya terlihat.
+- Animasi saat musik berputar: piringan berputar (naik/turun pelan seperti motor), lengan jarum turun,
+  engkol berputar, gramofon sedikit memantul, not balok (♪ ♫ ♬ ♩, sprite berwarna dengan garis cokelat)
+  keluar dari corong, melayang bergoyang, lalu memudar. Mengikuti "kurangi gerakan" di perangkat.
+- Bisa diputar dengan menggeser (sudut dibatasi, tanpa zoom). Judul lagu di plakat kuningan, kenop volume
+  dan tombol ⏮ ⏯ ⏭ di papan kayu. Radio lama dihapus.
+- `typecheck`, `format:check`, `build` lulus. Dicek di ukuran HP (diam dan berputar).

@@ -1,14 +1,20 @@
 'use client';
-// Noisegasm: background music for the landing page, shown as an old valve radio.
+// Noisegasm: background music for the landing page, played on a 3D toon gramophone.
 //
 // Plays uploaded songs (an <audio> element through a gain node, so the volume knob also works on
 // iPhone) or a YouTube playlist (the official iframe player, kept visible in the mini player as
 // YouTube requires). Browsers block sound until the visitor interacts, so if autoplay is refused
 // the music starts on the first tap, click or key press anywhere on the page.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pause, Play, Radio, SkipBack, SkipForward } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { Pause, Play, SkipBack, SkipForward } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import styles from './noisegasm.module.css';
+
+const Gramophone3D = dynamic(() => import('./gramophone-3d'), {
+  ssr: false,
+  loading: () => <span className={styles.stageLoading}>Menyiapkan gramofon…</span>,
+});
 
 type Track = { id: string; title: string; artist: string; src: string };
 type Config = { source: 'upload' | 'youtube'; youtube: string; autoplay: boolean; volume: number };
@@ -265,7 +271,6 @@ export default function Noisegasm({
 
   if (!config || !hasMusic) return null;
   const title = nowPlaying.title || (youtube ? 'YouTube' : 'Noisegasm');
-  const dialAt = tracks.length > 1 ? (index / (tracks.length - 1)) * 100 : 50;
 
   return (
     <>
@@ -310,57 +315,40 @@ export default function Noisegasm({
         <DialogContent className={styles.dialog}>
           <DialogTitle className="sr-only">Noisegasm</DialogTitle>
           <DialogDescription className="sr-only">
-            Radio musik Winds Space. Atur volume, jeda, atau ganti lagu.
+            Gramofon musik Winds Space. Atur volume, jeda, atau ganti lagu.
           </DialogDescription>
-          <div className={styles.radio} data-on={playing || undefined}>
-            <div className={styles.cabinetTop}>
-              <span className={styles.badge}>NOISEGASM</span>
+          <div className={styles.player} data-on={playing || undefined}>
+            <div className={styles.stage}>
+              <Gramophone3D playing={playing} />
             </div>
-            <div className={styles.face}>
-              <div className={styles.grille} aria-hidden>
-                <i className={styles.glow} />
-              </div>
-              <div className={styles.dial}>
-                <div className={styles.scale} aria-hidden>
-                  {['88', '92', '96', '100', '104', '108'].map((f) => (
-                    <span key={f}>{f}</span>
-                  ))}
-                </div>
-                <i className={styles.needle} style={{ left: `calc(6% + ${dialAt * 0.88}%)` }} />
-                <div className={styles.marquee} aria-live="polite">
-                  <span data-scroll={title.length > 26 || undefined}>
-                    {title}
-                    {nowPlaying.artist ? ' — ' + nowPlaying.artist : ''}
-                  </span>
-                </div>
-              </div>
-              <div className={styles.knobs}>
-                <Knob value={volume} onChange={setVolume} label="VOLUME" />
-                <div className={styles.keys}>
-                  <button aria-label="Lagu sebelumnya" onClick={() => step(-1)}>
-                    <SkipBack size={16} />
-                  </button>
-                  <button
-                    aria-label={playing ? 'Jeda' : 'Putar'}
-                    aria-pressed={playing}
-                    onClick={toggle}
-                  >
-                    {playing ? <Pause size={18} /> : <Play size={18} />}
-                  </button>
-                  <button aria-label="Lagu berikutnya" onClick={() => step(1)}>
-                    <SkipForward size={16} />
-                  </button>
-                </div>
-                <div className={styles.power} aria-hidden>
-                  <Radio size={14} />
-                  <i data-on={playing || undefined} />
-                </div>
+            <div className={styles.plaque} aria-live="polite">
+              <small>NOISEGASM</small>
+              <div className={styles.marquee}>
+                <span data-scroll={title.length > 26 || undefined}>
+                  {title}
+                  {nowPlaying.artist ? ' — ' + nowPlaying.artist : ''}
+                </span>
               </div>
             </div>
-            <div className={styles.feet} aria-hidden>
-              <i />
-              <i />
+            <div className={styles.knobs}>
+              <Knob value={volume} onChange={setVolume} label="VOLUME" />
+              <div className={styles.keys}>
+                <button aria-label="Lagu sebelumnya" onClick={() => step(-1)}>
+                  <SkipBack size={16} />
+                </button>
+                <button
+                  aria-label={playing ? 'Jeda' : 'Putar'}
+                  aria-pressed={playing}
+                  onClick={toggle}
+                >
+                  {playing ? <Pause size={18} /> : <Play size={18} />}
+                </button>
+                <button aria-label="Lagu berikutnya" onClick={() => step(1)}>
+                  <SkipForward size={16} />
+                </button>
+              </div>
             </div>
+            <small className={styles.dragHint}>Geser gramofon untuk melihat dari sisi lain</small>
           </div>
           {youtube && (
             <p className={styles.note}>Diputar dari YouTube. Videonya tampil di pemutar kecil.</p>
