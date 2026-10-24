@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-/** Reuse the detailed, articulated Luna asset; retain its original sculpt and clothing. */
+/** Fit the articulated PS1 Luna (scripts/luna-ps1/model.js) to café scale, standing on y = 0. */
 export function lunaCafeRig(model: THREE.Group, height: number) {
   const root = new THREE.Group(),
     bounds = new THREE.Box3().setFromObject(model),
     size = bounds.getSize(new THREE.Vector3()),
     factor = height / size.y;
-  model.scale.set(factor * 0.78, factor, factor * 0.85);
+  model.scale.setScalar(factor);
   model.position.set(
     -bounds.getCenter(new THREE.Vector3()).x * factor,
     -bounds.min.y * factor,

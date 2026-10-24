@@ -6,6 +6,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import styles from './studio.module.css';
 import { createLunaAnimation } from './animation';
+import { createToonOutline, toonify } from '@/lib/toon';
 
 function disposeModel(root: THREE.Object3D) {
   const geometries = new Set<THREE.BufferGeometry>(),
@@ -47,7 +48,9 @@ export default function LunaViewer({
     camera.position.copy(defaultCamera);
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'low-power' });
+      // No canvas MSAA: the outline pass antialiases its own render target and only draws a
+      // full-screen quad here.
+      renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'low-power' });
     } catch {
       setState('error');
       return;
@@ -64,6 +67,7 @@ export default function LunaViewer({
     );
     renderer.domElement.tabIndex = 0;
     container.appendChild(renderer.domElement);
+    const toonOutline = createToonOutline(renderer);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 1.25, 0);
     controls.enablePan = false;
@@ -94,7 +98,8 @@ export default function LunaViewer({
     scene.add(rim);
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(200, 200),
-      new THREE.ShadowMaterial({ color: '#826e5b', opacity: 0.16 }),
+      // depthWrite off so the outline pass doesn't trace the floor's far edge.
+      new THREE.ShadowMaterial({ color: '#826e5b', opacity: 0.16, depthWrite: false }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = -0.017;
@@ -111,13 +116,19 @@ export default function LunaViewer({
     resize.observe(container);
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
     void new GLTFLoader()
-      .loadAsync('/models/luna-chibi.glb?v=4')
+      .loadAsync('/models/luna-ps1.glb?v=6')
       .then((gltf) => {
         if (disposed) {
           disposeModel(gltf.scene);
           return;
         }
         model = gltf.scene;
+        toonify(model);
+        toonOutline.addHull(model);
+        // The studio camera is framed for a 2.5-unit character standing on y = 0.
+        const bounds = new THREE.Box3().setFromObject(model);
+        model.scale.setScalar(2.5 / Math.max(bounds.max.y - bounds.min.y, 0.01));
+        model.position.y = -bounds.min.y * model.scale.y;
         scene.add(model);
         model.traverse((object) => {
           const mesh = object as THREE.Mesh;
@@ -147,7 +158,7 @@ export default function LunaViewer({
           }
           animation.update(delta, values.current.moving, reduced.matches);
           controls.update();
-          renderer.render(scene, camera);
+          toonOutline.render(scene, camera);
         };
         animate();
       })
@@ -163,6 +174,7 @@ export default function LunaViewer({
       floor.geometry.dispose();
       (floor.material as THREE.Material).dispose();
       key.shadow.dispose();
+      toonOutline.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     };
@@ -174,7 +186,7 @@ export default function LunaViewer({
         <>
           <img
             className={styles.poster}
-            src="/models/luna-chibi-preview.webp?v=3"
+            src="/models/luna-ps1-preview.webp?v=6"
             alt="Luna mengenakan kaus pink, rompi abu-abu, cargo, dan sneakers krem"
           />
           <div className={styles.status} role="status">
@@ -184,7 +196,7 @@ export default function LunaViewer({
               <>
                 Pratinjau 3D belum tersedia di perangkat ini.
                 <br />
-                <a href="/models/luna-chibi.glb?v=4" download>
+                <a href="/models/luna-ps1.glb?v=6" download>
                   Unduh model Luna
                 </a>
               </>
