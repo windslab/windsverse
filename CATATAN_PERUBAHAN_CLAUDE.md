@@ -134,6 +134,12 @@ commit `3d22a88`).
 - Verifikasi: `/luna` di viewport 375×812 (diam dan "Sapa Luna"), café memuat ketiga file paralel,
   `typecheck`, `format:check`, `build` lulus; lint tidak bertambah (17 masalah lama di file yang sama).
   Belum diverifikasi: FPS di HP sungguhan dan tampilan close-up Luna di dalam café.
+- Kompresi geometri café (commit terpisah): `EXT_meshopt_compression` tanpa kuantisasi posisi,
+  4,12 MB → 2,10 MB (sekitar 0,9 MB jika server memakai gzip). Posisi, UV, tekstur, nama dan transform
+  node identik byte demi byte; segitiga sama (urutan indeks diputar, arah sisi tetap); normal disimpan
+  lebih ringkas dengan selisih maksimal 1,2° (rata-rata 0,2°). Decoder (`meshopt_decoder.module.js`)
+  ikut bundel JS dari `three`, tidak ada file tambahan untuk di-host. Cache `?v=3`.
+  Alat: `@gltf-transform/core` + `meshoptimizer`, metode FILTER, dijalankan di luar repo.
 
 ## Deploy ke Sites
 

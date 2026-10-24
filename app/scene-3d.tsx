@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { CSS3DObject, CSS3DRenderer } from 'three/addons/renderers/CSS3DRenderer.js';
@@ -593,7 +594,8 @@ export default function CafeScene({
       { rootMargin: '100px' },
     );
     visibility.observe(container);
-    const loader = new GLTFLoader();
+    // The café GLB is meshopt-compressed (positions and UVs lossless); the decoder is bundled JS.
+    const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     // Luna and the walk paths download alongside the café instead of after it.
     const characters = Promise.all([
       fetch('/models/cafe-navigation-v1.json').then((r) => {
@@ -604,7 +606,7 @@ export default function CafeScene({
     ]);
     characters.catch(() => {});
     void loader
-      .loadAsync('/models/winds-space-new.glb?v=2')
+      .loadAsync('/models/winds-space-new.glb?v=3')
       .then(async (gltf) => {
         if (disposed) return;
         const model = gltf.scene;
