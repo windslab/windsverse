@@ -544,3 +544,31 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   trotoar, sisi jalan, dan keluar lewat belakang; danau hati dari atas; matahari pagi di depan kafe.
   `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6, `people.test` 13/13,
   `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
+
+## 28. Kamera stabil, laut & dermaga, danau hati di kiri, alat musik detail, lubang tangga menara (26 Okt 2026)
+
+- **Kamera stabil**: sudut pilihan pemain tidak lagi diubah otomatis (tanpa pencarian sudut yang
+  membuat glitch); kamera hanya mendekat jika dinding/atap menghalangi lebih dari ±0,5 detik, dan
+  menunggu ±1 detik sebelum mundur lagi; gerak dekat-jauh sangat pelan; jarak minimum 1,8.
+- **Gunung belakang** dipindah sangat jauh (±190–215) dan diperkecil sehingga tampak kecil & samar di
+  cakrawala, tidak menutupi langit.
+- **Bukit karst di depan kafe dihapus**; diganti **laut lepas**: daratan di seberang sungai turun ke
+  **pantai pasir** lalu laut (air bergelombang lembut dengan kilau). **Dermaga kayu** menjulur 20 m ke
+  laut (bisa dijalani Luna, ada pagar & tiang), dan **1 perahu nelayan** (lambung putih, garis biru,
+  kabin atap merah, tiang bendera) bergoyang pelan di sampingnya. Luna tidak bisa masuk ke laut.
+- **Sungai** utama mengalir sampai ujung peta (bertemu laut).
+- **Danau hati** dipindah ke **ujung kiri** dan dikecilkan, diisi oleh **dua anak sungai kecil
+  berkelok** dari sungai utama (satu bercabang); lembahnya sempit dan alami.
+- **Ruang tamu**: kursi piano dan kursi belajar kini **berkaki**; sofa berkaki. **Piano** tegak dengan
+  29 tuts putih dan tuts hitam berpola 2–3 asli, pipi kiri-kanan, kaki depan, 3 pedal kuningan.
+  **Gitar** berbadan lekuk angka-8, lubang suara + rosette, bridge, papan fret dengan fret, kepala
+  dengan pasak, 6 senar. **Cello** berlekuk, f-hole, bridge, papan jari hitam, scroll, endpin, 4 senar.
+  Semua di atas stand.
+- **Lubang tangga**: lubang di lantai 4 diperlebar sehingga kepala Luna tidak membentur langit-langit;
+  pita batu lantai 5 tidak lagi menutup tengah (dulu silinder padat); lantai 5 dan atap kini hanya
+  berlubang di atas jalur tangga tengah yang naik, sisanya **pijakan** — tangga terakhir tiba di
+  lantai, bukan di lubang.
+- Dicek di browser (ukuran HP): laut/pantai/dermaga/perahu, danau hati & anak sungai dari atas,
+  gunung dari kafe, piano/gitar/cello; simulasi jalan dari jalan setapak sampai atap (melangkah dari
+  tangga tengah ke pijakan atap) lolos. `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6,
+  `people.test` 13/13, `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.

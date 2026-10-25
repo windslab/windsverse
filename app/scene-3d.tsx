@@ -488,6 +488,7 @@ export default function CafeScene({
       probeRay = new THREE.Raycaster();
     // Development only (?sceneStats): freeze the explore camera to inspect a spot.
     const debugCamera = { frozen: false };
+    const followHold = { blocked: 0, clear: 0, last: 0 };
     let occluders: THREE.Object3D[] | undefined,
       lastProbe = 0;
     // Entering/leaving explore mode changes how close the camera may come.
@@ -1963,6 +1964,7 @@ export default function CafeScene({
             glow.scale.setScalar(0.4 * flicker);
           }
           world?.setTowerNight(lamps);
+          world?.update(t);
           {
             // Morning (06–11 WITA, game clock in explore mode) brings butterflies.
             const when = gameClock ?? new Date(),
@@ -2175,32 +2177,33 @@ export default function CafeScene({
                     list.push(mesh);
                 });
               }
-              // Relaxed: ignore what Luna is bumping into right beside her, never come closer than
-              // 1.6, and prefer lifting/lowering the camera over zooming in.
+              // Calm camera: the player's angle is kept; only when a wall or roof has blocked the
+              // view for a moment does it ease closer, and it waits a while before easing back.
+              followDir.setFromSphericalCoords(1, followWish.phi, followSpherical.theta);
               probeRay.near = 0.75;
-              let best = { phi: followWish.phi, radius: 1.6 };
-              for (let phi = followWish.phi; phi <= Math.max(1.42, followWish.phi); phi += 0.12) {
-                followDir.setFromSphericalCoords(1, phi, followSpherical.theta);
-                probeRay.set(controls!.target, followDir);
-                probeRay.far = followWish.radius + 0.3;
-                const hit = probeRay.intersectObjects(occluders, false)[0];
-                const clear = hit ? Math.max(1.6, hit.distance - 0.25) : followWish.radius;
-                if (clear > best.radius + 0.05) best = { phi, radius: clear };
-                if (clear >= Math.min(followWish.radius, 2.2)) {
-                  best = { phi, radius: Math.min(clear, followWish.radius) };
-                  break;
-                }
+              probeRay.set(controls!.target, followDir);
+              probeRay.far = followWish.radius + 0.3;
+              const hit = probeRay.intersectObjects(occluders, false)[0];
+              const step = t - followHold.last;
+              followHold.last = t;
+              if (hit && hit.distance < followWish.radius) {
+                followHold.blocked += step;
+                followHold.clear = 0;
+                const safe = Math.max(1.8, hit.distance - 0.3);
+                if (followHold.blocked > 0.45 && Math.abs(safe - followGoal.radius) > 0.35)
+                  followGoal.radius = safe;
+              } else {
+                followHold.clear += step;
+                followHold.blocked = 0;
+                if (followHold.clear > 0.9) followGoal.radius = followWish.radius;
               }
-              followGoal.phi = best.phi;
-              followGoal.radius = best.radius;
+              followGoal.phi = followWish.phi;
             }
             // Ease in and out gently; no sudden zoom.
-            const k = reduced ? 1 : 1 - Math.exp(-delta * 2.2),
-              closing = followGoal.radius < followShown.radius;
-            followShown.phi += (followGoal.phi - followShown.phi) * k;
-            followShown.radius +=
-              (followGoal.radius - followShown.radius) *
-              (closing ? (reduced ? 1 : 1 - Math.exp(-delta * 3)) : k);
+            const k = reduced ? 1 : 1 - Math.exp(-delta * 1.6);
+            followShown.phi +=
+              (followGoal.phi - followShown.phi) * (reduced ? 1 : 1 - Math.exp(-delta * 6));
+            followShown.radius += (followGoal.radius - followShown.radius) * k;
             followShown.theta = followSpherical.theta;
             camera.position.copy(controls!.target).add(followOffset.setFromSpherical(followShown));
             if (inTower && world) {
