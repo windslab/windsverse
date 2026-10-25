@@ -48,7 +48,13 @@ export type WorldLayout = {
    */
   holeMask?: { texture: THREE.Texture; rect: THREE.Vector4 };
   /** Road through the scene: a point on its centre line, direction, half width. */
-  road?: { origin: THREE.Vector3; direction: THREE.Vector3; halfWidth: number };
+  road?: {
+    origin: THREE.Vector3;
+    direction: THREE.Vector3;
+    halfWidth: number;
+    /** Height of the road surface (the café road's top). */
+    surfaceY?: number;
+  };
 };
 
 const GRASS_LOW = new THREE.Color('#5d6f3a'),
@@ -72,6 +78,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     origin: new THREE.Vector3(bounds.min.x - 2, groundY, center.z),
     direction: new THREE.Vector3(0, 0, 1),
     halfWidth: 1.6,
+    surfaceY: undefined as number | undefined,
   };
   const roadDir = road.direction.clone().setY(0).normalize(),
     roadSide = new THREE.Vector3(roadDir.z, 0, -roadDir.x);
@@ -98,6 +105,44 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     for (const p of riverSamples) best = Math.min(best, (p.x - x) ** 2 + (p.z - z) ** 2);
     return Math.sqrt(best);
   };
+
+  // A small wooden footbridge where the river passes closest to the café, with a dirt path
+  // from the road down to it and on beyond.
+  const bridgeMid = riverSamples.reduce((best, p) =>
+    p.distanceToSquared(center) < best.distanceToSquared(center) ? p : best,
+  );
+  const bridgeT = riverSamples.indexOf(bridgeMid) / (riverSamples.length - 1),
+    bridgeAlong = river.getTangentAt(bridgeT).setY(0).normalize(),
+    bridgeAcross = new THREE.Vector3(-bridgeAlong.z, 0, bridgeAlong.x);
+  // Point the bridge from the road side to the far bank.
+  if (bridgeAcross.dot(center.clone().sub(bridgeMid)) < 0) bridgeAcross.negate();
+  const bridgeHalf = 3.9,
+    bridgeNear = bridgeMid.clone().addScaledVector(bridgeAcross, bridgeHalf),
+    bridgeFar = bridgeMid.clone().addScaledVector(bridgeAcross, -bridgeHalf);
+  const roadEdge = (() => {
+    const rel = bridgeNear.clone().sub(road.origin),
+      along = rel.dot(roadDir);
+    return road.origin
+      .clone()
+      .addScaledVector(roadDir, along)
+      .addScaledVector(roadSide, -sideOfCafe * (road.halfWidth + 0.4));
+  })();
+  const pathEnd = bridgeFar.clone().addScaledVector(bridgeAcross, -7);
+  const segmentDistance = (x: number, z: number, a: THREE.Vector3, b: THREE.Vector3) => {
+    const abx = b.x - a.x,
+      abz = b.z - a.z,
+      t = THREE.MathUtils.clamp(
+        ((x - a.x) * abx + (z - a.z) * abz) / (abx * abx + abz * abz),
+        0,
+        1,
+      );
+    return Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t));
+  };
+  const pathDistance = (x: number, z: number) =>
+    Math.min(
+      segmentDistance(x, z, roadEdge, bridgeNear),
+      segmentDistance(x, z, bridgeFar, pathEnd),
+    );
 
   // The observatory sits on a hill behind the café, away from the road.
   const towerAt = center
@@ -155,6 +200,9 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     // A dirt verge along the road; the grass is the same everywhere else.
     if (roadGap < 0.8) color.lerp(DIRT, 1 - THREE.MathUtils.smoothstep(roadGap, -0.4, 0.8));
     if (roadGap < -1.1) color.copy(ASPHALT);
+    // Footpath to the bridge, with a soft, uneven edge.
+    const path = pathDistance(x, z) + (n - 0.5) * 0.5;
+    color.lerp(DIRT, 1 - THREE.MathUtils.smoothstep(path, 0.55, 1.1));
     // Muddy banks.
     color.lerp(DIRT, (1 - THREE.MathUtils.smoothstep(r, 2.5, 5)) * 0.7);
     colors.set([color.r, color.g, color.b], i * 3);
@@ -385,41 +433,156 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   karst.name = 'World_Mountains';
   group.add(karst);
 
-  // --- Long road with markings, continuing the café's road to the horizon ---------------------
+  // --- Road: one hand-made road for the whole scene (the café model's own road is hidden) -----
   {
     const length = 300,
+      tile = 14,
+      W = 256,
+      H = 1024,
       roadCanvas = document.createElement('canvas');
-    roadCanvas.width = 64;
-    roadCanvas.height = 256;
+    roadCanvas.width = W;
+    roadCanvas.height = H;
     const x = roadCanvas.getContext('2d')!;
-    // Same colours as the café's road (glTF Material.011 asphalt, Material.002 markings).
-    x.fillStyle = '#0d0d0d';
-    x.fillRect(0, 0, 64, 256);
-    x.fillStyle = '#878787';
-    x.fillRect(30, 0, 4, 120); // centre dash
+    let seed = 91;
+    const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    // Gravel shoulders with a ragged edge, then the asphalt.
+    x.fillStyle = '#6b6152';
+    x.fillRect(0, 0, W, H);
+    for (let i = 0; i < 2600; i++) {
+      x.fillStyle = rand() < 0.5 ? 'rgba(40,34,28,0.35)' : 'rgba(170,158,135,0.35)';
+      x.fillRect(rand() * W, rand() * H, 2, 2);
+    }
+    const shoulder = W * 0.07;
+    x.fillStyle = '#1b1b1d';
+    x.beginPath();
+    x.moveTo(shoulder, 0);
+    for (let y = 0; y <= H; y += 16) x.lineTo(shoulder + (rand() - 0.5) * 6, y);
+    for (let y = H; y >= 0; y -= 16) x.lineTo(W - shoulder + (rand() - 0.5) * 6, y);
+    x.closePath();
+    x.fill();
+    // Speckle and slightly lighter wheel tracks.
+    for (let i = 0; i < 9000; i++) {
+      const v = 18 + Math.floor(rand() * 26);
+      x.fillStyle = `rgba(${v},${v},${v + 2},0.6)`;
+      x.fillRect(shoulder + rand() * (W - 2 * shoulder), rand() * H, 2, 2);
+    }
+    for (const lane of [0.3, 0.42, 0.58, 0.7]) {
+      x.fillStyle = 'rgba(70,70,74,0.18)';
+      x.fillRect(W * lane - 6, 0, 12, H);
+    }
+    // Tar patches and a few cracks.
+    for (let i = 0; i < 7; i++) {
+      x.fillStyle = 'rgba(8,8,9,0.55)';
+      x.beginPath();
+      const cx = shoulder + 20 + rand() * (W - 2 * shoulder - 40),
+        cy = rand() * H;
+      x.ellipse(cx, cy, 10 + rand() * 22, 14 + rand() * 40, rand() * 3, 0, Math.PI * 2);
+      x.fill();
+    }
+    x.strokeStyle = 'rgba(60,60,64,0.55)';
+    x.lineWidth = 1.5;
+    for (let i = 0; i < 6; i++) {
+      let cx = shoulder + 10 + rand() * (W - 2 * shoulder - 20),
+        cy = rand() * H;
+      x.beginPath();
+      x.moveTo(cx, cy);
+      for (let k = 0; k < 6; k++) x.lineTo((cx += (rand() - 0.5) * 18), (cy += 6 + rand() * 12));
+      x.stroke();
+    }
+    // Worn centre dashes of uneven length.
+    for (let y = 0; y < H; y += 128) {
+      x.fillStyle = `rgba(200,198,188,${0.55 + rand() * 0.3})`;
+      x.fillRect(W / 2 - 4, y + 10, 8, 52 + rand() * 18);
+    }
     const roadTexture = new THREE.CanvasTexture(roadCanvas);
     roadTexture.colorSpace = THREE.SRGBColorSpace;
     roadTexture.wrapT = THREE.RepeatWrapping;
-    roadTexture.repeat.set(1, length / 3);
+    roadTexture.repeat.set(1, length / tile);
     roadTexture.anisotropy = 4;
-    const roadGeometry = new THREE.PlaneGeometry(road.halfWidth * 2, length);
+    // Asphalt as wide as the café road; the outer 7% on each side is gravel shoulder.
+    const width = (road.halfWidth * 2 + 0.3) / (1 - 0.07 * 2);
+    const roadGeometry = new THREE.PlaneGeometry(width, length, 1, 1);
     roadGeometry.rotateX(-Math.PI / 2);
     geometries.push(roadGeometry);
     const roadMaterial = new THREE.MeshToonMaterial({
       map: roadTexture,
       gradientMap: toonGradient(),
       polygonOffset: true,
-      polygonOffsetFactor: 1,
-      polygonOffsetUnits: 1,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
     });
     materials.push(roadMaterial);
     const longRoad = new THREE.Mesh(roadGeometry, roadMaterial);
     longRoad.name = 'World_Road';
-    longRoad.position.copy(road.origin).setY(road.origin.y - 0.004);
+    longRoad.position.copy(road.origin).setY(road.surfaceY ?? road.origin.y);
     longRoad.rotation.y = Math.atan2(roadDir.x, roadDir.z);
     longRoad.receiveShadow = true;
     group.add(longRoad);
     textures.push(roadTexture);
+  }
+
+  // --- Wooden footbridge -----------------------------------------------------------------------
+  {
+    const deckParts: THREE.BufferGeometry[] = [],
+      railParts: THREE.BufferGeometry[] = [],
+      stoneParts: THREE.BufferGeometry[] = [];
+    const nearY = height(bridgeNear.x, bridgeNear.z),
+      farY = height(bridgeFar.x, bridgeFar.z),
+      rise = 1.0,
+      at = (t: number, side = 0, lift = 0) =>
+        bridgeNear
+          .clone()
+          .lerp(bridgeFar, t)
+          .addScaledVector(bridgeAlong, side)
+          .setY(THREE.MathUtils.lerp(nearY, farY, t) + Math.sin(Math.PI * t) * rise + lift);
+    const yaw = Math.atan2(bridgeAcross.x, bridgeAcross.z);
+    const planks = 18;
+    for (let k = 0; k < planks; k++) {
+      const t0 = k / planks,
+        t1 = (k + 0.82) / planks,
+        a = at(t0),
+        b = at(t1),
+        mid = a.clone().lerp(b, 0.5);
+      const plank = new THREE.BoxGeometry(1.5 + (k % 3) * 0.04, 0.08, a.distanceTo(b));
+      plank.rotateX(-Math.atan2(b.y - a.y, Math.hypot(b.x - a.x, b.z - a.z)));
+      plank.rotateY(yaw);
+      plank.translate(mid.x, mid.y, mid.z);
+      deckParts.push(plank.toNonIndexed());
+    }
+    for (const side of [-0.7, 0.7]) {
+      for (let k = 0; k <= 6; k++) {
+        const t = k / 6,
+          base = at(t, side);
+        const post = new THREE.CylinderGeometry(0.045, 0.055, 0.75, 6);
+        post.translate(base.x, base.y + 0.37, base.z);
+        railParts.push(post.toNonIndexed());
+      }
+      const rail = new THREE.CatmullRomCurve3(
+        Array.from({ length: 9 }, (_, k) => at(k / 8, side, 0.72)),
+      );
+      railParts.push(new THREE.TubeGeometry(rail, 24, 0.04, 5).toNonIndexed());
+    }
+    for (const end of [bridgeNear, bridgeFar]) {
+      const stone = new THREE.BoxGeometry(1.9, 0.5, 0.7);
+      stone.rotateY(yaw);
+      stone.translate(end.x, height(end.x, end.z) - 0.12, end.z);
+      stoneParts.push(stone.toNonIndexed());
+    }
+    const build = (parts: THREE.BufferGeometry[], color: string, name: string) => {
+      const geometry = mergeGeometries(parts)!;
+      parts.forEach((g) => g.dispose());
+      geometry.computeVertexNormals();
+      geometries.push(geometry);
+      const material = new THREE.MeshToonMaterial({ color, gradientMap: toonGradient() });
+      materials.push(material);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.name = name;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    };
+    build(deckParts, '#a8784a', 'World_Bridge_Deck');
+    build(railParts, '#7a5233', 'World_Bridge_Rails');
+    build(stoneParts, '#9a9284', 'World_Bridge_Stones');
   }
 
   // --- Trees (instanced) -----------------------------------------------------------------------

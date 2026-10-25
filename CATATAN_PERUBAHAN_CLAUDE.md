@@ -324,5 +324,20 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   atapnya), dua lampu utama di atas `meja 1` dan `meja 2` (depan rak buku), dua lampu di lantai 2 indoor
   (`meja atas 1` & `meja atas 2`). Neonbox: permukaan putih kotak di belakang logo ikut menyala saat malam
   (hanya mesh seukuran logo).
-- Belum dikerjakan: aspal buatan sendiri menggantikan jalan model, jembatan kayu, Milky Way malam.
-- `typecheck` dan `build` lulus; belum dicek di browser.
+- Neonbox: hanya kotak di atas pagar (`Cube.041`, logo `Untitled_Artwork.001`); logo lain menempel di
+  freezer dan tidak ikut menyala. Diperbaiki: efek menyala sempat mengenai panel `MeshBasicMaterial`
+  (tidak punya emissive) sehingga error saat malam.
+
+## 20. Jalan buatan sendiri, jembatan kayu, Milky Way (25 Okt 2026)
+
+- Jalan model (`jalan poros`) disembunyikan (tetap dipakai untuk jalur mobil). Satu jalan buatan untuk
+  seluruh scene: tekstur kanvas bergaya (bintik, jejak roda, tambalan aspal, retakan, marka tengah tidak
+  seragam & pudar, bahu jalan berkerikil dengan tepi tidak rata), setinggi permukaan jalan model.
+- Jembatan kayu kecil melengkung di titik sungai terdekat dengan kafe: 18 papan mengikuti lengkung,
+  tiang & pegangan di kedua sisi, batu penopang di kedua ujung (tiga mesh gabungan). Jalan setapak tanah
+  dari tepi jalan ke jembatan dan berlanjut di seberang.
+- Milky Way: salinan 2k (`public/sky/milkyway-2k.jpg`, 0,7 MB, sumber ESO yang sama dengan teleskop)
+  dimuat hanya saat langit cukup gelap; orientasi galaksi sama dengan teleskop.
+- Mode pengembangan `?sceneStats`: kamera boleh mundur sampai 90 untuk memeriksa dunia.
+- Dicek di browser: jalan & bahu, jembatan, malam (Bimasakti, lampu interior & lampu tali). `typecheck`,
+  `format:check`, `build` lulus; `people.test` 8/8, `engine.test` 21/25.

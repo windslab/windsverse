@@ -130,6 +130,48 @@ export function createCafeSky(radius = 85) {
     })
     .catch(() => {});
 
+  // Milky Way: the telescope's ESO panorama (2k copy), loaded the first night it is needed.
+  const milkyMaterial = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    uniforms: { map: { value: null as THREE.Texture | null }, visibility: { value: 0 } },
+    vertexShader:
+      'varying vec3 gal;void main(){gal=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+    // Same mapping as app/sky-viewer.tsx; colours converted to linear for the toon pass.
+    fragmentShader:
+      'uniform sampler2D map;uniform float visibility;varying vec3 gal;void main(){vec3 d=normalize(gal);vec2 uv=vec2(.5-atan(d.y,d.x)/6.28318530718,.5+asin(clamp(d.z,-1.0,1.0))/3.14159265359);vec3 c=texture2D(map,uv).rgb*.65;gl_FragColor=vec4(pow(c,vec3(2.2))*visibility,1.0);}',
+  });
+  let milkyway: THREE.Mesh | undefined,
+    milkyLoading = false,
+    milkyGeometry: THREE.SphereGeometry | undefined,
+    milkyTexture: THREE.Texture | undefined;
+  const loadMilkyWay = () => {
+    if (milkyLoading) return;
+    milkyLoading = true;
+    new THREE.TextureLoader().load(
+      '/sky/milkyway-2k.jpg',
+      (texture) => {
+        texture.colorSpace = THREE.NoColorSpace;
+        texture.wrapS = THREE.RepeatWrapping;
+        milkyTexture = texture;
+        milkyMaterial.uniforms.map.value = texture;
+        milkyGeometry = new THREE.SphereGeometry(radius * 0.96, 48, 24);
+        milkyway = new THREE.Mesh(milkyGeometry, milkyMaterial);
+        milkyway.matrixAutoUpdate = false;
+        milkyway.frustumCulled = false;
+        milkyway.renderOrder = -4;
+        group.add(milkyway);
+        lastRotation = 0;
+      },
+      undefined,
+      () => {
+        milkyLoading = false;
+      },
+    );
+  };
+
   // Moon: a soft glowing disc facing the camera.
   const moonCanvas = document.createElement('canvas');
   moonCanvas.width = moonCanvas.height = 128;
@@ -275,6 +317,24 @@ export function createCafeSky(radius = 85) {
           stars.matrix.makeBasis(basis[0], basis[1], basis[2]);
           stars.matrixWorldNeedsUpdate = true;
         }
+        if (milkyway) {
+          const at = Astro.MakeTime(now),
+            gal = Astro.Rotation_GAL_EQJ();
+          const basis = [
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1],
+          ].map((v) =>
+            toWorld(
+              Astro.RotateVector(
+                rotation,
+                Astro.RotateVector(gal, new Astro.Vector(v[0], v[1], v[2], at)),
+              ),
+            ),
+          );
+          milkyway.matrix.makeBasis(basis[0], basis[1], basis[2]);
+          milkyway.matrixWorldNeedsUpdate = true;
+        }
         const sunEq = Astro.Equator(Astro.Body.Sun, now, OBSERVER, false, true),
           moonEq = Astro.Equator(Astro.Body.Moon, now, OBSERVER, false, true);
         state.moon.copy(toWorld(Astro.RotateVector(rotation, moonEq.vec))).normalize();
@@ -305,6 +365,11 @@ export function createCafeSky(radius = 85) {
       // Clouds from sunrise until the sun's disc has set.
       u.cloudVisibility.value = THREE.MathUtils.smoothstep(altitude, -6, -0.833);
       starMaterial.uniforms.visibility.value = 1 - THREE.MathUtils.smoothstep(altitude, -14, -1);
+      // The Milky Way needs a properly dark sky.
+      const galaxy = 1 - THREE.MathUtils.smoothstep(altitude, -18, -8);
+      milkyMaterial.uniforms.visibility.value = galaxy;
+      if (galaxy > 0.02 && !milkyway) loadMilkyWay();
+      if (milkyway) milkyway.visible = galaxy > 0.01;
       starMaterial.uniforms.scale.value = Math.min(2, window.devicePixelRatio || 1);
       // Sun disc: whiter and smaller high up, larger and orange-gold near the horizon.
       const low = 1 - THREE.MathUtils.smoothstep(altitude, 2, 22);
@@ -357,6 +422,9 @@ export function createCafeSky(radius = 85) {
       atmosphere.geometry.dispose();
       atmosphere.material.dispose();
       starGeometry?.dispose();
+      milkyGeometry?.dispose();
+      milkyTexture?.dispose();
+      milkyMaterial.dispose();
       starMaterial.dispose();
       moonTexture.dispose();
       [sunTexture, flareTexture, dotTexture].forEach((t) => t.dispose());

@@ -545,7 +545,8 @@ export default function CafeScene({
     controls.enableDamping = true;
     controls.dampingFactor = 0.07;
     controls.minDistance = 5;
-    controls.maxDistance = MAX_CAFE_DISTANCE;
+    // Development only (?sceneStats): let the camera back off to inspect the surrounding world.
+    controls.maxDistance = debugPerf ? 90 : MAX_CAFE_DISTANCE;
     controls.enablePan = false;
     controls.maxPolarAngle = Math.PI * 0.48;
     controls.minPolarAngle = 0.2;
@@ -987,7 +988,9 @@ export default function CafeScene({
           panel.visible = false;
           sign.add(panel);
           neonPanels.push(panel);
-          // The neon box itself: light up the white faces of whatever mesh holds this logo.
+          // The neon box over the fence (the other logo sits on the freezer): light up the pale
+          // faces of the box that holds this logo.
+          if (name !== 'Untitled_Artwork.001') continue;
           const logoAt = sign.getWorldPosition(new THREE.Vector3()),
             logoSize = new THREE.Box3().setFromObject(sign).getSize(new THREE.Vector3()).length();
           model.traverse((node) => {
@@ -1000,7 +1003,12 @@ export default function CafeScene({
             const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
             const lit = mats.map((m) => {
               const white = m as THREE.MeshToonMaterial;
-              if (!white.color || white.color.getHSL({ h: 0, s: 0, l: 0 }).l < 0.6) return m;
+              // Only lit materials have an emissive term; bright faces only.
+              if (
+                !(white as THREE.MeshToonMaterial).isMeshToonMaterial ||
+                white.color.getHSL({ h: 0, s: 0, l: 0 }).l < 0.4
+              )
+                return m;
               const glow = white.clone();
               glow.emissive = new THREE.Color('#fff1d6');
               glow.emissiveIntensity = 0;
@@ -1013,42 +1021,19 @@ export default function CafeScene({
         }
         const road = objectByModelName(model, 'jalan poros');
         let roadLayout:
-          | { origin: THREE.Vector3; direction: THREE.Vector3; halfWidth: number }
+          | {
+              origin: THREE.Vector3;
+              direction: THREE.Vector3;
+              halfWidth: number;
+              surfaceY: number;
+            }
           | undefined;
         const trafficLanes: TrafficLane[] = [];
         if (road) {
-          // The road's geometry runs from -1 to +1 on its local Z axis.
-          // Fade both asphalt and lane markings softly into the world's long road at the ends.
+          // The café model's own road is hidden: the world draws one hand-made road for the whole
+          // scene (lib/cafe-world.ts). The model road still provides the lanes for traffic.
           road.traverse((object) => {
-            const roadMesh = object as THREE.Mesh;
-            if (!roadMesh.isMesh) return;
-            const originals = Array.isArray(roadMesh.material)
-              ? roadMesh.material
-              : [roadMesh.material];
-            const softened = originals.map((original) => {
-              const material = original.clone();
-              material.transparent = true;
-              material.depthWrite = false;
-              material.onBeforeCompile = (shader) => {
-                shader.vertexShader =
-                  'varying float vRoadEndZ;\n' +
-                  shader.vertexShader.replace(
-                    '#include <begin_vertex>',
-                    '#include <begin_vertex>\nvRoadEndZ = position.z;',
-                  );
-                shader.fragmentShader =
-                  'varying float vRoadEndZ;\n' +
-                  shader.fragmentShader.replace(
-                    '#include <color_fragment>',
-                    '#include <color_fragment>\ndiffuseColor.a *= 1.0 - smoothstep(0.72, 1.0, abs(vRoadEndZ));',
-                  );
-              };
-              material.customProgramCacheKey = () => 'winds-road-ends-v1';
-              return material;
-            });
-            roadMesh.material = Array.isArray(roadMesh.material) ? softened : softened[0];
-            roadMesh.castShadow = false;
-            addedMaterials.push(...originals);
+            if ((object as THREE.Mesh).isMesh) object.visible = false;
           });
           const left = road.localToWorld(new THREE.Vector3(-1, 0, 0));
           const right = road.localToWorld(new THREE.Vector3(1, 0, 0));
@@ -1058,6 +1043,7 @@ export default function CafeScene({
               .localToWorld(new THREE.Vector3(0, 0, 1))
               .sub(road.localToWorld(new THREE.Vector3(0, 0, 0))),
             halfWidth: left.distanceTo(right) / 2,
+            surfaceY: road.localToWorld(new THREE.Vector3(0, 0.02, 0)).y,
           };
           const vehicleScale = (left.distanceTo(right) * 0.3) / 0.82;
           for (const [index, laneX] of [-0.45, 0.45].entries()) {
