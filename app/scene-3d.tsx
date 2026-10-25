@@ -403,7 +403,8 @@ export default function CafeScene({
     }[] = [];
     const bulbs = new Set<THREE.MeshStandardMaterial>(),
       nightLights: THREE.PointLight[] = [],
-      neonPanels: THREE.Mesh[] = [];
+      neonPanels: THREE.Mesh[] = [],
+      neonBoxes: THREE.MeshToonMaterial[] = [];
     const trafficModels: THREE.Group[] = [],
       trafficLights: THREE.PointLight[] = [],
       activeSounds = new Set<VehicleSound>();
@@ -920,14 +921,45 @@ export default function CafeScene({
           nightLights.push(light);
           light.userData.nightIntensity = intensity;
         };
-        addNightLight('Lampu gantung', 2.7, 4.5, -0.25);
-        addNightLight('lampu gantung 2', 2.7, 4.5, -0.25);
-        // Separate pools of light keep the bar, reading corner, and both upstairs zones visible.
-        addNightLight('Area bar', 3.8, 6, 0.85);
-        addNightLight('Rak buku', 2.4, 3.8, 0.35); // Rak buku lantai 1.
-        addNightLight('meja atas 1', 4.6, 6, 1.05);
-        addNightLight('meja atas luar', 2.8, 5, 0.75);
-        addNightLight('WS_Courtyard_Tree_Root', 1.6, 5, 1.5);
+        // Pendant lamps: small, warm bulbs.
+        addNightLight('Lampu gantung', 2.2, 4, -0.22);
+        addNightLight('lampu gantung 2', 2.2, 4, -0.22);
+        // Inside the bar box, under its roof.
+        const barBox = objectByModelName(model, 'Area bar');
+        if (barBox) {
+          const box = new THREE.Box3().setFromObject(barBox);
+          const light = new THREE.PointLight('#ffd19a', 0, 4.5, 2);
+          light.position.set(
+            (box.min.x + box.max.x) / 2,
+            box.max.y - (box.max.y - box.min.y) * 0.18,
+            (box.min.z + box.max.z) / 2,
+          );
+          light.userData.nightIntensity = 3.2;
+          scene.add(light);
+          nightLights.push(light);
+        }
+        // Reading corner: one main lamp over each of the two tables in front of the shelf.
+        const overTable = (name: string, intensity: number, height: number) => {
+          const table = objectByModelName(model, name);
+          if (!table) return;
+          const top = new THREE.Box3().setFromObject(table);
+          const light = new THREE.PointLight('#ffd6a2', 0, 4.2, 2);
+          light.position.set(
+            (top.min.x + top.max.x) / 2,
+            top.max.y + height,
+            (top.min.z + top.max.z) / 2,
+          );
+          light.userData.nightIntensity = intensity;
+          scene.add(light);
+          nightLights.push(light);
+        };
+        overTable('meja 1', 2.8, 1.25);
+        overTable('meja 2', 2.8, 1.25);
+        // Upstairs indoor room: both tables.
+        overTable('meja atas 1', 2.6, 1.1);
+        overTable('meja atas 2', 2.6, 1.1);
+        addNightLight('meja atas luar', 2.4, 5, 0.75);
+        addNightLight('WS_Courtyard_Tree_Root', 1.4, 5, 1.5);
         // These two exterior logo decals become warm, backlit panels after sunset.
         for (const name of ['Untitled_Artwork.001', 'Untitled_Artwork.002']) {
           const sign = objectByModelName(model, name) as THREE.Mesh | undefined;
@@ -955,6 +987,29 @@ export default function CafeScene({
           panel.visible = false;
           sign.add(panel);
           neonPanels.push(panel);
+          // The neon box itself: light up the white faces of whatever mesh holds this logo.
+          const logoAt = sign.getWorldPosition(new THREE.Vector3()),
+            logoSize = new THREE.Box3().setFromObject(sign).getSize(new THREE.Vector3()).length();
+          model.traverse((node) => {
+            const mesh = node as THREE.Mesh;
+            if (!mesh.isMesh || mesh === sign) return;
+            const box = new THREE.Box3().setFromObject(mesh);
+            // Only the sign's own box, not a wall that happens to surround it.
+            if (box.getSize(new THREE.Vector3()).length() > logoSize * 2.5) return;
+            if (!box.expandByScalar(0.08).containsPoint(logoAt)) return;
+            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+            const lit = mats.map((m) => {
+              const white = m as THREE.MeshToonMaterial;
+              if (!white.color || white.color.getHSL({ h: 0, s: 0, l: 0 }).l < 0.6) return m;
+              const glow = white.clone();
+              glow.emissive = new THREE.Color('#fff1d6');
+              glow.emissiveIntensity = 0;
+              neonBoxes.push(glow);
+              addedMaterials.push(glow);
+              return glow;
+            });
+            mesh.material = Array.isArray(mesh.material) ? lit : lit[0];
+          });
         }
         const road = objectByModelName(model, 'jalan poros');
         let roadLayout:
@@ -1508,6 +1563,9 @@ export default function CafeScene({
               0.3 + 2.4 * lamps,
               blend,
             );
+          });
+          neonBoxes.forEach((box) => {
+            box.emissiveIntensity = THREE.MathUtils.lerp(box.emissiveIntensity, 0.9 * lamps, blend);
           });
           neonPanels.forEach((panel) => {
             const material = panel.material as THREE.MeshBasicMaterial;

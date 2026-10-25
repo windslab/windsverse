@@ -317,3 +317,12 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   dimuat (render target ortografis, ≤1024 px); tanah hanya dibuang di dalam bentuk aslinya. Di tempat lain
   tanah utuh dan rata setinggi lantai beton, menyambung ke perbukitan tanpa patahan.
 - `typecheck`, `format:check`, `build` lulus; `engine.test` 21/25 seperti sebelumnya.
+
+## 19. Lampu interior dan neonbox (25 Okt 2026) — sebagian
+
+- Lampu malam: dua lampu gantung (lembut), lampu di dalam kotak bar (posisi dari bounding box, di bawah
+  atapnya), dua lampu utama di atas `meja 1` dan `meja 2` (depan rak buku), dua lampu di lantai 2 indoor
+  (`meja atas 1` & `meja atas 2`). Neonbox: permukaan putih kotak di belakang logo ikut menyala saat malam
+  (hanya mesh seukuran logo).
+- Belum dikerjakan: aspal buatan sendiri menggantikan jalan model, jembatan kayu, Milky Way malam.
+- `typecheck` dan `build` lulus; belum dicek di browser.
