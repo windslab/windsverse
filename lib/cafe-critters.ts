@@ -86,8 +86,9 @@ export function createCritters(homes: Home[], groundAt: (x: number, z: number) =
       left = new THREE.Mesh(wingGeometry, material),
       right = new THREE.Mesh(wingGeometry, material);
     right.scale.x = -1;
-    left.scale.setScalar(1.8);
-    right.scale.set(-1.8, 1.8, 1.8);
+    // Small butterflies.
+    left.scale.setScalar(0.75);
+    right.scale.set(-0.75, 0.75, 0.75);
     body.add(left, right);
     body.visible = false;
     group.add(body);

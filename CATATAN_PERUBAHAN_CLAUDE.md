@@ -481,3 +481,35 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   bulan besar; jendela bulat menyala; kunang-kunang & kupu-kupu muncul. `typecheck`, `format:check`,
   `build` lulus; `barista.test` 6/6, `people.test` 13/13, `engine.test` 21/25 seperti sebelumnya.
   Tidak ada aset baru, `?v=` tetap.
+
+## 26. Menara mercusuar, kamera di dalam menara, lilin, langit malam lembut, sungai bercabang (26 Okt 2026)
+
+- **Menara** sedikit mengecil ke atas seperti mercusuar. **Pintu**: kotak di atas lengkungan hilang
+  (hanya sudut lengkungan yang diisi), daun pintu membuka ke dalam. **Tangga masuk memutari alas
+  menara** dari kaki jalan setapak sampai pintu (jumlah anak tangga menyesuaikan lereng). Batu-batu
+  kini **tertanam di bukit** (sepertiga terbenam) dan **padat** (Luna tidak menembus), tidak lagi
+  berbentuk cincin donat dan tidak menutupi tangga.
+- **Perpustakaan** hanya sampai lantai 3; **jendela bulat besar** kini benar-benar berlubang dengan
+  kaca tipis, dan letaknya lurus dengan tangga pada ketinggian itu sehingga dari tangga bisa melihat
+  keluar.
+- **Lampu buku**: 9 tali panjang menggantung utuh dari puncak; tiap tali membawa 1–3 buku terbuka di
+  ketinggian acak sampai lantai 2.
+- **Atap**: lantai atap kini terbuka tepat di atas ujung tangga (sebelumnya sudut lubangnya keliru
+  sehingga Luna seperti menembus langit-langit); ruang beratap miring menaunginya.
+- **Kamera di dalam menara**: lensa lebar (86°), tidak lagi zoom ke Luna, dan tetap di dalam dinding
+  menara walau digeser.
+- **Malam di menara**: 3 lampu hangat di dalam + lampu di atas pintu, lentera/jendela/lampu buku
+  menyala.
+- **Langit malam** kafe kini indigo-lila lembut yang serasi dengan warna scene (teleskop tetap langit
+  hitam asli); kabut malam ikut.
+- **Lilin** menggantikan lampu meja: lilin di piring kecil dengan nyala berkedip, pendar dan genangan
+  cahaya hangat yang lebih luas; lampu interior 50% lebih terang. Lampu yang melayang di tengah lantai
+  2 outdoor dihapus (itu "meja atas luar", sebenarnya atap, bukan meja).
+- **Sungai bercabang**: 4 anak sungai berkelok dari sungai utama ke arah perbukitan (ikut membentuk
+  lembah, ditanami pohon tidak di airnya, tidak bisa dilewati Luna).
+- **Kupu-kupu** dibuat kecil.
+- Dicek di browser (ukuran HP): menara luar siang & malam, simulasi jalan dari kaki tangga memutar →
+  pintu → tangga dalam → atap lolos, kamera lebar di dalam menara dengan Luna di depan jendela bulat,
+  atap dengan lubang tangga di bawah ruang kecil, lilin malam dan langit lembut, sungai bercabang dari
+  atas. `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6, `people.test` 13/13,
+  `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.

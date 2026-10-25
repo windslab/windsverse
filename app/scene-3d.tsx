@@ -450,6 +450,7 @@ export default function CafeScene({
       lamps: [] as THREE.Group[],
       materials: [] as THREE.Material[],
       shade: null as THREE.MeshBasicMaterial | null,
+      flame: null as THREE.MeshBasicMaterial | null,
       texture: null as THREE.Texture | null,
     };
     /** Zebra crossing in front of the café: where cars stop for Luna. */
@@ -1101,48 +1102,57 @@ export default function CafeScene({
             }),
             poolMaterial = new THREE.MeshBasicMaterial({
               map: haloTexture,
-              color: '#ffd9a8',
+              color: '#ffb874',
               blending: THREE.AdditiveBlending,
               depthWrite: false,
               transparent: true,
               opacity: 0,
             }),
-            shadeMaterial = new THREE.MeshBasicMaterial({ color: '#e8dcc6' }),
-            baseMaterial = new THREE.MeshStandardMaterial({ color: '#3a3029', roughness: 0.7 });
-          addedMaterials.push(haloMaterial, poolMaterial, shadeMaterial, baseMaterial);
+            shadeMaterial = new THREE.MeshBasicMaterial({ color: '#f1e6cf' }),
+            baseMaterial = new THREE.MeshStandardMaterial({ color: '#b9a98f', roughness: 0.7 }),
+            flameMaterial = new THREE.MeshBasicMaterial({ color: '#ffc861' });
+          tableGlow.flame = flameMaterial;
+          addedMaterials.push(
+            haloMaterial,
+            poolMaterial,
+            shadeMaterial,
+            baseMaterial,
+            flameMaterial,
+          );
           tableGlow.materials = [haloMaterial, poolMaterial];
           tableGlow.shade = shadeMaterial;
           const s = model.getWorldScale(new THREE.Vector3()).x;
-          for (const table of model.children.filter((n) => /^meja/.test(n.name))) {
+          // Candles: a little wax pillar on a saucer with a flickering flame. (The long roof slab
+          // named "meja atas luar" is not a table.)
+          for (const table of model.children.filter(
+            (n) => /^meja/.test(n.name) && !/luar/.test(n.name),
+          )) {
             const box = new THREE.Box3().setFromObject(table),
               top = box.max.y,
               centre = box.getCenter(new THREE.Vector3());
             const lamp = new THREE.Group();
-            lamp.name = 'Table_Lamp';
-            const base = new THREE.Mesh(
-              new THREE.CylinderGeometry(0.03, 0.04, 0.02, 10),
+            lamp.name = 'Table_Candle';
+            const saucer = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.035, 0.03, 0.008, 12),
               baseMaterial,
             );
-            const stem = new THREE.Mesh(
-              new THREE.CylinderGeometry(0.006, 0.006, 0.09, 6),
-              baseMaterial,
-            );
-            stem.position.y = 0.055;
-            const shade = new THREE.Mesh(
-              new THREE.CylinderGeometry(0.03, 0.05, 0.05, 14, 1, true),
+            const wax = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.014, 0.015, 0.05, 10),
               shadeMaterial,
             );
-            shade.position.y = 0.11;
-            (shade.material as THREE.Material).side = THREE.DoubleSide;
+            wax.position.y = 0.03;
+            const flame = new THREE.Mesh(new THREE.ConeGeometry(0.007, 0.022, 6), flameMaterial);
+            flame.position.y = 0.067;
             const glowSprite = new THREE.Sprite(haloMaterial);
-            glowSprite.position.y = 0.1;
-            glowSprite.scale.setScalar(0.42);
-            const pool = new THREE.Mesh(new THREE.CircleGeometry(0.42, 24), poolMaterial);
+            glowSprite.position.y = 0.065;
+            glowSprite.scale.setScalar(0.4);
+            const pool = new THREE.Mesh(new THREE.CircleGeometry(0.75, 24), poolMaterial);
             pool.rotation.x = -Math.PI / 2;
             pool.position.y = 0.003;
-            lamp.add(base, stem, shade, glowSprite, pool);
+            lamp.add(saucer, wax, flame, glowSprite, pool);
             lamp.scale.setScalar(s * 1.6);
             lamp.position.set(centre.x, top, centre.z);
+            lamp.userData = { flame, glow: glowSprite, seed: Math.random() * 10 };
             scene.add(lamp);
             tableGlow.lamps.push(lamp);
           }
@@ -1919,16 +1929,25 @@ export default function CafeScene({
             // A touch brighter and warmer than before for cozy evenings.
             light.intensity = THREE.MathUtils.lerp(
               light.intensity,
-              light.userData.nightIntensity * 1.3 * lamps,
+              light.userData.nightIntensity * 1.5 * lamps,
               blend,
             );
           });
-          for (const m of tableGlow.materials) (m as THREE.SpriteMaterial).opacity = 0.85 * lamps;
-          tableGlow.shade?.color.setRGB(
-            0.9 + 0.1 * lamps,
-            0.85 + 0.08 * lamps,
-            0.76 + 0.02 * lamps,
-          );
+          // Candles flicker; their glow comes up as the evening falls.
+          for (const m of tableGlow.materials) (m as THREE.SpriteMaterial).opacity = 0.95 * lamps;
+          if (tableGlow.flame) tableGlow.flame.visible = lamps > 0.05;
+          for (const candle of tableGlow.lamps) {
+            const { flame, glow, seed } = candle.userData as {
+              flame: THREE.Mesh;
+              glow: THREE.Sprite;
+              seed: number;
+            };
+            const flicker = reduced
+              ? 1
+              : 0.9 + Math.sin(t * 13 + seed) * 0.05 + Math.sin(t * 29 + seed * 3) * 0.05;
+            flame.scale.set(1, flicker, 1);
+            glow.scale.setScalar(0.4 * flicker);
+          }
           world?.setTowerNight(lamps);
           {
             // Morning (06–11 WITA, game clock in explore mode) brings butterflies.
@@ -2107,7 +2126,18 @@ export default function CafeScene({
             controls!.target.lerp(followTarget, reduced ? 1 : 1 - Math.exp(-delta * 6));
             // Camera collision: when a roof or wall is in the way, drop lower and/or come
             // closer instead of hiding anything (a few probes per second).
-            if (t - lastProbe > 0.08) {
+            // Inside the tower: a wide lens, no zooming in on Luna, and the camera stays within the
+            // walls so the library can be enjoyed.
+            const inTower = !!world && world.towerInfo.inside(people.baristaPosition());
+            const towerFov = inTower ? 86 : 60;
+            if (Math.abs(camera.fov - towerFov) > 0.05) {
+              camera.fov += (towerFov - camera.fov) * (reduced ? 1 : 1 - Math.exp(-delta * 4));
+              camera.updateProjectionMatrix();
+            }
+            if (inTower) {
+              followGoal.phi = followWish.phi;
+              followGoal.radius = Math.min(followWish.radius, 3.2);
+            } else if (t - lastProbe > 0.08) {
               lastProbe = t;
               if (!occluders) {
                 const list: THREE.Object3D[] = [];
@@ -2151,6 +2181,19 @@ export default function CafeScene({
               (closing ? (reduced ? 1 : 1 - Math.exp(-delta * 18)) : k);
             followShown.theta = followSpherical.theta;
             camera.position.copy(controls!.target).add(followOffset.setFromSpherical(followShown));
+            if (inTower && world) {
+              const info = world.towerInfo,
+                y = THREE.MathUtils.clamp(camera.position.y, info.floor + 0.35, info.roof - 0.3),
+                dx = camera.position.x - info.centre.x,
+                dz = camera.position.z - info.centre.z,
+                r = Math.hypot(dx, dz),
+                max = info.radiusAt(y) - 0.3;
+              camera.position.y = y;
+              if (r > max) {
+                camera.position.x = info.centre.x + (dx / r) * max;
+                camera.position.z = info.centre.z + (dz / r) * max;
+              }
+            }
             // Looking up at the sky, the camera stays just above Luna's feet…
             const feet = people.baristaPosition().y + 0.25;
             if (camera.position.y < feet) camera.position.y = feet;
@@ -2159,6 +2202,9 @@ export default function CafeScene({
               const land = world.heightAt(camera.position.x, camera.position.z) + 0.35;
               if (camera.position.y < land) camera.position.y = land;
             }
+            // Remember where the camera really is after the clamps, so they never read as the
+            // player zooming in (which would creep the camera closer frame by frame).
+            followShown.setFromVector3(followOffset.copy(camera.position).sub(controls!.target));
           } else if (followShown.radius > 0) {
             followShown.radius = 0;
           }

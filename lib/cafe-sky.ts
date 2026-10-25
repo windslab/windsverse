@@ -75,6 +75,17 @@ export function createCafeSky(radius = 85) {
   atmosphere.material.uniforms.strength.value = 1;
   // The telescope writes these colours straight to the screen; the café renders in linear space
   // (lib/toon.ts converts at the end), so convert here to land on the same colours.
+  // The café's night is softer than the telescope's true-black sky: a dusty indigo up high easing
+  // to a lilac-blue haze at the horizon, so it sits with the scene's pastel toon colours.
+  atmosphere.material.fragmentShader = atmosphere.material.fragmentShader.replace(
+    'vec3 night=mix(vec3(.004,.009,.022),vec3(.025,.035,.055),haze);',
+    'vec3 night=mix(vec3(.24,.26,.42),vec3(.46,.45,.58),haze);',
+  );
+  // …and it stays painted at night (the telescope lets it go clear to show the black sky).
+  atmosphere.material.fragmentShader = atmosphere.material.fragmentShader.replace(
+    'float opacity=mix(.16,.9,twilight);',
+    'float opacity=mix(.94,.9,twilight);',
+  );
   atmosphere.material.fragmentShader = atmosphere.material.fragmentShader.replace(
     'gl_FragColor=vec4(color,opacity*strength);',
     'gl_FragColor=vec4(pow(max(color,vec3(0.)),vec3(2.2)),opacity*strength);',
@@ -434,7 +445,7 @@ export function createCafeSky(radius = 85) {
     horizon(target: THREE.Color) {
       const { daylight, twilight, warm } = state;
       const mix = (a: number[], b: number[], t: number) => a.map((v, i) => v + (b[i] - v) * t);
-      let c = mix([0.025, 0.035, 0.055], [0.47, 0.3, 0.19], twilight);
+      let c = mix([0.42, 0.42, 0.54], [0.47, 0.3, 0.19], twilight);
       c = mix(c, [0.68, 0.7, 0.59], daylight);
       if (warm > 0) c = mix(c, [0.86, 0.6, 0.42], warm * daylight * 0.5);
       return target.setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace);
