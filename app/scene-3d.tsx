@@ -407,7 +407,8 @@ export default function CafeScene({
     const trafficModels: THREE.Group[] = [],
       trafficLights: THREE.PointLight[] = [],
       activeSounds = new Set<VehicleSound>();
-    const addedMaterials: THREE.Material[] = [];
+    const addedMaterials: THREE.Material[] = [],
+      addedTargets: THREE.WebGLRenderTarget[] = [];
     const scene = new THREE.Scene();
     // Windstronout's sky (atmosphere, clouds, stars, moon) with fog toward its horizon colour.
     scene.background = new THREE.Color('#05070c');
@@ -1058,12 +1059,54 @@ export default function CafeScene({
           const level = concrete
             ? new THREE.Box3().setFromObject(concrete).max.y - 0.01
             : site.min.y;
-          const holes = ['floor lantai 1', 'floor lantai 1 area bar', 'Kolam ikan', 'trotoar']
-            .map((name) => objectByModelName(model, name))
-            .filter((o): o is THREE.Object3D => !!o)
-            .map((o) => new THREE.Box3().setFromObject(o));
+          // Photograph the floors, pond and sidewalk from above once: the ground is cut away only
+          // inside their real outlines (bounding boxes opened holes behind the café).
+          const holeNames = ['floor lantai 1', 'floor lantai 1 area bar', 'Kolam ikan', 'trotoar'];
+          const holeMeshes: THREE.Mesh[] = [];
+          for (const name of holeNames)
+            objectByModelName(model, name)?.traverse((n) => {
+              if ((n as THREE.Mesh).isMesh) holeMeshes.push(n as THREE.Mesh);
+            });
+          let holeMask: { texture: THREE.Texture; rect: THREE.Vector4 } | undefined;
+          if (holeMeshes.length) {
+            const area = new THREE.Box3();
+            holeMeshes.forEach((m) => area.union(new THREE.Box3().setFromObject(m)));
+            area.expandByScalar(0.2);
+            const w = area.max.x - area.min.x,
+              d = area.max.z - area.min.z,
+              cx = (area.min.x + area.max.x) / 2,
+              cz = (area.min.z + area.max.z) / 2;
+            const top = new THREE.OrthographicCamera(-w / 2, w / 2, d / 2, -d / 2, 0.01, 200);
+            top.up.set(0, 0, -1);
+            top.position.set(cx, area.max.y + 50, cz);
+            top.lookAt(cx, area.min.y, cz);
+            top.updateMatrixWorld();
+            const maskTarget = new THREE.WebGLRenderTarget(
+              Math.min(1024, Math.ceil(w * 48)),
+              Math.min(1024, Math.ceil(d * 48)),
+            );
+            const maskScene = new THREE.Scene(),
+              white = new THREE.MeshBasicMaterial({ color: '#ffffff', side: THREE.DoubleSide });
+            maskScene.background = new THREE.Color('#000000');
+            for (const m of holeMeshes) {
+              const copy = new THREE.Mesh(m.geometry, white);
+              copy.matrixAutoUpdate = false;
+              copy.matrix.copy(m.matrixWorld);
+              maskScene.add(copy);
+            }
+            const previousTarget = renderer!.getRenderTarget();
+            renderer!.setRenderTarget(maskTarget);
+            renderer!.render(maskScene, top);
+            renderer!.setRenderTarget(previousTarget);
+            white.dispose();
+            addedTargets.push(maskTarget);
+            holeMask = {
+              texture: maskTarget.texture,
+              rect: new THREE.Vector4(area.min.x, area.min.z, area.max.x, area.max.z),
+            };
+          }
           world = createCafeWorld(
-            { bounds: site, groundY: level, road: roadLayout, holes },
+            { bounds: site, groundY: level, road: roadLayout, holeMask },
             windTime,
           );
           scene.add(world.group);
@@ -1743,6 +1786,7 @@ export default function CafeScene({
       toonOutline.dispose();
       sky.dispose();
       world?.dispose();
+      addedTargets.forEach((target) => target.dispose());
       renderer?.dispose();
       renderer?.forceContextLoss();
       renderer?.domElement.remove();

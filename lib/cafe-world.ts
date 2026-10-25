@@ -42,8 +42,11 @@ export type WorldLayout = {
   bounds: THREE.Box3;
   /** Ground level around the site: the café's concrete floor. */
   groundY: number;
-  /** Areas where the ground is cut away so the café's own floors and pond show (world XZ). */
-  holes?: THREE.Box3[];
+  /**
+   * Top-down mask of the café's floors, pond and sidewalk (white = cut the ground away there),
+   * covering `rect` = (minX, minZ, maxX, maxZ) in world units, image up = −Z.
+   */
+  holeMask?: { texture: THREE.Texture; rect: THREE.Vector4 };
   /** Road through the scene: a point on its centre line, direction, half width. */
   road?: { origin: THREE.Vector3; direction: THREE.Vector3; halfWidth: number };
 };
@@ -163,13 +166,13 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     vertexColors: true,
     gradientMap: toonGradient(),
   });
-  // Cut the ground away exactly over the café's floors and pond (no z-fighting, crisp edges).
-  const holes = (layout.holes ?? []).slice(0, 8);
-  if (holes.length) {
-    const rects = holes.map((b) => new THREE.Vector4(b.min.x, b.min.z, b.max.x, b.max.z));
-    while (rects.length < 8) rects.push(new THREE.Vector4(1, 1, -1, -1));
+  // Cut the ground away exactly where the café's own floors, pond and sidewalk are — following
+  // their real shapes, so nothing else is opened up.
+  if (layout.holeMask) {
+    const { texture, rect } = layout.holeMask;
     terrainMaterial.onBeforeCompile = (shader) => {
-      shader.uniforms.holes = { value: rects };
+      shader.uniforms.holeMask = { value: texture };
+      shader.uniforms.holeRect = { value: rect };
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nvarying vec2 vGroundXZ;')
         .replace(
@@ -179,18 +182,19 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       shader.fragmentShader = shader.fragmentShader
         .replace(
           '#include <common>',
-          '#include <common>\nuniform vec4 holes[8];\nvarying vec2 vGroundXZ;',
+          '#include <common>\nuniform sampler2D holeMask;\nuniform vec4 holeRect;\nvarying vec2 vGroundXZ;',
         )
         .replace(
           'void main() {',
           `void main() {
-          for (int i = 0; i < 8; i++) {
-            vec4 r = holes[i];
-            if (vGroundXZ.x > r.x && vGroundXZ.x < r.z && vGroundXZ.y > r.y && vGroundXZ.y < r.w) discard;
-          }`,
+          vec2 holeUv = vec2(
+            (vGroundXZ.x - holeRect.x) / (holeRect.z - holeRect.x),
+            (holeRect.w - vGroundXZ.y) / (holeRect.w - holeRect.y));
+          if (all(greaterThan(holeUv, vec2(0.0))) && all(lessThan(holeUv, vec2(1.0))) &&
+              texture2D(holeMask, holeUv).r > 0.5) discard;`,
         );
     };
-    terrainMaterial.customProgramCacheKey = () => 'world-terrain-holes';
+    terrainMaterial.customProgramCacheKey = () => 'world-terrain-mask';
   }
   materials.push(terrainMaterial);
   const terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);

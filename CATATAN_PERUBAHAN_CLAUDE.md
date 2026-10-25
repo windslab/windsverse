@@ -309,3 +309,11 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Matahari: sprite digambar setelah kubah langit (sebelumnya tertutup langit) dengan blending normal;
   saat senja lebih besar & oranye; preset Senja 5° di atas cakrawala. Bulan juga digambar di atas langit.
 - `typecheck`, `format:check`, `build` lulus; `people.test` 8/8, `engine.test` 21/25.
+
+## 18. Tanah tanpa lubang (25 Okt 2026)
+
+- Potongan tanah tidak lagi memakai kotak (kotak `floor lantai 1` mencakup area tanpa lantai di belakang
+  kafe sehingga berlubang). Sekarang lantai, area bar, kolam, dan trotoar "difoto" dari atas sekali saat
+  dimuat (render target ortografis, ≤1024 px); tanah hanya dibuang di dalam bentuk aslinya. Di tempat lain
+  tanah utuh dan rata setinggi lantai beton, menyambung ke perbukitan tanpa patahan.
+- `typecheck`, `format:check`, `build` lulus; `engine.test` 21/25 seperti sebelumnya.
