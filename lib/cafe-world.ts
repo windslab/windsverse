@@ -522,19 +522,19 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   }
 
   // --- Wooden footbridge -----------------------------------------------------------------------
+  const nearY = height(bridgeNear.x, bridgeNear.z),
+    farY = height(bridgeFar.x, bridgeFar.z),
+    rise = 1.0;
   {
     const deckParts: THREE.BufferGeometry[] = [],
       railParts: THREE.BufferGeometry[] = [],
       stoneParts: THREE.BufferGeometry[] = [];
-    const nearY = height(bridgeNear.x, bridgeNear.z),
-      farY = height(bridgeFar.x, bridgeFar.z),
-      rise = 1.0,
-      at = (t: number, side = 0, lift = 0) =>
-        bridgeNear
-          .clone()
-          .lerp(bridgeFar, t)
-          .addScaledVector(bridgeAlong, side)
-          .setY(THREE.MathUtils.lerp(nearY, farY, t) + Math.sin(Math.PI * t) * rise + lift);
+    const at = (t: number, side = 0, lift = 0) =>
+      bridgeNear
+        .clone()
+        .lerp(bridgeFar, t)
+        .addScaledVector(bridgeAlong, side)
+        .setY(THREE.MathUtils.lerp(nearY, farY, t) + Math.sin(Math.PI * t) * rise + lift);
     const yaw = Math.atan2(bridgeAcross.x, bridgeAcross.z);
     const planks = 18;
     for (let k = 0; k < planks; k++) {
@@ -683,9 +683,41 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   scope.rotation.z = 0.9;
   group.add(tower);
 
+  // Where Luna can walk outside the café (explore mode): the land, the road, along the river
+  // banks and over the footbridge; not into the water, the observatory or tree trunks.
+  const trunkSpots = treeSpots.map((m) => new THREE.Vector3().setFromMatrixPosition(m));
+  const span = bridgeFar.clone().sub(bridgeNear),
+    spanLength = span.length();
+  span.divideScalar(spanLength);
+  const walkHeight = (x: number, z: number): number | null => {
+    if (Math.hypot(x - center.x, z - center.z) > 110) return null;
+    // Footbridge deck (planks 1.5 wide, rails at ±0.7).
+    const rx = x - bridgeNear.x,
+      rz = z - bridgeNear.z,
+      t = (rx * span.x + rz * span.z) / spanLength,
+      side = rx * bridgeAlong.x + rz * bridgeAlong.z;
+    if (t > -0.03 && t < 1.03 && Math.abs(side) < 0.6) {
+      const k = THREE.MathUtils.clamp(t, 0, 1);
+      return Math.max(
+        height(x, z),
+        THREE.MathUtils.lerp(nearY, farY, k) + Math.sin(Math.PI * k) * rise + 0.04,
+      );
+    }
+    if (t > 0.04 && t < 0.96 && Math.abs(side) < 0.85) return null;
+    const r = riverDistance(x, z);
+    if (r < 3.3) return null;
+    if (Math.hypot(x - towerAt.x, z - towerAt.z) < 3.6) return null;
+    for (const trunk of trunkSpots)
+      if (Math.abs(trunk.x - x) < 0.4 && Math.abs(trunk.z - z) < 0.4) return null;
+    const y = height(x, z, r);
+    const across = Math.abs((x - road.origin.x) * roadSide.x + (z - road.origin.z) * roadSide.z);
+    return road.surfaceY !== undefined && across < road.halfWidth ? Math.max(y, road.surfaceY) : y;
+  };
+
   return {
     group,
     terrain,
+    walkHeight,
     /** Ground height under a point (for placing things on the world). */
     heightAt: height,
     dispose() {

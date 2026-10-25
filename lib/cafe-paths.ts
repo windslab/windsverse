@@ -180,6 +180,16 @@ export function cafePaths(cafe: THREE.Object3D, data: CafePathData) {
     }
     return Number.isFinite(best) ? best : p.y;
   }
+  /** Like `ground`, but null where there is no café floor at all (outside the model). */
+  function groundHit(p: THREE.Vector3) {
+    const y = ground(p);
+    return y === p.y && !hasFloor(p) ? null : y;
+  }
+  function hasFloor(p: THREE.Vector3) {
+    ray.ray.origin.set(p.x, p.y + 0.46 * scale, p.z);
+    ray.far = 0.77 * scale;
+    return ray.intersectObjects(walk, false).some((h) => !!h.face);
+  }
   /**
    * One step of free walking (explore mode). Returns the floor point under `to` when it can be
    * reached from the node Luna stands on: same, neighbouring or riser-gap nodes only, so walls,
@@ -235,6 +245,7 @@ export function cafePaths(cafe: THREE.Object3D, data: CafePathData) {
     local,
     world,
     ground,
+    groundHit,
     nodes,
     snap(p: THREE.Vector3, max = 1) {
       const n = nearest(local(p), max);

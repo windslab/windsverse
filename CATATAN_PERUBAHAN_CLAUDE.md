@@ -398,3 +398,30 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   `typecheck`, `format:check`, lint file Explore, `build` lulus; `barista.test` 5/5,
   `people.test` 12/12 (4 tes baru: tangga & kolam, antrean, lesehan, Luna diparkir),
   `engine.test` 21/25 seperti sebelumnya. Tidak ada file aset baru, jadi `?v=` tidak berubah.
+
+## 23. Explore: CCTV bisa diputar, jelajah dunia, duduk, Story of Winds, teleskop, bersih-bersih (26 Okt 2026)
+
+- **CCTV box bar** pindah ke sudut kanan atas kaca jendela depan box (sisi pintu). Geser layar untuk
+  memutar ke segala arah (kiri-kanan, atas-bawah). Lensa ultra-lebar garis lurus (kebalikan fisheye:
+  garis tetap lurus, tepi gambar melebar) ±120° melintang, tinggi maksimum 120° di HP tegak.
+- **Jelajah dunia**: dari tepi luar trotoar Luna bisa turun ke jalan, berjalan di padang dan bukit,
+  menyusuri tepi sungai (tidak masuk air), menyeberang jembatan kayu, naik ke bukit menara (tidak
+  menembus menara dan batang pohon). Masuk kembali ke kafe lewat trotoar. Kamera tidak masuk ke tanah.
+  (`createCafeWorld().walkHeight`, `cafePaths().groundHit`, langkah luar di `scene-people.ts`.)
+- **Duduk**: dekat kursi kosong mana pun (kursi besi, kursi beton, lesehan) muncul "Duduk"; Luna
+  duduk dengan tangan di pangkuan; "Berdiri" atau menggeser layar membuatnya berdiri. Tamu tidak
+  memakai kursi yang sedang diduduki Luna.
+- **Story of Winds dari dalam scene**: tombol kecil "kamera" membuka kamera digital yang sama persis
+  (film, jatah harian 08.00 WITA, album, Memoirs), tetapi lensanya mata Luna di dunia 3D. Geser
+  layar LCD untuk membidik; tombol ⟲ untuk selfie Luna. Luna memegang kamera saat memotret.
+- **Teleskop**: dekat teleskop muncul "Lihat teleskop" → Windstronout terbuka di atas mode Explore;
+  saat ditutup kamera kembali di belakang Luna.
+- **Bersih-bersih**: "Siram tanaman" dekat pot/planter (gembor + tetes air), "Lap meja" dekat meja
+  (lap + gerakan memutar), "sapu" di pojok kanan bawah (sapu + debu). Masing-masing memberi poin
+  kecil (+5 / +5 / +2), tanaman dan meja yang sama bisa diulang setelah 45 detik.
+- Dialog (Windstronout, Story of Winds) kini tampil di atas layar penuh Explore.
+- Dicek di browser (ukuran HP): CCTV di sudut kaca + putar dengan geser; keluar trotoar, menyeberang
+  jalan, berhenti di tepi sungai; lap meja; duduk & berdiri; teleskop → Windstronout → kembali;
+  kamera POV & selfie, jepret tersimpan di album dengan bingkai film; menyapu.
+  `typecheck`, `format:check`, `build` lulus; `barista.test` 5/5, `people.test` 13/13 (1 tes baru:
+  duduk/berdiri/pekerjaan), `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.

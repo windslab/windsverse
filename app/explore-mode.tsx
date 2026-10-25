@@ -21,6 +21,7 @@ import {
   type Review,
 } from '@/lib/barista-game';
 import styles from './explore-mode.module.css';
+import VintageCamera from './vintage-camera';
 
 export type ExploreApi = {
   setManual: (on: boolean) => void;
@@ -34,7 +35,35 @@ export type ExploreApi = {
   walking: () => boolean;
   luna: () => THREE.Vector3;
   stations: { cashier: THREE.Vector3; bar: THREE.Vector3; espresso: THREE.Vector3 };
+  /** A free seat within reach, then sit / stand. */
+  seatNear: () => { id: string; position: THREE.Vector3 } | null;
+  sit: (id: string) => boolean;
+  stand: () => void;
+  sitting: () => boolean;
+  chore: (
+    kind: 'watering' | 'sweeping' | 'wiping',
+    seconds: number,
+    target?: THREE.Vector3,
+  ) => void;
+  /** Out on the land beyond the sidewalk. */
+  outdoors: () => boolean;
+  spots: {
+    plants: Spot[];
+    tables: Spot[];
+    telescope: Spot | null;
+  };
+  /** Open Windstronout through the café's telescope. */
+  telescope: () => void;
+  /** Story of Winds from Luna's camera. */
+  photo: {
+    start: () => void;
+    stop: () => void;
+    look: (dx: number, dy: number) => void;
+    facing: (facing: 'environment' | 'user') => void;
+    stream: () => MediaStream | null;
+  };
 };
+type Spot = { name: string; box: THREE.Box3 };
 
 type Stage = 'queue' | 'waiting' | 'served';
 type Customer = {
@@ -59,6 +88,14 @@ const GOAL_ACTION: Record<string, string[]> = {
   'go-guest': ['serve'],
 };
 const flat = (a: THREE.Vector3, b: THREE.Vector3) => Math.hypot(a.x - b.x, a.z - b.z);
+/** Floor distance from Luna to the outside of a box, if she is on its level. */
+const spotDistance = (at: THREE.Vector3, box: THREE.Box3) =>
+  at.y < box.min.y - 0.7 || at.y > box.max.y + 0.4
+    ? Infinity
+    : Math.hypot(
+        Math.max(box.min.x - at.x, 0, at.x - box.max.x),
+        Math.max(box.min.z - at.z, 0, at.z - box.max.z),
+      );
 const emptyDrink = (): Drink => ({ cup: null, amounts: {}, espressoQuality: 1 });
 
 export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: () => void }) {
@@ -72,12 +109,15 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     [score, setScore] = useState({ points: 0, served: 0, stars: 0 }),
     [toast, setToast] = useState<{ name: string; review: Review } | null>(null),
     [hint, setHint] = useState('Jalan ke kasir untuk menyambut tamu.'),
-    [goals, setGoals] = useState<{ id: string; label: string }[]>([]);
+    [goals, setGoals] = useState<{ id: string; label: string }[]>([]),
+    [photoOpen, setPhotoOpen] = useState(false),
+    [note, setNote] = useState('');
   const customersRef = useRef<Customer[]>([]),
     keys = useRef(new Set<string>()),
     stick = useRef({ x: 0, y: 0 }),
     counter = useRef(0),
-    chase = useRef<string | null>(null);
+    chase = useRef<string | null>(null),
+    cooldown = useRef<Record<string, number>>({});
   useEffect(() => {
     customersRef.current = customers;
   }, [customers]);
@@ -107,9 +147,17 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
 
   useEffect(() => {
     api.setTask(
-      holding ? 'serving' : panel === 'cashier' ? 'cashier' : panel ? 'preparing' : 'idle',
+      photoOpen
+        ? 'photo'
+        : holding
+          ? 'serving'
+          : panel === 'cashier'
+            ? 'cashier'
+            : panel
+              ? 'preparing'
+              : 'idle',
     );
-  }, [holding, panel, api]);
+  }, [holding, panel, photoOpen, api]);
 
   // Guests arrive now and then (at most three at a time while testing).
   useEffect(() => {
@@ -210,6 +258,24 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         if (guest && flat(at, guest.position) < NEAR + 0.25)
           list.push({ id: 'serve', label: 'Antar pesanan' });
       }
+      // Around the café: telescope, plants, tables, seats.
+      const scope = api.spots.telescope;
+      if (scope && spotDistance(at, scope.box) < 0.7)
+        list.push({ id: 'telescope', label: 'Lihat teleskop' });
+      const plant = api.spots.plants.find(
+        (p) => spotDistance(at, p.box) < 0.45 && !(cooldown.current[p.name] > Date.now()),
+      );
+      if (plant) list.push({ id: 'water:' + plant.name, label: 'Siram tanaman' });
+      const table = api.spots.tables.find(
+        (p) => spotDistance(at, p.box) < 0.4 && !(cooldown.current[p.name] > Date.now()),
+      );
+      if (table && !holding) list.push({ id: 'wipe:' + table.name, label: 'Lap meja' });
+      if (api.sitting()) list.push({ id: 'stand', label: 'Berdiri' });
+      else if (!holding) {
+        const seat = api.seatNear();
+        if (seat) list.push({ id: 'sit:' + seat.id, label: 'Duduk' });
+      }
+      list.splice(3);
       setActions((old) => (JSON.stringify(old) === JSON.stringify(list) ? old : list));
       // Heading to a guest who was still walking to their seat: follow them there.
       if (chase.current && !api.walking() && !list.some((a) => a.id === 'serve')) {
@@ -259,9 +325,40 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
             : id === 'go-espresso'
               ? api.stations.bar
               : api.guests().find((g) => g.key === ticket)?.position;
-      if (target && !api.walkTo(target)) setHint('Jalannya tertutup, coba geser layar.');
+      if (target && !api.walkTo(target)) setHint('Jalannya tertutup, jalan kembali ke kafe dulu.');
       return;
     }
+    const cut = id.indexOf(':'),
+      verb = cut < 0 ? id : id.slice(0, cut),
+      arg = cut < 0 ? '' : id.slice(cut + 1);
+    const reward = (text: string, points: number, seconds: number) =>
+      setTimeout(() => {
+        setScore((s) => ({ ...s, points: s.points + points }));
+        setNote(`${text} · +${points}`);
+        setTimeout(() => setNote(''), 2200);
+      }, seconds * 1000);
+    if (verb === 'telescope') api.telescope();
+    if (verb === 'stand') api.stand();
+    if (verb === 'sit') api.sit(arg);
+    if (verb === 'water' || verb === 'wipe') {
+      const spot = (verb === 'water' ? api.spots.plants : api.spots.tables).find(
+        (p) => p.name === arg,
+      );
+      if (spot) {
+        cooldown.current[spot.name] = Date.now() + 45_000;
+        api.chore(
+          verb === 'water' ? 'watering' : 'wiping',
+          3,
+          spot.box.getCenter(new THREE.Vector3()),
+        );
+        reward(verb === 'water' ? 'Tanaman segar' : 'Meja bersih', 5, 3);
+      }
+    }
+    if (verb === 'sweep') {
+      api.chore('sweeping', 4);
+      reward('Lantai disapu', 2, 4);
+    }
+    if (verb === 'photo') setPhotoOpen(true);
     if (id === 'cashier') setPanel('cashier');
     if (id === 'cup' || id === 'prep') {
       if (!ticket) {
@@ -354,6 +451,26 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
             </button>
           ))}
         </div>
+      )}
+      {!panel && (
+        <nav className={styles.tools} aria-label="Alat">
+          <button onClick={() => run('photo')}>kamera</button>
+          <button onClick={() => run('sweep')}>sapu</button>
+        </nav>
+      )}
+      {note && (
+        <p className={styles.note} role="status">
+          {note}
+        </p>
+      )}
+      {photoOpen && (
+        <VintageCamera
+          open={photoOpen}
+          onOpenChange={(open) => {
+            if (!open) setPhotoOpen(false);
+          }}
+          scene={api.photo}
+        />
       )}
       {!panel &&
         goals.map((g) => (
@@ -470,7 +587,11 @@ function TouchStick({ onMove }: { onMove: (x: number, y: number) => void }) {
       className={styles.stickZone}
       onPointerDown={(e) => {
         origin.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
-        e.currentTarget.setPointerCapture(e.pointerId);
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          /* Capture is a nicety; dragging still works without it. */
+        }
       }}
       onPointerMove={move}
       onPointerUp={end}

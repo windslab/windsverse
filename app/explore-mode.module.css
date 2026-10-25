@@ -349,3 +349,28 @@
     grid-template-columns: 1fr;
   }
 }
+/* Small tools in the lower right: camera (Story of Winds) and broom. */
+.tools {
+  position: absolute;
+  right: 14px;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  display: flex;
+  gap: 14px;
+  font-size: 11px;
+}
+.tools button {
+  opacity: 0.85;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.note {
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  transform: translateX(-50%);
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #a8e2a0;
+  white-space: nowrap;
+}

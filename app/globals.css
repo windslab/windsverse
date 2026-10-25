@@ -5435,3 +5435,8 @@ html:has(.cafe-scene-shell.exploring) .noisegasm-mini {
   font-weight: 700;
   box-shadow: 0 4px 12px rgba(30, 15, 5, 0.25);
 }
+/* Dialogs opened from explore mode (Windstronout, Story of Winds) sit above the full-screen scene. */
+html:has(.cafe-scene-shell.exploring) [data-slot='dialog-overlay'],
+html:has(.cafe-scene-shell.exploring) [data-slot='dialog-content'] {
+  z-index: 90;
+}

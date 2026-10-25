@@ -383,3 +383,28 @@ test('explore mode: guests still reach their seats when Luna is parked in the pa
   assert.deepEqual(phases, ['sitting', 'sitting', 'sitting', 'sitting']);
   f.people.dispose();
 });
+test('explore mode: Luna sits on a free seat, stands up when walking, and does chores', async () => {
+  const f = await fixture();
+  f.people.setManual(true);
+  // Walk to the stools by meja 3 in the courtyard.
+  f.people.walkTo(f.cafe.localToWorld(new THREE.Vector3(-2.3, 0.05, -2.2)));
+  for (let i = 0; i < 60 * 30 && f.people.walking(); i++) f.people.update(1 / 60, true);
+  const seat = f.people.seatNear();
+  assert.ok(seat);
+  assert.ok(f.people.sit(seat.id));
+  f.people.update(1 / 60, true);
+  assert.ok(f.people.sitting());
+  assert.equal(f.people.inspect().task, 'sitting');
+  // Pushing the stick stands her up.
+  f.people.drive(1, 0);
+  f.people.update(1 / 60, true);
+  f.people.drive(0, 0);
+  assert.ok(!f.people.sitting());
+  // Chores run for their time, then end.
+  f.people.chore('sweeping', 1);
+  f.people.update(1 / 60, true);
+  assert.equal(f.people.inspect().task, 'sweeping');
+  for (let i = 0; i < 70; i++) f.people.update(1 / 60, true);
+  assert.notEqual(f.people.inspect().task, 'sweeping');
+  f.people.dispose();
+});
