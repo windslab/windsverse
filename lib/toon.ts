@@ -107,6 +107,9 @@ const outlineShader = {
     uniform float thickness;
     uniform vec3 lineColor;
     uniform float strength;
+    uniform vec3 gradeTint;
+    uniform vec3 gradeLift;
+    uniform float gradeSaturation;
     varying vec2 vUv;
     // 1 / view distance: linear in screen space on any plane.
     float inv(vec2 uv) {
@@ -129,6 +132,10 @@ const outlineShader = {
       // The background is a flat clear colour that the normal renderer never tone-maps.
       if (texture2D(tDepth, vUv).x < 1.0) {
         #include <tonemapping_fragment>
+        // Scene grade (neutral by default): saturation, tint, then lifted shadows.
+        float luma = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+        gl_FragColor.rgb = mix(vec3(luma), gl_FragColor.rgb, gradeSaturation) * gradeTint;
+        gl_FragColor.rgb += gradeLift * (1.0 - gl_FragColor.rgb);
       }
       // Opaque materials always write alpha 1; only the character hull writes 0.
       gl_FragColor.rgb = mix(gl_FragColor.rgb, lineColor, max(edge, 1.0 - base.a));
@@ -191,6 +198,9 @@ export function createToonOutline(
       // The line is mixed in after tone mapping, so it is given in the output's linear space.
       lineColor: { value: new THREE.Vector3(lineColor.r, lineColor.g, lineColor.b) },
       strength: { value: strength },
+      gradeTint: { value: new THREE.Vector3(1, 1, 1) },
+      gradeLift: { value: new THREE.Vector3(0, 0, 0) },
+      gradeSaturation: { value: 1 },
     },
     depthTest: false,
     depthWrite: false,
@@ -241,6 +251,12 @@ export function createToonOutline(
         hull.raycast = () => {};
         parent.add(hull);
       }
+    },
+    /** Colour grade for scene pixels (not the sky): tint, lifted shadows and saturation. */
+    setGrade(tint: THREE.Vector3, lift: THREE.Vector3, saturation: number) {
+      material.uniforms.gradeTint.value.copy(tint);
+      material.uniforms.gradeLift.value.copy(lift);
+      material.uniforms.gradeSaturation.value = saturation;
     },
     render(scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
       renderer.getDrawingBufferSize(size);

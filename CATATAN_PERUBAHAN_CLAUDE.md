@@ -232,3 +232,112 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Bisa diputar dengan menggeser (sudut dibatasi, tanpa zoom). Judul lagu di plakat kuningan, kenop volume
   dan tombol ⏮ ⏯ ⏭ di papan kayu. Radio lama dihapus.
 - `typecheck`, `format:check`, `build` lulus. Dicek di ukuran HP (diam dan berputar).
+
+## 13. Langit, cahaya, dan atmosfer scene 3D seperti Windstronout (25 Okt 2026, branch `luna-ps1`)
+
+- `lib/cafe-sky.ts`: kubah langit + awan dari teleskop (`createSkyAtmosphere`, warnanya dikonversi ke
+  ruang linear supaya tampil sama), bintang dari `public/sky/stars.json` (magnitudo ≤ 5,2) dengan rotasi
+  langit sungguhan untuk Pangkajene, bulan, dan posisi matahari sungguhan (astronomy-engine). Preset:
+  Live, Fajar, Pagi, Siang, Sore, Senja, Malam (matahari meluncur pelan ke posisi baru).
+- `app/scene-3d.tsx`: arah & warna matahari (putih siang, keemasan pagi/senja), bulan sebagai cahaya
+  utama malam, warna langit/tanah ambient, eksposur, kabut ke warna cakrawala, lampu/neon/lampu mobil
+  menyala sesuai ketinggian matahari, bayangan diperbarui saat matahari bergeser. Tombol Pagi/Malam
+  diganti satu tombol waktu (Live → Fajar → … → Malam). Suasana suara tetap mengikuti siang/malam.
+- `lib/toon.ts`: grade warna opsional di pass outline (tint, shadow lift, saturasi); netral untuk studio
+  dan gramofon. Kafe: segar siang, keemasan pagi/senja, biru malam (nuansa Ghibli).
+- Daun (pohon pasui, taman, semak, pot, tanaman kaki pohon) bergoyang lewat vertex shader angin.
+- Kolam: riak dan ikan tidak lagi ikut "dibekukan" (`matrixAutoUpdate=false`), jadi bergerak lagi.
+- Tampilan awal dari depan (sisi jalan, azimut −82°, elevasi 16°).
+- Teleskop: klik gedung Winds Space di ilustrasi mode wide (`hitsCafe`, u 0,19–0,35) → zoom masuk +
+  pudar krem → scene 3D muncul dari posisi teleskop menghadap kafe → meluncur ke tampilan depan.
+- Dicek di browser: semua waktu (fajar–malam, bintang malam, awan sore/senja), tampilan depan, alur
+  klik ilustrasi. `typecheck`, `format:check`, `build` lulus; `people.test` 8/8, `engine.test` 21/25.
+- Belum diukur: FPS di HP sungguhan dengan langit baru.
+
+## 14. Dunia 3D dari panorama Windstronout (25 Okt 2026, branch `luna-ps1`)
+
+- `lib/cafe-world.ts`: lantai krem polos diganti dunia 3D bergaya panorama — tanah berbukit (noise
+  deterministik, vertex color rumput rendah/sedang/tinggi), halaman rata di sekitar kafe dan koridor jalan
+  yang memanjang (aspal + tepi tanah), sungai berkelok di lembah seberang jalan (pita air dengan garis
+  arus bergerak), 16 bukit karst di cakrawala (satu mesh gabungan), 140 pohon (instanced, ikut angin),
+  dan menara observatorium di atas bukit.
+- `app/scene-3d.tsx`: dunia dibuat setelah kafe & jalan diketahui (`floor` lama disembunyikan); langit
+  radius 150, kamera far 170, kabut 40–240 supaya bukit jauh tetap terlihat berkabut.
+- Diukur di emulasi HP: 60 fps, ±154 ribu segitiga (sebelumnya ±96 ribu), ±552 draw call.
+- `typecheck`, `format:check`, `build` lulus; `engine.test` 21/25 seperti sebelumnya.
+
+## 15. Dunia: kafe menapak, jalan panjang, lalu lintas dua arah, gunung, dan matahari (25 Okt 2026)
+
+- Tanah mengikuti lantai terendah kafe + gundukan rumput di sekeliling dinding (tidak menutupi jalan);
+  warna rumput sama di semua area (warna "halaman" dihapus). Bukit dekat dibuat landai.
+- Jalan panjang 300 satuan dengan garis tengah putus-putus dan garis tepi kuning (`World_Road`); efek
+  pudar di ujung jalan model dihapus.
+- Tiang listrik + tiga kabel melengkung setiap 13 satuan di sisi kafe sepanjang jalan (dua mesh gabungan),
+  dilewati di area kafe yang sudah punya tiang sendiri.
+- Lalu lintas dua arah: jalur kedua berlawanan arah; mobil berjalan 70 satuan ke tiap sisi dan hanya
+  memudar di 7% awal/akhir perjalanan.
+- Gunung: barisan gunung batu menyambung di belakang kafe (radius 150–190) dan 9 karst terpisah di depan
+  (115–160), lebih kecil dan jauh. Langit radius 220, kamera far 260, kabut 50–330.
+- Matahari: cakram + pendar (lebih besar & oranye-keemasan dekat cakrawala), lens flare yang memudar bila
+  matahari tertutup kafe/bukit (raycast 5×/detik). Preset Senja kini 2,5° di atas cakrawala; lampu menyala
+  mulai matahari < 6°.
+- `typecheck`, `format:check`, `build` lulus; `people.test` 8/8, `engine.test` 21/25.
+
+## 16. Revisi dunia: area kafe, jalan, dan gunung sesuai referensi (25 Okt 2026)
+
+- Tiang listrik di sepanjang jalan dihapus (kembali seperti sebelumnya).
+- Tidak ada lagi gundukan di dalam area kafe. Seluruh lingkungan kafe (semua mesh model kecuali jalan)
+  menjadi area situs; tanah di luarnya dinaikkan setinggi trotoar, di dalamnya turun landai di bawah
+  lantai kafe — lantai asli dan kolam ikan tidak tertutup, tanpa garis tepi.
+- Efek pudar ujung jalan model dan lalu lintas dikembalikan seperti sebelumnya (tetap dua arah).
+  Jalan panjang memakai warna aspal & marka jalan kafe (Material.011 / Material.002).
+- Perbukitan dekat dikembalikan ke versi sebelumnya.
+- Gunung mengikuti referensi siluet: barisan di belakang berupa punggungan rendah berpuncak datar
+  (radius 115–150, tinggi ±11–20); karst di depan 7 bukit kecil berpuncak membulat, posisi diacak dan
+  berjarak (80–140).
+- `typecheck`, `format:check`, `build` lulus; `people.test` 8/8, `engine.test` 21/25.
+
+## 17. Lantai & kolam terlihat, gunung alami, pohon lebih sedikit, matahari tampil (25 Okt 2026)
+
+- Tanah setinggi lantai beton kafe (`floor lantai 1`); tanah dipotong tepat di atas `floor lantai 1`,
+  `floor lantai 1 area bar`, `Kolam ikan`, dan `trotoar` lewat shader (discard per persegi), jadi lantai
+  beton dan kolam selalu terlihat tanpa z-fighting.
+- Gunung belakang: dua baris lurus sejajar jalan (jarak 95 dan 130, panjang 520) yang menghilang di
+  kejauhan; puncak campuran lancip/tumpul/datar (`peakShape` dengan ketajaman acak). Karst depan: 8 bukit
+  kecil acak dari profil lathe (kerucut, kubah, meja), sebagian berpunuk dua.
+- Pohon 140 → 55.
+- Matahari: sprite digambar setelah kubah langit (sebelumnya tertutup langit) dengan blending normal;
+  saat senja lebih besar & oranye; preset Senja 5° di atas cakrawala. Bulan juga digambar di atas langit.
+- `typecheck`, `format:check`, `build` lulus; `people.test` 8/8, `engine.test` 21/25.
+
+## 18. Tanah tanpa lubang (25 Okt 2026)
+
+- Potongan tanah tidak lagi memakai kotak (kotak `floor lantai 1` mencakup area tanpa lantai di belakang
+  kafe sehingga berlubang). Sekarang lantai, area bar, kolam, dan trotoar "difoto" dari atas sekali saat
+  dimuat (render target ortografis, ≤1024 px); tanah hanya dibuang di dalam bentuk aslinya. Di tempat lain
+  tanah utuh dan rata setinggi lantai beton, menyambung ke perbukitan tanpa patahan.
+- `typecheck`, `format:check`, `build` lulus; `engine.test` 21/25 seperti sebelumnya.
+
+## 19. Lampu interior dan neonbox (25 Okt 2026) — sebagian
+
+- Lampu malam: dua lampu gantung (lembut), lampu di dalam kotak bar (posisi dari bounding box, di bawah
+  atapnya), dua lampu utama di atas `meja 1` dan `meja 2` (depan rak buku), dua lampu di lantai 2 indoor
+  (`meja atas 1` & `meja atas 2`). Neonbox: permukaan putih kotak di belakang logo ikut menyala saat malam
+  (hanya mesh seukuran logo).
+- Neonbox: hanya kotak di atas pagar (`Cube.041`, logo `Untitled_Artwork.001`); logo lain menempel di
+  freezer dan tidak ikut menyala. Diperbaiki: efek menyala sempat mengenai panel `MeshBasicMaterial`
+  (tidak punya emissive) sehingga error saat malam.
+
+## 20. Jalan buatan sendiri, jembatan kayu, Milky Way (25 Okt 2026)
+
+- Jalan model (`jalan poros`) disembunyikan (tetap dipakai untuk jalur mobil). Satu jalan buatan untuk
+  seluruh scene: tekstur kanvas bergaya (bintik, jejak roda, tambalan aspal, retakan, marka tengah tidak
+  seragam & pudar, bahu jalan berkerikil dengan tepi tidak rata), setinggi permukaan jalan model.
+- Jembatan kayu kecil melengkung di titik sungai terdekat dengan kafe: 18 papan mengikuti lengkung,
+  tiang & pegangan di kedua sisi, batu penopang di kedua ujung (tiga mesh gabungan). Jalan setapak tanah
+  dari tepi jalan ke jembatan dan berlanjut di seberang.
+- Milky Way: salinan 2k (`public/sky/milkyway-2k.jpg`, 0,7 MB, sumber ESO yang sama dengan teleskop)
+  dimuat hanya saat langit cukup gelap; orientasi galaksi sama dengan teleskop.
+- Mode pengembangan `?sceneStats`: kamera boleh mundur sampai 90 untuk memeriksa dunia.
+- Dicek di browser: jalan & bahu, jembatan, malam (Bimasakti, lampu interior & lampu tali). `typecheck`,
+  `format:check`, `build` lulus; `people.test` 8/8, `engine.test` 21/25.

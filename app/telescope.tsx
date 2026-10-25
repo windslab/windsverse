@@ -1,5 +1,11 @@
 'use client';
-import { useState, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useState,
+  useEffect,
+  useRef,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import dynamic from 'next/dynamic';
 import { RotateCcw, Telescope, Moon, X, Search, Camera, Download, Clock3 } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -121,7 +127,8 @@ function MountControls({
     </section>
   );
 }
-function Eyepiece() {
+function Eyepiece({ onReturnToCafe }: { onReturnToCafe?: () => void }) {
+  const [returning, setReturning] = useState<{ x: number; y: number } | null>(null);
   const [focus, setFocus] = useState(0),
     focusDrag = useRef<{ pointerId: number; angle: number } | undefined>(undefined);
   const focusAngle = (event: ReactPointerEvent<SVGSVGElement>) => {
@@ -341,8 +348,28 @@ function Eyepiece() {
                 <path d="M50 1.5V8.5" />
               </g>
             </svg>
-            <div className="eyepiece-aperture">
+            <div
+              className="eyepiece-aperture"
+              data-returning={returning ? '' : undefined}
+              style={
+                returning
+                  ? ({ transformOrigin: `${returning.x}px ${returning.y}px` } as CSSProperties)
+                  : undefined
+              }
+              onAnimationEnd={(e) => {
+                if (returning && e.animationName === 'telescope-return') onReturnToCafe?.();
+              }}
+            >
               <SkyViewer
+                onCafe={
+                  onReturnToCafe
+                    ? (point) => {
+                        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+                          onReturnToCafe();
+                        else setReturning(point);
+                      }
+                    : undefined
+                }
                 simulationTime={simulationTime}
                 onWideFov={setWideFov}
                 command={command}
@@ -841,13 +868,18 @@ function Eyepiece() {
 export default function TelescopeView({
   open,
   onOpenChange,
+  onReturnToCafe,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Tapping Winds Space in the illustration zooms in and returns to the 3D café. */
+  onReturnToCafe?: () => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="telescope-dialog">{open && <Eyepiece />}</DialogContent>
+      <DialogContent className="telescope-dialog">
+        {open && <Eyepiece onReturnToCafe={onReturnToCafe} />}
+      </DialogContent>
     </Dialog>
   );
 }
