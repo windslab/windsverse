@@ -296,3 +296,16 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   (radius 115–150, tinggi ±11–20); karst di depan 7 bukit kecil berpuncak membulat, posisi diacak dan
   berjarak (80–140).
 - `typecheck`, `format:check`, `build` lulus; `people.test` 8/8, `engine.test` 21/25.
+
+## 17. Lantai & kolam terlihat, gunung alami, pohon lebih sedikit, matahari tampil (25 Okt 2026)
+
+- Tanah setinggi lantai beton kafe (`floor lantai 1`); tanah dipotong tepat di atas `floor lantai 1`,
+  `floor lantai 1 area bar`, `Kolam ikan`, dan `trotoar` lewat shader (discard per persegi), jadi lantai
+  beton dan kolam selalu terlihat tanpa z-fighting.
+- Gunung belakang: dua baris lurus sejajar jalan (jarak 95 dan 130, panjang 520) yang menghilang di
+  kejauhan; puncak campuran lancip/tumpul/datar (`peakShape` dengan ketajaman acak). Karst depan: 8 bukit
+  kecil acak dari profil lathe (kerucut, kubah, meja), sebagian berpunuk dua.
+- Pohon 140 → 55.
+- Matahari: sprite digambar setelah kubah langit (sebelumnya tertutup langit) dengan blending normal;
+  saat senja lebih besar & oranye; preset Senja 5° di atas cakrawala. Bulan juga digambar di atas langit.
+- `typecheck`, `format:check`, `build` lulus; `people.test` 8/8, `engine.test` 21/25.

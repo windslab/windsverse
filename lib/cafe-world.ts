@@ -40,8 +40,10 @@ function makeNoise(seed = 7) {
 export type WorldLayout = {
   /** The café's whole site (floors, yard, pond, sidewalk) on the ground, world units. */
   bounds: THREE.Box3;
-  /** Ground level around the site: the top of the sidewalk. */
+  /** Ground level around the site: the café's concrete floor. */
   groundY: number;
+  /** Areas where the ground is cut away so the café's own floors and pond show (world XZ). */
+  holes?: THREE.Box3[];
   /** Road through the scene: a point on its centre line, direction, half width. */
   road?: { origin: THREE.Vector3; direction: THREE.Vector3; halfWidth: number };
 };
@@ -117,16 +119,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       (noise(x * 0.09 + 40, z * 0.09) - 0.5) * 1.2;
     // Ground outside the café's site comes up to the sidewalk, so the site sits in the land
     // instead of on a visible plinth; inside the site it stays hidden below the café's own floors.
-    if (flatZone(x, z).cafe <= 0) {
-      // Inside the site: ease down under the café's own floors, no step at the edge.
-      const inside = Math.min(
-        x - bounds.min.x,
-        bounds.max.x - x,
-        z - bounds.min.z,
-        bounds.max.z - z,
-      );
-      return groundY - 0.3 * THREE.MathUtils.smoothstep(inside, 0.2, 2);
-    }
+    if (flatZone(x, z).cafe <= 0) return groundY;
     let h = groundY + hills * THREE.MathUtils.smoothstep(flat, 0, 1);
     // Observatory hill.
     const tower = Math.hypot(x - towerAt.x, z - towerAt.z);
@@ -170,6 +163,35 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     vertexColors: true,
     gradientMap: toonGradient(),
   });
+  // Cut the ground away exactly over the café's floors and pond (no z-fighting, crisp edges).
+  const holes = (layout.holes ?? []).slice(0, 8);
+  if (holes.length) {
+    const rects = holes.map((b) => new THREE.Vector4(b.min.x, b.min.z, b.max.x, b.max.z));
+    while (rects.length < 8) rects.push(new THREE.Vector4(1, 1, -1, -1));
+    terrainMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.holes = { value: rects };
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vGroundXZ;')
+        .replace(
+          '#include <worldpos_vertex>',
+          '#include <worldpos_vertex>\nvGroundXZ = (modelMatrix * vec4(transformed, 1.0)).xz;',
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          '#include <common>\nuniform vec4 holes[8];\nvarying vec2 vGroundXZ;',
+        )
+        .replace(
+          'void main() {',
+          `void main() {
+          for (int i = 0; i < 8; i++) {
+            vec4 r = holes[i];
+            if (vGroundXZ.x > r.x && vGroundXZ.x < r.z && vGroundXZ.y > r.y && vGroundXZ.y < r.w) discard;
+          }`,
+        );
+    };
+    terrainMaterial.customProgramCacheKey = () => 'world-terrain-holes';
+  }
   materials.push(terrainMaterial);
   const terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
   terrain.name = 'World_Terrain';
@@ -237,88 +259,116 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   group.add(water);
 
   // --- Mountains -------------------------------------------------------------------------------
-  // Behind the café: one continuous limestone range. In front, beyond the river: separate karst
-  // towers. Both well away from the café, softened by the fog.
-  const behind = Math.atan2(roadSide.z * sideOfCafe, roadSide.x * sideOfCafe),
-    karstColor = (g: THREE.BufferGeometry, top: number, bottom: number) => {
-      const p = g.attributes.position,
-        c = new Float32Array(p.count * 3);
-      for (let k = 0; k < p.count; k++) {
-        const t = THREE.MathUtils.clamp((p.getY(k) - bottom) / (top - bottom), 0, 1);
-        color.copy(ROCK_GREEN).lerp(ROCK, THREE.MathUtils.smoothstep(t, 0.3, 0.9));
-        c.set([color.r, color.g, color.b], k * 3);
-      }
-      g.setAttribute('color', new THREE.BufferAttribute(c, 3));
-    };
-  const mountainParts: THREE.BufferGeometry[] = [];
-  /** Flat-topped bump (a high-power Gaussian), like the table-top hills in the reference. */
-  const mesa = (d: number, w: number) => Math.exp(-((d / w) ** 6));
-  {
-    // Range behind the café: a long, low skyline of gentle rolls and a few flat-topped rises.
-    const cols = 180,
-      rows = 8,
-      span = Math.PI * 1.2,
-      inner = 115,
-      outer = 150;
-    const g = new THREE.PlaneGeometry(1, 1, cols, rows);
-    const p = g.attributes.position;
-    const rises = Array.from({ length: 9 }, (_, k) => ({
-      at: (k / 8 - 0.5) * span * 0.9 + (noise(k, 41) - 0.5) * 0.12,
-      h: 4 + noise(k, 42) * 6,
-      w: 0.05 + noise(k, 43) * 0.08,
-    }));
+  // Behind the café: straight ranges running off to the horizon. In front, beyond the river:
+  // separate karst hills. Both well away from the café, softened by the fog.
+  const karstColor = (g: THREE.BufferGeometry, top: number, bottom: number) => {
+    const p = g.attributes.position,
+      c = new Float32Array(p.count * 3);
     for (let k = 0; k < p.count; k++) {
-      const u = p.getX(k) + 0.5,
-        v = p.getY(k) + 0.5;
-      const a = behind + (u - 0.5) * span,
-        r = inner + (outer - inner) * v;
-      let ridge = 11 + (noise(u * 6, 3) - 0.5) * 4 + (noise(u * 22, 7) - 0.5) * 0.9;
-      for (const rise of rises) ridge += rise.h * mesa(a - behind - rise.at, rise.w);
-      // Rounded front slope, then flat along the top.
-      const profile = Math.min(1, Math.sin((Math.PI / 2) * Math.min(1, v * 1.6)) * 1.05);
-      p.setXYZ(
-        k,
-        center.x + Math.cos(a) * r,
-        groundY - 2 + ridge * profile,
-        center.z + Math.sin(a) * r,
-      );
+      const t = THREE.MathUtils.clamp((p.getY(k) - bottom) / (top - bottom), 0, 1);
+      color.copy(ROCK_GREEN).lerp(ROCK, THREE.MathUtils.smoothstep(t, 0.3, 0.9));
+      c.set([color.r, color.g, color.b], k * 3);
     }
-    g.deleteAttribute('uv');
-    g.computeVertexNormals();
-    karstColor(g, groundY + 20, groundY);
-    mountainParts.push(g);
+    g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  };
+  const mountainParts: THREE.BufferGeometry[] = [];
+  /**
+   * A peak's profile at distance d (0 = summit) with half width w. `sharp` near 1 gives a pointed
+   * top, around 2 a rounded one, 5+ a flat table top: mixing them reads like natural karst.
+   */
+  const peakShape = (d: number, w: number, sharp: number) =>
+    Math.exp(-Math.pow(Math.abs(d) / w, sharp));
+  const shapes = [1.1, 1.4, 2, 2.6, 4, 6];
+  {
+    // Behind the café: two straight rows parallel to the road, running off to the horizon.
+    for (const [row, distance, depth, scale] of [
+      [0, 95, 26, 1],
+      [1, 130, 30, 1.35],
+    ] as const) {
+      const length = 520,
+        cols = 220,
+        rows = 6;
+      const peaks = Array.from({ length: 34 }, (_, k) => ({
+        at: (k / 33 - 0.5) * length + (noise(k + row * 50, 61) - 0.5) * 12,
+        h: (5 + noise(k + row * 50, 62) * 13) * scale,
+        w: 7 + noise(k + row * 50, 63) * 16,
+        sharp: shapes[Math.floor(noise(k + row * 50, 64) * shapes.length * 0.999)],
+      }));
+      const g = new THREE.PlaneGeometry(1, 1, cols, rows);
+      const p = g.attributes.position;
+      for (let k = 0; k < p.count; k++) {
+        const u = p.getX(k) + 0.5,
+          v = p.getY(k) + 0.5;
+        const along = (u - 0.5) * length;
+        let top = 3 + (noise(u * 14 + row, 5) - 0.4) * 4;
+        for (const peak of peaks)
+          top = Math.max(top, peak.h * peakShape(along - peak.at, peak.w, peak.sharp));
+        top += (noise(u * 60 + row, 9) - 0.5) * 0.8;
+        // Slope from the foot (front edge) up to the crest, then back down behind it.
+        const profile = Math.sin(Math.PI * Math.min(1, v)) ** 0.7;
+        const at = center
+          .clone()
+          .addScaledVector(roadDir, along)
+          .addScaledVector(roadSide, sideOfCafe * (distance + v * depth));
+        p.setXYZ(k, at.x, groundY - 2.5 + top * profile, at.z);
+      }
+      g.deleteAttribute('uv');
+      g.computeVertexNormals();
+      karstColor(g, groundY + 18 * scale, groundY);
+      mountainParts.push(g);
+    }
   }
-  // In front, beyond the river: a loose scatter of small, flat-topped karst hills.
-  const placed: { a: number; r: number }[] = [];
-  for (let i = 0; placed.length < 7 && i < 60; i++) {
-    const a = behind + Math.PI + (noise(i * 3.1, 51) - 0.5) * 2.6,
-      r = 80 + noise(i * 2.7, 52) * 60;
-    if (placed.some((q) => Math.abs(q.a - a) * ((q.r + r) / 2) < 14)) continue;
-    placed.push({ a, r });
-    const peak = 5 + noise(i, 53) * 6,
-      width = 4 + noise(i, 54) * 5;
-    const g = new THREE.CylinderGeometry(width * 0.78, width, peak, 12, 5);
+  // In front, beyond the river: a loose scatter of small karst hills in mixed shapes.
+  const placed: THREE.Vector3[] = [];
+  for (let i = 0; placed.length < 8 && i < 80; i++) {
+    const spot = center
+      .clone()
+      .addScaledVector(roadDir, (noise(i * 3.1, 51) - 0.5) * 220)
+      .addScaledVector(roadSide, -sideOfCafe * (55 + noise(i * 2.7, 52) * 70));
+    if (placed.some((q) => q.distanceTo(spot) < 22)) continue;
+    placed.push(spot);
+    const peak = 4 + noise(i, 53) * 7,
+      width = 4 + noise(i, 54) * 5,
+      sharp = shapes[Math.floor(noise(i, 57) * shapes.length * 0.999)],
+      twin = noise(i, 58) > 0.6;
+    // A lathe from the profile: pointed, domed or flat-topped, sometimes with a second hump.
+    const outline: THREE.Vector2[] = [];
+    for (let k = 0; k <= 14; k++) {
+      const t = k / 14,
+        r = width * (1 - t * 0.98);
+      outline.push(new THREE.Vector2(Math.max(0.01, r), peak * Math.pow(t, 1 / sharp)));
+    }
+    const g = new THREE.LatheGeometry(outline, 14);
     const p = g.attributes.position,
       v = new THREE.Vector3();
     for (let k = 0; k < p.count; k++) {
       v.fromBufferAttribute(p, k);
-      const t = (v.y + peak / 2) / peak,
-        bulge = 1 + 0.12 * Math.sin(t * Math.PI) + (noise(v.x * 0.6 + i, v.z * 0.6) - 0.5) * 0.3;
-      v.x *= bulge;
-      v.z *= bulge;
-      // Soft, slightly domed top instead of a point.
-      if (t > 0.95) v.y += (1 - Math.hypot(v.x, v.z) / width) * peak * 0.12;
+      const n = noise(v.x * 0.5 + i, v.z * 0.5 + v.y * 0.3) - 0.5;
+      v.x *= 1 + n * 0.35;
+      v.z *= 1 + n * 0.35;
+      v.y *= 1 + n * 0.15;
       p.setXYZ(k, v.x, v.y, v.z);
     }
-    g.deleteAttribute('uv');
-    g.rotateY(noise(i, 55) * 6.28);
-    g.scale(1, 1, 0.7 + noise(i, 56) * 0.6);
-    g.translate(center.x + Math.cos(a) * r, groundY + peak / 2 - 1, center.z + Math.sin(a) * r);
-    g.computeVertexNormals();
-    karstColor(g, groundY + peak, groundY);
-    mountainParts.push(g);
+    const parts = [g];
+    if (twin) {
+      const second = g.clone();
+      second.scale(0.7, 0.75, 0.7);
+      second.translate(width * 0.9, 0, width * 0.2);
+      parts.push(second);
+    }
+    const hill = mergeGeometries(parts.map((x) => x.toNonIndexed()))!;
+    parts.forEach((x) => x.dispose());
+    hill.deleteAttribute('uv');
+    hill.rotateY(noise(i, 55) * 6.28);
+    hill.scale(1, 1, 0.7 + noise(i, 56) * 0.6);
+    hill.translate(spot.x, groundY - 0.8, spot.z);
+    hill.computeVertexNormals();
+    karstColor(hill, groundY + peak, groundY);
+    mountainParts.push(hill);
   }
-  const karstGeometry = mergeGeometries(mountainParts)!;
+  const karstGeometry = mergeGeometries(
+    mountainParts.map((g) => (g.index ? g.toNonIndexed() : g)),
+  )!;
   mountainParts.forEach((g) => g.dispose());
   geometries.push(karstGeometry);
   const karstMaterial = new THREE.MeshToonMaterial({
@@ -405,7 +455,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   const treeSpots: THREE.Matrix4[] = [],
     treeColors: THREE.Color[] = [];
   const shades = ['#4f6b33', '#5d7a3a', '#6e8a42', '#47612f'].map((c) => new THREE.Color(c));
-  for (let i = 0; treeSpots.length < 140 && i < 2000; i++) {
+  for (let i = 0; treeSpots.length < 55 && i < 2000; i++) {
     const a = noise(i * 1.7, 2) * Math.PI * 8,
       r = 16 + noise(i * 2.3, 5) * 70;
     const x = center.x + Math.cos(a) * r,

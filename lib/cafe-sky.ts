@@ -24,7 +24,7 @@ const PRESET_SUN: Record<Exclude<SkyPhase, 'live'>, [number, number]> = {
   pagi: [95, 18],
   siang: [140, 72],
   sore: [255, 28],
-  senja: [262, 2.5],
+  senja: [262, 5],
   malam: [300, -35],
 };
 
@@ -153,7 +153,7 @@ export function createCafeSky(radius = 85) {
   });
   const moonSprite = new THREE.Sprite(moonMaterial);
   moonSprite.scale.setScalar(radius * 0.09);
-  moonSprite.renderOrder = -2;
+  moonSprite.renderOrder = 1;
   group.add(moonSprite);
 
   // Sun: a bright disc with a soft halo, bigger and orange near the horizon.
@@ -187,15 +187,16 @@ export function createCafeSky(radius = 85) {
       [0.4, 'rgba(255,255,255,0.35)'],
       [1, 'rgba(255,255,255,0)'],
     ]);
+  // Normal blending so the disc stays visible against a bright sky (additive white vanished).
   const sunMaterial = new THREE.SpriteMaterial({
     map: sunTexture,
     transparent: true,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
     fog: false,
   });
   const sunSprite = new THREE.Sprite(sunMaterial);
-  sunSprite.renderOrder = -1;
+  // Drawn after the atmosphere dome (renderOrder -1), which would otherwise paint over it.
+  sunSprite.renderOrder = 1;
   group.add(sunSprite);
   // Lens flare: ghosts along the line from the sun through the centre of the view.
   const flares = [
@@ -225,7 +226,7 @@ export function createCafeSky(radius = 85) {
   const sunNdc = new THREE.Vector3(),
     flarePoint = new THREE.Vector3(),
     sunWorld = new THREE.Vector3(),
-    SUN_WHITE = new THREE.Color('#fff6dc'),
+    SUN_WHITE = new THREE.Color('#fff1b8'),
     SUN_DUSK = new THREE.Color('#ffa63d');
 
   const state: SkyState = {
@@ -308,7 +309,7 @@ export function createCafeSky(radius = 85) {
       // Sun disc: whiter and smaller high up, larger and orange-gold near the horizon.
       const low = 1 - THREE.MathUtils.smoothstep(altitude, 2, 22);
       sunSprite.position.copy(state.sun).multiplyScalar(radius * 0.88);
-      sunSprite.scale.setScalar(radius * (0.11 + 0.09 * low));
+      sunSprite.scale.setScalar(radius * (0.12 + 0.16 * low));
       sunMaterial.color.copy(SUN_WHITE).lerp(SUN_DUSK, low);
       sunMaterial.opacity = THREE.MathUtils.smoothstep(altitude, -2.5, 0.5);
       sunSprite.visible = sunMaterial.opacity > 0.01;

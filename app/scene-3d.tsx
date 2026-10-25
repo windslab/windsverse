@@ -1052,11 +1052,20 @@ export default function CafeScene({
             for (let up: THREE.Object3D | null = mesh; up; up = up.parent) if (up === road) return;
             site.union(part.setFromObject(mesh));
           });
-          const sidewalk = objectByModelName(model, 'trotoar');
-          const level = sidewalk
-            ? new THREE.Box3().setFromObject(sidewalk).max.y - 0.02
+          // Ground level = the café's concrete floor; cut the ground away over the floors,
+          // pond and sidewalk so they always show.
+          const concrete = objectByModelName(model, 'floor lantai 1');
+          const level = concrete
+            ? new THREE.Box3().setFromObject(concrete).max.y - 0.01
             : site.min.y;
-          world = createCafeWorld({ bounds: site, groundY: level, road: roadLayout }, windTime);
+          const holes = ['floor lantai 1', 'floor lantai 1 area bar', 'Kolam ikan', 'trotoar']
+            .map((name) => objectByModelName(model, name))
+            .filter((o): o is THREE.Object3D => !!o)
+            .map((o) => new THREE.Box3().setFromObject(o));
+          world = createCafeWorld(
+            { bounds: site, groundY: level, road: roadLayout, holes },
+            windTime,
+          );
           scene.add(world.group);
           floor.visible = false;
         }
