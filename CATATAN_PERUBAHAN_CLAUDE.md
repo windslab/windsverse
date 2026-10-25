@@ -450,3 +450,34 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   (pagar menahan); zebra cross dan mobil berhenti; lari 2× jalan; buka kafe → tamu datang; panah
   di atas tamu. `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6 (1 baru: keramaian),
   `people.test` 13/13, `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
+
+## 25. Explore yang lebih cozy: menara perpustakaan, lampu meja, bulan besar, kunang-kunang (26 Okt 2026)
+
+- **Tutup kafe** → semua tamu pulang, bar dibersihkan. **Ulasan/bintang dihapus**: tamu selalu puas,
+  mengucapkan terima kasih (kalimat bervariasi) dan memberi poin.
+- **Animasi jalan & lari lebih imut**: badan memantul tiap langkah (melompat kecil saat lari), lengan
+  berayun lebar sedikit keluar, badan bergoyang kiri-kanan dengan kepala miring berlawanan; lari
+  memompa lengan yang ditekuk dan condong ke depan.
+- **Kamera Explore lebih bebas**: bisa diputar dari atas sampai sedikit di bawah mata Luna untuk
+  melihat langit, zoom 1,8–9; kamera tetap di atas lantai/tanah.
+- **Menara baru mengikuti lukisan referensi**: lebih lebar, dinding plester merah muda dengan tambalan
+  bata, 4 cincin batu, jendela kecil melengkung dengan lentera, **jendela kaca bulat besar di lantai 4**,
+  alas berbatu, **pintu besar melengkung** dengan daun pintu terbuka, anak tangga dari tanah (jumlahnya
+  menyesuaikan lereng), balustrade pilar di atap. **Isinya perpustakaan**: tangga spiral 4 putaran
+  **berpagar**, rak buku penuh buku warna-warni mengikuti tangga sampai puncak, karpet bulat di lantai
+  1, **lampu gantung berbentuk buku terbuka** dengan halaman menggantung. Puncak kosong, hanya **ruang
+  kecil beratap miring** selebar tangga yang menutup ujung tangga. Malam: lentera, jendela bulat dan
+  lampu buku menyala hangat + satu lampu di dalam menara.
+- **Jalan setapak marmer** kini mulai dari belakang Winds Space, berkelok-kelok, batunya berjarak.
+- **Bulan** jauh lebih besar dengan permukaan lembut dan cahaya halus; **matahari senja** lebih besar.
+- **Kunang-kunang** di malam hari dan **kupu-kupu** di pagi hari (06–11), muncul di tempat acak di
+  sekitar kafe dan menara (`lib/cafe-critters.ts`).
+- **Malam di kafe lebih hidup**: lampu kecil putih hangat di setiap meja (kap menyala, pendar, dan
+  genangan cahaya di meja — efek cahaya, bukan lampu asli, supaya HP tetap lancar); lampu interior
+  dibuat 30% lebih terang.
+- Pengembangan: `window.__explore.time(2100)` mengatur jam permainan (hanya `?sceneStats`).
+- Dicek di browser (ukuran HP): menara dari jauh dan perpustakaan di dalam; simulasi jalan naik dari
+  padang → anak tangga → pintu → 4 putaran tangga → atap, pagar dan dinding menahan; lampu meja malam;
+  bulan besar; jendela bulat menyala; kunang-kunang & kupu-kupu muncul. `typecheck`, `format:check`,
+  `build` lulus; `barista.test` 6/6, `people.test` 13/13, `engine.test` 21/25 seperti sebelumnya.
+  Tidak ada aset baru, `?v=` tetap.

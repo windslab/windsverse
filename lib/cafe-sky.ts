@@ -172,18 +172,37 @@ export function createCafeSky(radius = 85) {
     );
   };
 
-  // Moon: a soft glowing disc facing the camera.
+  // Moon: a big, romantic glowing disc with soft grey seas and a wide halo, facing the camera.
   const moonCanvas = document.createElement('canvas');
-  moonCanvas.width = moonCanvas.height = 128;
+  moonCanvas.width = moonCanvas.height = 256;
   {
     const x = moonCanvas.getContext('2d')!,
-      g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
-    g.addColorStop(0, 'rgba(255,250,232,1)');
-    g.addColorStop(0.32, 'rgba(255,246,220,1)');
-    g.addColorStop(0.36, 'rgba(255,240,210,0.35)');
-    g.addColorStop(1, 'rgba(255,240,210,0)');
-    x.fillStyle = g;
-    x.fillRect(0, 0, 128, 128);
+      halo = x.createRadialGradient(128, 128, 44, 128, 128, 128);
+    halo.addColorStop(0, 'rgba(255,244,214,0.32)');
+    halo.addColorStop(0.25, 'rgba(255,240,208,0.1)');
+    halo.addColorStop(0.6, 'rgba(255,236,200,0.03)');
+    halo.addColorStop(1, 'rgba(255,236,200,0)');
+    x.fillStyle = halo;
+    x.fillRect(0, 0, 256, 256);
+    const face = x.createRadialGradient(118, 116, 4, 128, 128, 48);
+    face.addColorStop(0, 'rgba(255,252,238,1)');
+    face.addColorStop(1, 'rgba(244,236,214,1)');
+    x.fillStyle = face;
+    x.beginPath();
+    x.arc(128, 128, 46, 0, Math.PI * 2);
+    x.fill();
+    x.fillStyle = 'rgba(178,172,160,0.35)';
+    for (const [cx, cy, r] of [
+      [112, 112, 13],
+      [140, 104, 9],
+      [138, 136, 15],
+      [114, 146, 8],
+      [150, 124, 6],
+    ]) {
+      x.beginPath();
+      x.arc(cx, cy, r, 0, Math.PI * 2);
+      x.fill();
+    }
   }
   const moonTexture = new THREE.CanvasTexture(moonCanvas);
   moonTexture.colorSpace = THREE.SRGBColorSpace;
@@ -194,7 +213,7 @@ export function createCafeSky(radius = 85) {
     fog: false,
   });
   const moonSprite = new THREE.Sprite(moonMaterial);
-  moonSprite.scale.setScalar(radius * 0.09);
+  moonSprite.scale.setScalar(radius * 0.36);
   moonSprite.renderOrder = 1;
   group.add(moonSprite);
 
@@ -376,7 +395,8 @@ export function createCafeSky(radius = 85) {
       // Sun disc: whiter and smaller high up, larger and orange-gold near the horizon.
       const low = 1 - THREE.MathUtils.smoothstep(altitude, 2, 22);
       sunSprite.position.copy(state.sun).multiplyScalar(radius * 0.88);
-      sunSprite.scale.setScalar(radius * (0.12 + 0.16 * low));
+      // A big, soft sunset sun near the horizon.
+      sunSprite.scale.setScalar(radius * (0.12 + 0.34 * low));
       sunMaterial.color.copy(SUN_WHITE).lerp(SUN_DUSK, low);
       sunMaterial.opacity = THREE.MathUtils.smoothstep(altitude, -2.5, 0.5);
       sunSprite.visible = sunMaterial.opacity > 0.01;

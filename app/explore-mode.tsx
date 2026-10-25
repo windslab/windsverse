@@ -4,7 +4,7 @@
 // pull espresso for coffee, then carry it to the guest's table for a star rating.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { Coffee, LogOut, Star } from 'lucide-react';
+import { Coffee, LogOut } from 'lucide-react';
 import type { CafeVisitor } from '@/lib/cafe-activity';
 import {
   CUPS,
@@ -14,14 +14,12 @@ import {
   drinkMenu,
   GAME_MINUTES_PER_SECOND,
   newCustomer,
-  review,
   rupiah,
   type Crowd,
   type CupId,
   type Drink,
   type MenuItem,
   type Order,
-  type Review,
 } from '@/lib/barista-game';
 import styles from './explore-mode.module.css';
 import VintageCamera from './vintage-camera';
@@ -89,6 +87,15 @@ type Panel = 'cashier' | 'cup' | 'prep' | 'espresso' | null;
 type MenuSource = { id: string; name: string; price: number; category: string; status?: string };
 
 const NEAR = 1.15;
+const THANKS = [
+  'Enak banget, makasih kak!',
+  'Wah, pas banget rasanya.',
+  'Ini favoritku sekarang!',
+  'Makasih Luna, bikin semangat.',
+  'Hmm… hangatnya nyampe hati.',
+  'Besok aku balik lagi ya!',
+  'Cantik banget penyajiannya.',
+];
 // Each "walk there" goal and the action it leads to.
 const GOAL_ACTION: Record<string, string[]> = {
   'go-cashier': ['cashier'],
@@ -115,8 +122,8 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     [ticket, setTicket] = useState<string | null>(null),
     [drink, setDrink] = useState<Drink>(emptyDrink()),
     [holding, setHolding] = useState(false),
-    [score, setScore] = useState({ points: 0, served: 0, stars: 0 }),
-    [toast, setToast] = useState<{ name: string; review: Review } | null>(null),
+    [score, setScore] = useState({ points: 0, served: 0 }),
+    [toast, setToast] = useState<{ name: string; line: string; points: number } | null>(null),
     [hint, setHint] = useState('Jalan ke kasir untuk menyambut tamu.'),
     [goals, setGoals] = useState<{ id: string; label: string }[]>([]),
     [photoOpen, setPhotoOpen] = useState(false),
@@ -245,6 +252,19 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
   useEffect(() => {
     openRef.current = open;
   }, [open]);
+  /** Closing up: every guest heads home and the bar is cleared. */
+  const toggleOpen = () => {
+    if (open) {
+      setCustomers([]);
+      setTicket(null);
+      setHolding(false);
+      setDrink(emptyDrink());
+      setPanel(null);
+      setNote('Kafe tutup · sampai jumpa besok');
+      setTimeout(() => setNote(''), 2500);
+    }
+    setOpen(!open);
+  };
 
   // Guests who were served leave after their drink.
   useEffect(() => {
@@ -468,21 +488,15 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     if (id === 'serve' && ticket) {
       const c = customersRef.current.find((x) => x.key === ticket);
       if (!c) return;
-      const waited = (Date.now() - c.arrivedAt) / 1000;
-      const result = review(c.order, drink, c.change ?? { given: 0, due: 0 }, waited);
-      const penalty = c.wrongItem ? 1 : 0;
-      const final = { ...result, stars: Math.max(1, result.stars - penalty) };
-      if (c.wrongItem) final.lines = ['Tadi sempat salah catat pesanan.', ...final.lines];
+      // Every guest loves what Luna makes: a thank-you and a few points, no ratings.
+      const thanks = THANKS[Math.floor(Math.random() * THANKS.length)];
+      const points = 20 + Math.round(c.order.item.price / 1000);
       api.deliver(c.key);
       setCustomers((list) =>
         list.map((x) => (x.key === c.key ? { ...x, stage: 'served', servedAt: Date.now() } : x)),
       );
-      setScore((s) => ({
-        points: s.points + final.points,
-        served: s.served + 1,
-        stars: s.stars + final.stars,
-      }));
-      setToast({ name: c.name, review: final });
+      setScore((s) => ({ points: s.points + points, served: s.served + 1 }));
+      setToast({ name: c.name, line: thanks, points });
       setTimeout(() => setToast(null), 5500);
       setHolding(false);
       setTicket(null);
@@ -497,6 +511,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     if (process.env.NODE_ENV === 'production' || !location.search.includes('sceneStats')) return;
     (window as unknown as { __explore: unknown }).__explore = {
       run: (id: string) => runRef.current(id),
+      time: (hhmm: number) => setMinutes(Math.floor(hhmm / 100) * 60 + (hhmm % 100)),
       luna: () => api.luna().toArray(),
       stations: () =>
         Object.fromEntries(Object.entries(api.stations).map(([k, v]) => [k, v.toArray()])),
@@ -508,18 +523,16 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
 
   const queueCustomer = customers.find((c) => c.stage === 'queue');
   const ticketCustomer = customers.find((c) => c.key === ticket);
-  const average = score.served ? score.stars / score.served : 0;
 
   return (
     <div className={styles.hud}>
       <header className={styles.top}>
         <span className={styles.score}>
-          {score.points} poin · {average ? average.toFixed(1) : '–'}
-          <Star size={10} /> · {score.served} tamu
+          {score.points} poin · {score.served} tamu
         </span>
         <span className={styles.clock}>
           {String(hour).padStart(2, '0')}.{String(Math.floor(minutes % 60)).padStart(2, '0')}
-          <button onClick={() => setOpen((o) => !o)} aria-pressed={open}>
+          <button onClick={toggleOpen} aria-pressed={open}>
             {open ? 'tutup kafe' : 'buka kafe'}
           </button>
         </span>
@@ -585,14 +598,9 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         ))}
       {toast && (
         <div className={styles.toast} role="status">
-          <strong>
-            {toast.name} {'★'.repeat(toast.review.stars)}
-            {'☆'.repeat(5 - toast.review.stars)}
-          </strong>
-          {toast.review.lines.map((l) => (
-            <span key={l}>“{l}”</span>
-          ))}
-          <small>+{toast.review.points} poin</small>
+          <strong>{toast.name} ♡</strong>
+          <span>“{toast.line}”</span>
+          <small>+{toast.points} poin</small>
         </div>
       )}
       {panel === 'cashier' && queueCustomer && (

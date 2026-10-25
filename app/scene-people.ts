@@ -785,7 +785,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     }
     // Running (explore mode): quicker, longer strides.
     const run = isBarista && manual && running && manualMove.lengthSq() > 0.0001;
-    if (run) runPhase += dt * 11;
+    if (run) runPhase += dt * 12;
     const stride = reduced
       ? 0
       : run
@@ -800,6 +800,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         moving && task === 'serving' ? 'carrying' : task,
         reduced,
         actor.climb,
+        { phase: run ? runPhase : age * 7 + actor.phase.length, run },
       );
     else {
       actor.legs.forEach((leg, i) => {
@@ -840,6 +841,12 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         bottom = Math.min(bottom, feetBox.min.y);
       }
       if (Number.isFinite(bottom)) actor.visual.position.y += floorY + 0.006 * scale - bottom;
+      // A little bounce with every step (a hop when running).
+      if (isBarista && moving && !reduced)
+        actor.visual.position.y +=
+          Math.abs(Math.sin(run ? runPhase : age * 7 + actor.phase.length)) *
+          (run ? 0.06 : 0.022) *
+          scale;
     }
     actor.drink.visible = !isBarista && sitting && actor.delivered;
     if (actor.drink.visible) {

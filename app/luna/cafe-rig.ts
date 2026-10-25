@@ -55,7 +55,15 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
      * `climb` is -1…1 (down/up stairs): higher leading step and a slight lean. Tasks: idle,
      * cashier, preparing, cleaning, carrying/serving, sitting, watering, sweeping, wiping, photo.
      */
-    update(age: number, stride: number, task: string, reduced: boolean, climb = 0) {
+    update(
+      age: number,
+      stride: number,
+      task: string,
+      reduced: boolean,
+      climb = 0,
+      /** Walk cycle phase (radians) and whether she is running, for the bouncy gait. */
+      gait: { phase: number; run: boolean } = { phase: 0, run: false },
+    ) {
       const working = task === 'preparing' || task === 'cleaning',
         carrying = task === 'carrying' || task === 'serving',
         up = Math.max(0, climb),
@@ -117,14 +125,40 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
         pose(7, 0, 0, 0);
         return;
       }
-      pose(2, carrying ? -0.65 : working ? -0.5 : -stride * 0.3, 0, 0.05);
-      // Cleaning: the right hand wipes the counter side to side.
-      const wipe = task === 'cleaning' ? wave(4) * 0.35 : 0;
-      pose(3, carrying ? -0.65 : working ? -0.5 : stride * 0.3, wipe, -0.05);
-      pose(4, carrying ? -0.45 : working ? -0.45 + wave(5) * 0.1 : 0);
-      pose(5, carrying ? -0.45 : working ? -0.45 + wave(5, 1) * 0.1 : 0);
-      pose(6, working ? 0.12 : 0, wave(0.65) * 0.025, 0);
-      pose(7, up * 0.12 - down * 0.05, 0, wave(1.3) * 0.006);
+      // Cute gait: arms swing wide and a little outward, body sways step to step with the head
+      // tilting the other way; running pumps bent arms and leans in.
+      const step = Math.abs(stride) > 0.001 ? 1 : 0,
+        sway = reduced ? 0 : Math.cos(gait.phase) * 0.06 * step,
+        run = gait.run && step > 0;
+      if (carrying || working) {
+        pose(2, carrying ? -0.65 : -0.5, 0, 0.05);
+        const wipe = task === 'cleaning' ? wave(4) * 0.35 : 0;
+        pose(3, carrying ? -0.65 : -0.5, wipe, -0.05);
+        pose(4, carrying ? -0.45 : -0.45 + wave(5) * 0.1);
+        pose(5, carrying ? -0.45 : -0.45 + wave(5, 1) * 0.1);
+      } else if (run) {
+        pose(2, -0.25 - stride * 0.85, 0, 0.18);
+        pose(3, -0.25 + stride * 0.85, 0, -0.18);
+        pose(4, -1.05);
+        pose(5, -1.05);
+      } else {
+        pose(2, -stride * 0.6, 0, 0.1 + Math.abs(stride) * 0.08);
+        pose(3, stride * 0.6, 0, -0.1 - Math.abs(stride) * 0.08);
+        pose(4, -0.15 - Math.abs(stride) * 0.15);
+        pose(5, -0.15 - Math.abs(stride) * 0.15);
+      }
+      pose(
+        6,
+        (working ? 0.12 : 0) + (run ? 0.08 : 0) + (reduced ? 0 : Math.abs(stride) * 0.04),
+        wave(0.65) * 0.025,
+        -sway * 0.8,
+      );
+      pose(
+        7,
+        (run ? 0.17 : 0.04 * step) + up * 0.12 - down * 0.05,
+        sway * 0.5,
+        sway + wave(1.3) * 0.006,
+      );
     },
     dispose() {
       const geometries = new Set<THREE.BufferGeometry>(),

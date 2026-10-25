@@ -20,6 +20,7 @@ import ExploreMode, { type ExploreApi } from './explore-mode';
 import { createToonOutline, toonGradient, toonify } from '@/lib/toon';
 import { createCafeSky, SKY_PHASES, type SkyPhase } from '@/lib/cafe-sky';
 import { createCafeWorld } from '@/lib/cafe-world';
+import { createCritters } from '@/lib/cafe-critters';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 function objectByModelName(root: THREE.Object3D, name: string) {
@@ -444,8 +445,16 @@ export default function CafeScene({
     // Windstronout's sky (atmosphere, clouds, stars, moon) with fog toward its horizon colour.
     scene.background = new THREE.Color('#05070c');
     const sky = createCafeSky(220);
+    // Table lamps (night glow) and the tower's lights follow the evening.
+    const tableGlow = {
+      lamps: [] as THREE.Group[],
+      materials: [] as THREE.Material[],
+      shade: null as THREE.MeshBasicMaterial | null,
+      texture: null as THREE.Texture | null,
+    };
     /** Zebra crossing in front of the café: where cars stop for Luna. */
     let crossing: { center: THREE.Vector3; reach: number } | undefined;
+    let critters: ReturnType<typeof createCritters> | undefined;
     let world: ReturnType<typeof createCafeWorld> | undefined, siteBox: THREE.Box3 | undefined;
     const sunRay = new THREE.Raycaster();
     // Inside the bar box the view switches to a fixed wide "CCTV" in its upper corner.
@@ -488,10 +497,10 @@ export default function CafeScene({
         camera.updateProjectionMatrix();
       }
       controls!.minDistance = on ? 0.5 : 5;
-      controls!.maxDistance = on ? 7 : debugPerf ? 90 : MAX_CAFE_DISTANCE;
+      controls!.maxDistance = on ? 9 : debugPerf ? 90 : MAX_CAFE_DISTANCE;
       // Look down on Luna rather than through walls.
-      controls!.minPolarAngle = on ? 0.35 : 0.2;
-      controls!.maxPolarAngle = on ? 1.45 : Math.PI * 0.48;
+      controls!.minPolarAngle = on ? 0.15 : 0.2;
+      controls!.maxPolarAngle = on ? 1.75 : Math.PI * 0.48;
       if (on) {
         libraryMode = tvMode = false;
         setLibraryActive(false);
@@ -1068,6 +1077,76 @@ export default function CafeScene({
         overTable('meja atas 2', 2.6, 1.1);
         addNightLight('meja atas luar', 2.4, 5, 0.75);
         addNightLight('WS_Courtyard_Tree_Root', 1.4, 5, 1.5);
+        // A little warm-white lamp on every table: a glowing shade, a soft halo, and a pool of
+        // light on the tabletop (glows, not real lights, so phones stay smooth).
+        {
+          const halo = document.createElement('canvas');
+          halo.width = halo.height = 64;
+          const g = halo.getContext('2d')!,
+            grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+          grad.addColorStop(0, 'rgba(255,236,200,1)');
+          grad.addColorStop(0.35, 'rgba(255,214,160,0.45)');
+          grad.addColorStop(1, 'rgba(255,200,140,0)');
+          g.fillStyle = grad;
+          g.fillRect(0, 0, 64, 64);
+          const haloTexture = new THREE.CanvasTexture(halo);
+          tableGlow.texture = haloTexture;
+          const haloMaterial = new THREE.SpriteMaterial({
+              map: haloTexture,
+              color: '#ffe2b8',
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+              transparent: true,
+              opacity: 0,
+            }),
+            poolMaterial = new THREE.MeshBasicMaterial({
+              map: haloTexture,
+              color: '#ffd9a8',
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+              transparent: true,
+              opacity: 0,
+            }),
+            shadeMaterial = new THREE.MeshBasicMaterial({ color: '#e8dcc6' }),
+            baseMaterial = new THREE.MeshStandardMaterial({ color: '#3a3029', roughness: 0.7 });
+          addedMaterials.push(haloMaterial, poolMaterial, shadeMaterial, baseMaterial);
+          tableGlow.materials = [haloMaterial, poolMaterial];
+          tableGlow.shade = shadeMaterial;
+          const s = model.getWorldScale(new THREE.Vector3()).x;
+          for (const table of model.children.filter((n) => /^meja/.test(n.name))) {
+            const box = new THREE.Box3().setFromObject(table),
+              top = box.max.y,
+              centre = box.getCenter(new THREE.Vector3());
+            const lamp = new THREE.Group();
+            lamp.name = 'Table_Lamp';
+            const base = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.03, 0.04, 0.02, 10),
+              baseMaterial,
+            );
+            const stem = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.006, 0.006, 0.09, 6),
+              baseMaterial,
+            );
+            stem.position.y = 0.055;
+            const shade = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.03, 0.05, 0.05, 14, 1, true),
+              shadeMaterial,
+            );
+            shade.position.y = 0.11;
+            (shade.material as THREE.Material).side = THREE.DoubleSide;
+            const glowSprite = new THREE.Sprite(haloMaterial);
+            glowSprite.position.y = 0.1;
+            glowSprite.scale.setScalar(0.42);
+            const pool = new THREE.Mesh(new THREE.CircleGeometry(0.42, 24), poolMaterial);
+            pool.rotation.x = -Math.PI / 2;
+            pool.position.y = 0.003;
+            lamp.add(base, stem, shade, glowSprite, pool);
+            lamp.scale.setScalar(s * 1.6);
+            lamp.position.set(centre.x, top, centre.z);
+            scene.add(lamp);
+            tableGlow.lamps.push(lamp);
+          }
+        }
         // These two exterior logo decals become warm, backlit panels after sunset.
         for (const name of ['Untitled_Artwork.001', 'Untitled_Artwork.002']) {
           const sign = objectByModelName(model, name) as THREE.Mesh | undefined;
@@ -1269,6 +1348,22 @@ export default function CafeScene({
             windTime,
           );
           scene.add(world.group);
+          {
+            // Fireflies and butterflies around the café and the tower.
+            const w = world,
+              siteSize = site.getSize(new THREE.Vector3());
+            critters = createCritters(
+              [
+                {
+                  centre: site.getCenter(new THREE.Vector3()),
+                  radius: Math.max(siteSize.x, siteSize.z) / 2 + 4,
+                },
+                { centre: w.tower.position.clone(), radius: 10 },
+              ],
+              (x, z) => w.heightAt(x, z),
+            );
+            scene.add(critters.group);
+          }
           if (roadLayout) {
             // Zebra crossing straight out from the café's sidewalk (where explore mode steps out).
             const dir = roadLayout.direction.clone().setY(0).normalize(),
@@ -1821,12 +1916,30 @@ export default function CafeScene({
             renderer.shadowMap.needsUpdate = true;
           }
           nightLights.forEach((light) => {
+            // A touch brighter and warmer than before for cozy evenings.
             light.intensity = THREE.MathUtils.lerp(
               light.intensity,
-              light.userData.nightIntensity * lamps,
+              light.userData.nightIntensity * 1.3 * lamps,
               blend,
             );
           });
+          for (const m of tableGlow.materials) (m as THREE.SpriteMaterial).opacity = 0.85 * lamps;
+          tableGlow.shade?.color.setRGB(
+            0.9 + 0.1 * lamps,
+            0.85 + 0.08 * lamps,
+            0.76 + 0.02 * lamps,
+          );
+          world?.setTowerNight(lamps);
+          {
+            // Morning (06–11 WITA, game clock in explore mode) brings butterflies.
+            const when = gameClock ?? new Date(),
+              hour = (when.getUTCHours() + 8 + when.getUTCMinutes() / 60) % 24,
+              morning =
+                THREE.MathUtils.smoothstep(hour, 5.5, 6.5) *
+                (1 - THREE.MathUtils.smoothstep(hour, 10.5, 11.5)) *
+                sk.daylight;
+            critters?.update(t, delta, sk.night, morning, reduced);
+          }
           bulbs.forEach((bulb) => {
             bulb.emissive.set('#ffd6a4');
             bulb.emissiveIntensity = THREE.MathUtils.lerp(
@@ -1988,8 +2101,9 @@ export default function CafeScene({
               followGoal.radius = followShown.radius = followSpherical.radius;
               followGoal.phi = followShown.phi = followSpherical.phi;
             }
-            followWish.radius = THREE.MathUtils.clamp(followWish.radius, 2.5, 7);
-            followWish.phi = THREE.MathUtils.clamp(followWish.phi, 0.35, 1.05);
+            // Free look: from above Luna down to just below her eye line (to see the sky).
+            followWish.radius = THREE.MathUtils.clamp(followWish.radius, 1.8, 9);
+            followWish.phi = THREE.MathUtils.clamp(followWish.phi, 0.2, 1.68);
             controls!.target.lerp(followTarget, reduced ? 1 : 1 - Math.exp(-delta * 6));
             // Camera collision: when a roof or wall is in the way, drop lower and/or come
             // closer instead of hiding anything (a few probes per second).
@@ -2014,7 +2128,7 @@ export default function CafeScene({
                 });
               }
               let best = { phi: followWish.phi, radius: 0.6 };
-              for (let phi = followWish.phi; phi <= 1.42; phi += 0.12) {
+              for (let phi = followWish.phi; phi <= Math.max(1.42, followWish.phi); phi += 0.12) {
                 followDir.setFromSphericalCoords(1, phi, followSpherical.theta);
                 probeRay.set(controls!.target, followDir);
                 probeRay.far = followWish.radius + 0.3;
@@ -2037,7 +2151,10 @@ export default function CafeScene({
               (closing ? (reduced ? 1 : 1 - Math.exp(-delta * 18)) : k);
             followShown.theta = followSpherical.theta;
             camera.position.copy(controls!.target).add(followOffset.setFromSpherical(followShown));
-            // Out on the hills the camera stays above the grass.
+            // Looking up at the sky, the camera stays just above Luna's feet…
+            const feet = people.baristaPosition().y + 0.25;
+            if (camera.position.y < feet) camera.position.y = feet;
+            // …and out on the hills, above the grass.
             if (world && people.outdoorsNow()) {
               const land = world.heightAt(camera.position.x, camera.position.z) + 0.35;
               if (camera.position.y < land) camera.position.y = land;
@@ -2326,6 +2443,12 @@ export default function CafeScene({
         scene.remove(mesh);
       });
       trafficLights.forEach((light) => scene.remove(light));
+      tableGlow.lamps.forEach((lamp) => {
+        lamp.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+        scene.remove(lamp);
+      });
+      tableGlow.texture?.dispose();
+      critters?.dispose();
       trafficModels.forEach((vehicle) => {
         vehicle.traverse((o) => {
           if ((o as THREE.Mesh).isMesh) {
