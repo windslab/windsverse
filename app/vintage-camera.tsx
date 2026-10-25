@@ -127,6 +127,8 @@ export type SceneLens = {
   /** Drag on the screen to aim. */
   look: (dx: number, dy: number) => void;
   facing: (facing: 'environment' | 'user') => void;
+  /** Called with each developed photo (explore mode can hang it in the tower's frame). */
+  onPhoto?: (photo: Blob) => void;
 };
 
 export default function VintageCamera({
@@ -338,6 +340,7 @@ export default function VintageCamera({
         }),
         data = (await res.json()) as { photo: Photo; left: number; error?: string };
       if (!res.ok) throw Error(data.error || 'Foto belum tersimpan.');
+      scene?.onPhoto?.(blob);
       const url = URL.createObjectURL(blob);
       urls.current.set(data.photo.id, url);
       setPhotos((p) => [data.photo, ...p]);

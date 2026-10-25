@@ -29,7 +29,9 @@ const PRESET_SUN: Record<Exclude<SkyPhase, 'live'>, [number, number]> = {
 };
 
 /** Same horizontal → world mapping as the telescope (app/sky-viewer.tsx). */
-const toWorld = (h: Astro.Vector) => new THREE.Vector3(-h.y, h.z, -h.x);
+// Turned half way round from the telescope's frame so that east lies in front of the café (the
+// road side, world −X): the sun rises in front of Winds Space and sets behind it.
+const toWorld = (h: Astro.Vector) => new THREE.Vector3(h.y, h.z, h.x);
 const fromAzAlt = (az: number, alt: number) => {
   const a = az * D,
     h = alt * D;
@@ -60,7 +62,7 @@ export type SkyState = {
 
 export function phaseOf(altitude: number, sun: THREE.Vector3): Exclude<SkyPhase, 'live'> {
   // World x points east in this frame (toWorld above), so a positive x means a morning sun.
-  const morning = sun.x > 0;
+  const morning = sun.x < 0;
   if (altitude < -10) return 'malam';
   if (altitude < 4) return morning ? 'fajar' : 'senja';
   if (altitude < 30) return morning ? 'pagi' : 'sore';
@@ -75,6 +77,17 @@ export function createCafeSky(radius = 85) {
   atmosphere.material.uniforms.strength.value = 1;
   // The telescope writes these colours straight to the screen; the café renders in linear space
   // (lib/toon.ts converts at the end), so convert here to land on the same colours.
+  // The café's night is softer than the telescope's true-black sky: a dusty indigo up high easing
+  // to a lilac-blue haze at the horizon, so it sits with the scene's pastel toon colours.
+  atmosphere.material.fragmentShader = atmosphere.material.fragmentShader.replace(
+    'vec3 night=mix(vec3(.004,.009,.022),vec3(.025,.035,.055),haze);',
+    'vec3 night=mix(vec3(.24,.26,.42),vec3(.46,.45,.58),haze);',
+  );
+  // …and it stays painted at night (the telescope lets it go clear to show the black sky).
+  atmosphere.material.fragmentShader = atmosphere.material.fragmentShader.replace(
+    'float opacity=mix(.16,.9,twilight);',
+    'float opacity=mix(.94,.9,twilight);',
+  );
   atmosphere.material.fragmentShader = atmosphere.material.fragmentShader.replace(
     'gl_FragColor=vec4(color,opacity*strength);',
     'gl_FragColor=vec4(pow(max(color,vec3(0.)),vec3(2.2)),opacity*strength);',
@@ -91,7 +104,7 @@ export function createCafeSky(radius = 85) {
     vertexShader:
       'attribute float size; attribute vec3 color; varying vec3 tint; uniform float scale; void main(){tint=color;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);gl_PointSize=size*scale;}',
     fragmentShader:
-      'uniform float visibility;varying vec3 tint;void main(){float d=length(gl_PointCoord-0.5)*2.0;if(d>1.0)discard;float a=exp(-d*d*4.0)*(1.0-smoothstep(.65,1.0,d));vec3 stellar=mix(vec3(1.),tint,.35);gl_FragColor=vec4(stellar,a*visibility);\n#include <colorspace_fragment>\n}',
+      'uniform float visibility;varying vec3 tint;void main(){float d=length(gl_PointCoord-0.5)*2.0;if(d>1.0)discard;float a=exp(-d*d*4.0)*(1.0-smoothstep(.65,1.0,d));vec3 stellar=mix(vec3(1.),tint,.35);gl_FragColor=vec4(stellar*1.6,min(1.0,a*visibility*1.8));\n#include <colorspace_fragment>\n}',
   });
   let starGeometry: THREE.BufferGeometry | undefined;
   const abort = new AbortController();
@@ -115,7 +128,7 @@ export function createCafeSky(radius = 85) {
           star[4] < 0.1 ? '#b7d5ff' : star[4] > 0.9 ? '#ffcb9d' : '#fff4df',
         );
         colors.push(color.r, color.g, color.b);
-        sizes.push(THREE.MathUtils.clamp(1.2 + (6 - star[3]) * 0.6, 1.3, 6));
+        sizes.push(THREE.MathUtils.clamp(1.6 + (6 - star[3]) * 0.8, 1.8, 8));
       }
       starGeometry = new THREE.BufferGeometry();
       starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -141,7 +154,7 @@ export function createCafeSky(radius = 85) {
       'varying vec3 gal;void main(){gal=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
     // Same mapping as app/sky-viewer.tsx; colours converted to linear for the toon pass.
     fragmentShader:
-      'uniform sampler2D map;uniform float visibility;varying vec3 gal;void main(){vec3 d=normalize(gal);vec2 uv=vec2(.5-atan(d.y,d.x)/6.28318530718,.5+asin(clamp(d.z,-1.0,1.0))/3.14159265359);vec3 c=texture2D(map,uv).rgb*.65;gl_FragColor=vec4(pow(c,vec3(2.2))*visibility,1.0);}',
+      'uniform sampler2D map;uniform float visibility;varying vec3 gal;void main(){vec3 d=normalize(gal);vec2 uv=vec2(.5-atan(d.y,d.x)/6.28318530718,.5+asin(clamp(d.z,-1.0,1.0))/3.14159265359);vec3 c=max(texture2D(map,uv).rgb-.06,0.)*1.5;gl_FragColor=vec4(pow(c,vec3(2.2))*visibility*1.6,1.0);}',
   });
   let milkyway: THREE.Mesh | undefined,
     milkyLoading = false,
@@ -172,18 +185,37 @@ export function createCafeSky(radius = 85) {
     );
   };
 
-  // Moon: a soft glowing disc facing the camera.
+  // Moon: a big, romantic glowing disc with soft grey seas and a wide halo, facing the camera.
   const moonCanvas = document.createElement('canvas');
-  moonCanvas.width = moonCanvas.height = 128;
+  moonCanvas.width = moonCanvas.height = 256;
   {
     const x = moonCanvas.getContext('2d')!,
-      g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
-    g.addColorStop(0, 'rgba(255,250,232,1)');
-    g.addColorStop(0.32, 'rgba(255,246,220,1)');
-    g.addColorStop(0.36, 'rgba(255,240,210,0.35)');
-    g.addColorStop(1, 'rgba(255,240,210,0)');
-    x.fillStyle = g;
-    x.fillRect(0, 0, 128, 128);
+      halo = x.createRadialGradient(128, 128, 44, 128, 128, 128);
+    halo.addColorStop(0, 'rgba(255,244,214,0.32)');
+    halo.addColorStop(0.25, 'rgba(255,240,208,0.1)');
+    halo.addColorStop(0.6, 'rgba(255,236,200,0.03)');
+    halo.addColorStop(1, 'rgba(255,236,200,0)');
+    x.fillStyle = halo;
+    x.fillRect(0, 0, 256, 256);
+    const face = x.createRadialGradient(118, 116, 4, 128, 128, 48);
+    face.addColorStop(0, 'rgba(255,252,238,1)');
+    face.addColorStop(1, 'rgba(244,236,214,1)');
+    x.fillStyle = face;
+    x.beginPath();
+    x.arc(128, 128, 46, 0, Math.PI * 2);
+    x.fill();
+    x.fillStyle = 'rgba(178,172,160,0.35)';
+    for (const [cx, cy, r] of [
+      [112, 112, 13],
+      [140, 104, 9],
+      [138, 136, 15],
+      [114, 146, 8],
+      [150, 124, 6],
+    ]) {
+      x.beginPath();
+      x.arc(cx, cy, r, 0, Math.PI * 2);
+      x.fill();
+    }
   }
   const moonTexture = new THREE.CanvasTexture(moonCanvas);
   moonTexture.colorSpace = THREE.SRGBColorSpace;
@@ -194,7 +226,7 @@ export function createCafeSky(radius = 85) {
     fog: false,
   });
   const moonSprite = new THREE.Sprite(moonMaterial);
-  moonSprite.scale.setScalar(radius * 0.09);
+  moonSprite.scale.setScalar(radius * 0.36);
   moonSprite.renderOrder = 1;
   group.add(moonSprite);
 
@@ -298,9 +330,11 @@ export function createCafeSky(radius = 85) {
       reduced: boolean,
       /** True while something (café, hill, mountain) stands between the camera and the sun. */
       sunBlocked = false,
+      /** A clock other than the real one (explore mode's faster day); used with phase 'live'. */
+      clock?: Date,
     ) {
       group.position.copy(camera.position);
-      const now = new Date();
+      const now = clock ?? new Date();
       // Stars and the real sun/moon move slowly: recompute twice a second.
       if (time - lastRotation > 0.5) {
         lastRotation = time;
@@ -374,7 +408,8 @@ export function createCafeSky(radius = 85) {
       // Sun disc: whiter and smaller high up, larger and orange-gold near the horizon.
       const low = 1 - THREE.MathUtils.smoothstep(altitude, 2, 22);
       sunSprite.position.copy(state.sun).multiplyScalar(radius * 0.88);
-      sunSprite.scale.setScalar(radius * (0.12 + 0.16 * low));
+      // A big, soft sunset sun near the horizon.
+      sunSprite.scale.setScalar(radius * (0.12 + 0.34 * low));
       sunMaterial.color.copy(SUN_WHITE).lerp(SUN_DUSK, low);
       sunMaterial.opacity = THREE.MathUtils.smoothstep(altitude, -2.5, 0.5);
       sunSprite.visible = sunMaterial.opacity > 0.01;
@@ -412,7 +447,7 @@ export function createCafeSky(radius = 85) {
     horizon(target: THREE.Color) {
       const { daylight, twilight, warm } = state;
       const mix = (a: number[], b: number[], t: number) => a.map((v, i) => v + (b[i] - v) * t);
-      let c = mix([0.025, 0.035, 0.055], [0.47, 0.3, 0.19], twilight);
+      let c = mix([0.42, 0.42, 0.54], [0.47, 0.3, 0.19], twilight);
       c = mix(c, [0.68, 0.7, 0.59], daylight);
       if (warm > 0) c = mix(c, [0.86, 0.6, 0.42], warm * daylight * 0.5);
       return target.setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace);

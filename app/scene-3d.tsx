@@ -20,6 +20,8 @@ import ExploreMode, { type ExploreApi } from './explore-mode';
 import { createToonOutline, toonGradient, toonify } from '@/lib/toon';
 import { createCafeSky, SKY_PHASES, type SkyPhase } from '@/lib/cafe-sky';
 import { createCafeWorld } from '@/lib/cafe-world';
+import { createCritters } from '@/lib/cafe-critters';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 function objectByModelName(root: THREE.Object3D, name: string) {
   return (
@@ -45,12 +47,6 @@ function frontDirection() {
   return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
 }
 type FadingMaterial = { material: THREE.Material; opacity: number };
-function trafficVisibility(progress: number) {
-  return (
-    THREE.MathUtils.smoothstep(progress, 0, 0.16) *
-    (1 - THREE.MathUtils.smoothstep(progress, 0.84, 1))
-  );
-}
 function setVehicleFade(vehicle: THREE.Group, fade: number) {
   for (const { material, opacity } of vehicle.userData.fadeMaterials as FadingMaterial[])
     material.opacity = opacity * fade;
@@ -223,20 +219,25 @@ function playHonk(context: AudioContext, panValue: number) {
     tone.onended = () => tone.disconnect();
   }
 }
+type TrafficCar = {
+  model: THREE.Group;
+  truck: boolean;
+  /** Distance driven along the lane, current and cruising speed (world units / s). */
+  s: number;
+  v: number;
+  cruise: number;
+  active: boolean;
+};
 type TrafficLane = {
   start: THREE.Vector3;
   end: THREE.Vector3;
   direction: THREE.Vector3;
+  length: number;
   headlight: THREE.PointLight;
-  car: THREE.Group;
-  truck: THREE.Group;
-  active?: THREE.Group;
+  cars: TrafficCar[];
   audio?: VehicleSound;
-  driveStartedAt: number;
-  driveDuration: number;
   nextVehicleAt: number;
   hornAt: number;
-  hornPlayed: boolean;
 };
 
 export default function CafeScene({
@@ -322,6 +323,8 @@ export default function CafeScene({
   const exploreRef = useRef({
     on: false,
     stick: { x: 0, y: 0 },
+    run: false,
+    clock: null as Date | null,
     visitors: [] as CafeVisitor[],
     onToggle: (() => {}) as (on: boolean) => void,
   });
@@ -436,12 +439,24 @@ export default function CafeScene({
     const trafficModels: THREE.Group[] = [],
       trafficLights: THREE.PointLight[] = [],
       activeSounds = new Set<VehicleSound>();
+    const addedTextures: THREE.Texture[] = [];
     const addedMaterials: THREE.Material[] = [],
       addedTargets: THREE.WebGLRenderTarget[] = [];
     const scene = new THREE.Scene();
     // Windstronout's sky (atmosphere, clouds, stars, moon) with fog toward its horizon colour.
     scene.background = new THREE.Color('#05070c');
     const sky = createCafeSky(220);
+    // Table lamps (night glow) and the tower's lights follow the evening.
+    const tableGlow = {
+      lamps: [] as THREE.Group[],
+      materials: [] as THREE.Material[],
+      shade: null as THREE.MeshBasicMaterial | null,
+      flame: null as THREE.MeshBasicMaterial | null,
+      texture: null as THREE.Texture | null,
+    };
+    /** Zebra crossing in front of the café: where cars stop for Luna. */
+    let crossing: { center: THREE.Vector3; reach: number } | undefined;
+    let critters: ReturnType<typeof createCritters> | undefined;
     let world: ReturnType<typeof createCafeWorld> | undefined, siteBox: THREE.Box3 | undefined;
     const sunRay = new THREE.Raycaster();
     // Inside the bar box the view switches to a fixed wide "CCTV" in its upper corner.
@@ -473,6 +488,7 @@ export default function CafeScene({
       probeRay = new THREE.Raycaster();
     // Development only (?sceneStats): freeze the explore camera to inspect a spot.
     const debugCamera = { frozen: false };
+    const followHold = { blocked: 0, clear: 0, last: 0 };
     let occluders: THREE.Object3D[] | undefined,
       lastProbe = 0;
     // Entering/leaving explore mode changes how close the camera may come.
@@ -484,10 +500,10 @@ export default function CafeScene({
         camera.updateProjectionMatrix();
       }
       controls!.minDistance = on ? 0.5 : 5;
-      controls!.maxDistance = on ? 7 : debugPerf ? 90 : MAX_CAFE_DISTANCE;
+      controls!.maxDistance = on ? 9 : debugPerf ? 90 : MAX_CAFE_DISTANCE;
       // Look down on Luna rather than through walls.
-      controls!.minPolarAngle = on ? 0.35 : 0.2;
-      controls!.maxPolarAngle = on ? 1.45 : Math.PI * 0.48;
+      controls!.minPolarAngle = on ? 0.15 : 0.2;
+      controls!.maxPolarAngle = on ? 1.75 : Math.PI * 0.48;
       if (on) {
         libraryMode = tvMode = false;
         setLibraryActive(false);
@@ -526,7 +542,7 @@ export default function CafeScene({
       SKY_NIGHT = new THREE.Color('#51627f'),
       GROUND_DAY = new THREE.Color('#9b8572'),
       GROUND_NIGHT = new THREE.Color('#1d2230');
-    const camera = new THREE.PerspectiveCamera(60, 1, 0.03, 260),
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.03, 300),
       overviewTarget = new THREE.Vector3(-0.35, 1, 0.15),
       overviewCamera = overviewTarget
         .clone()
@@ -1064,6 +1080,85 @@ export default function CafeScene({
         overTable('meja atas 2', 2.6, 1.1);
         addNightLight('meja atas luar', 2.4, 5, 0.75);
         addNightLight('WS_Courtyard_Tree_Root', 1.4, 5, 1.5);
+        // A little warm-white lamp on every table: a glowing shade, a soft halo, and a pool of
+        // light on the tabletop (glows, not real lights, so phones stay smooth).
+        {
+          const halo = document.createElement('canvas');
+          halo.width = halo.height = 64;
+          const g = halo.getContext('2d')!,
+            grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+          grad.addColorStop(0, 'rgba(255,236,200,1)');
+          grad.addColorStop(0.35, 'rgba(255,214,160,0.45)');
+          grad.addColorStop(1, 'rgba(255,200,140,0)');
+          g.fillStyle = grad;
+          g.fillRect(0, 0, 64, 64);
+          const haloTexture = new THREE.CanvasTexture(halo);
+          tableGlow.texture = haloTexture;
+          const haloMaterial = new THREE.SpriteMaterial({
+              map: haloTexture,
+              color: '#ffe2b8',
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+              transparent: true,
+              opacity: 0,
+            }),
+            poolMaterial = new THREE.MeshBasicMaterial({
+              map: haloTexture,
+              color: '#ffb874',
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+              transparent: true,
+              opacity: 0,
+            }),
+            shadeMaterial = new THREE.MeshBasicMaterial({ color: '#f1e6cf' }),
+            baseMaterial = new THREE.MeshStandardMaterial({ color: '#b9a98f', roughness: 0.7 }),
+            flameMaterial = new THREE.MeshBasicMaterial({ color: '#ffc861' });
+          tableGlow.flame = flameMaterial;
+          addedMaterials.push(
+            haloMaterial,
+            poolMaterial,
+            shadeMaterial,
+            baseMaterial,
+            flameMaterial,
+          );
+          tableGlow.materials = [haloMaterial, poolMaterial];
+          tableGlow.shade = shadeMaterial;
+          const s = model.getWorldScale(new THREE.Vector3()).x;
+          // Candles: a little wax pillar on a saucer with a flickering flame. (The long roof slab
+          // named "meja atas luar" is not a table.)
+          for (const table of model.children.filter(
+            (n) => /^meja/.test(n.name) && !/luar/.test(n.name),
+          )) {
+            const box = new THREE.Box3().setFromObject(table),
+              top = box.max.y,
+              centre = box.getCenter(new THREE.Vector3());
+            const lamp = new THREE.Group();
+            lamp.name = 'Table_Candle';
+            const saucer = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.035, 0.03, 0.008, 12),
+              baseMaterial,
+            );
+            const wax = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.014, 0.015, 0.05, 10),
+              shadeMaterial,
+            );
+            wax.position.y = 0.03;
+            const flame = new THREE.Mesh(new THREE.ConeGeometry(0.007, 0.022, 6), flameMaterial);
+            flame.position.y = 0.067;
+            const glowSprite = new THREE.Sprite(haloMaterial);
+            glowSprite.position.y = 0.065;
+            glowSprite.scale.setScalar(0.4);
+            const pool = new THREE.Mesh(new THREE.CircleGeometry(0.75, 24), poolMaterial);
+            pool.rotation.x = -Math.PI / 2;
+            pool.position.y = 0.003;
+            lamp.add(saucer, wax, flame, glowSprite, pool);
+            lamp.scale.setScalar(s * 1.6);
+            lamp.position.set(centre.x, top, centre.z);
+            lamp.userData = { flame, glow: glowSprite, seed: Math.random() * 10 };
+            scene.add(lamp);
+            tableGlow.lamps.push(lamp);
+          }
+        }
         // These two exterior logo decals become warm, backlit panels after sunset.
         for (const name of ['Untitled_Artwork.001', 'Untitled_Artwork.002']) {
           const sign = objectByModelName(model, name) as THREE.Mesh | undefined;
@@ -1150,20 +1245,33 @@ export default function CafeScene({
           };
           const vehicleScale = (left.distanceTo(right) * 0.3) / 0.82;
           for (const [index, laneX] of [-0.45, 0.45].entries()) {
-            // Two-way traffic: the second lane drives the other way.
-            const a = road.localToWorld(new THREE.Vector3(laneX, 0.025, -0.98)),
-              b = road.localToWorld(new THREE.Vector3(laneX, 0.025, 0.98));
+            // Two-way traffic along the whole world road (300 long): cars come out of the distance
+            // and drive on until they fade away near its far end.
+            const mid = road.localToWorld(new THREE.Vector3(laneX, 0.025, 0)),
+              along = road
+                .localToWorld(new THREE.Vector3(laneX, 0.025, 0.98))
+                .sub(road.localToWorld(new THREE.Vector3(laneX, 0.025, -0.98)))
+                .normalize();
+            const a = mid.clone().addScaledVector(along, -135),
+              b = mid.clone().addScaledVector(along, 135);
             const start = index ? b : a,
               end = index ? a : b;
-            const car = makeVehicle('car'),
-              truck = makeVehicle('truck');
-            for (const vehicle of [car, truck]) {
+            const cars: TrafficCar[] = (['car', 'car', 'truck'] as const).map((kind) => {
+              const vehicle = makeVehicle(kind);
               vehicle.scale.setScalar(vehicleScale);
               vehicle.rotation.y = Math.atan2(start.x - end.x, start.z - end.z);
               toonify(vehicle);
               scene.add(vehicle);
               trafficModels.push(vehicle);
-            }
+              return {
+                model: vehicle,
+                truck: kind === 'truck',
+                s: 0,
+                v: 0,
+                cruise: 5,
+                active: false,
+              };
+            });
             // Keep one light per lane in the scene so passing cars do not change shader light counts.
             const headlight = new THREE.PointLight('#ffe4ae', 0, 2.8, 2);
             headlight.position.copy(start);
@@ -1173,14 +1281,11 @@ export default function CafeScene({
               start,
               end,
               direction: end.clone().sub(start).normalize(),
+              length: start.distanceTo(end),
               headlight,
-              car,
-              truck,
-              driveStartedAt: 0,
-              driveDuration: 1,
+              cars,
               nextVehicleAt: 1.5 + index * 1.4,
-              hornAt: Infinity,
-              hornPlayed: false,
+              hornAt: 20 + Math.random() * 40,
             });
           }
         }
@@ -1255,6 +1360,59 @@ export default function CafeScene({
             windTime,
           );
           scene.add(world.group);
+          {
+            // Fireflies and butterflies around the café and the tower.
+            const w = world,
+              siteSize = site.getSize(new THREE.Vector3());
+            critters = createCritters(
+              [
+                {
+                  centre: site.getCenter(new THREE.Vector3()),
+                  radius: Math.max(siteSize.x, siteSize.z) / 2 + 4,
+                },
+                { centre: w.tower.position.clone(), radius: 10 },
+                // Along the footpaths and over the bridge.
+                ...w.fireflyTrails.map((centre) => ({ centre, radius: 1.2 })),
+              ],
+              (x, z) => w.heightAt(x, z),
+            );
+            scene.add(critters.group);
+          }
+          if (roadLayout) {
+            // Zebra crossing straight out from the café's sidewalk (where explore mode steps out).
+            const dir = roadLayout.direction.clone().setY(0).normalize(),
+              door = model.localToWorld(new THREE.Vector3(-6.4, 0.5, 2.4)),
+              along = door.clone().sub(roadLayout.origin).dot(dir),
+              center = roadLayout.origin
+                .clone()
+                .addScaledVector(dir, along)
+                .setY(roadLayout.surfaceY + 0.008);
+            const width = roadLayout.halfWidth * 2,
+              bars: THREE.BufferGeometry[] = [];
+            for (let k = 0; k < 7; k++) {
+              const bar = new THREE.PlaneGeometry(width / 14, 1.5);
+              bar.rotateX(-Math.PI / 2);
+              bar.translate((k - 3) * (width / 7.2), 0, 0);
+              bars.push(bar);
+            }
+            const zebraGeometry = mergeGeometries(bars)!;
+            bars.forEach((b) => b.dispose());
+            zebraGeometry.rotateY(Math.atan2(dir.x, dir.z));
+            const zebraMaterial = new THREE.MeshBasicMaterial({
+              color: '#e9e6dc',
+              transparent: true,
+              opacity: 0.86,
+              depthWrite: false,
+              polygonOffset: true,
+              polygonOffsetFactor: -2,
+            });
+            addedMaterials.push(zebraMaterial);
+            const zebra = new THREE.Mesh(zebraGeometry, zebraMaterial);
+            zebra.name = 'World_Zebra_Crossing';
+            zebra.position.copy(center);
+            world.group.add(zebra);
+            crossing = { center, reach: roadLayout.halfWidth + 1.6 };
+          }
           floor.visible = false;
         }
         shelf = objectByModelName(model, 'Rak buku');
@@ -1368,6 +1526,7 @@ export default function CafeScene({
               controls,
               model,
               people: crewForDebug,
+              world,
               freeze: (on: boolean) => {
                 debugCamera.frozen = on;
               },
@@ -1405,6 +1564,14 @@ export default function CafeScene({
               walkTo: (point) => crew.walkTo(point),
               walking: () => crew.walking(),
               luna: () => crew.baristaPosition(),
+              setClock: (date) => {
+                exploreRef.current.clock = date;
+              },
+              setRun: (on) => {
+                exploreRef.current.run = on;
+              },
+              marker: (key) => crew.setMarker(key),
+              jump: () => crew.jump(),
               seatNear: () => crew.seatNear(),
               sit: (id) => crew.sit(id),
               stand: () => crew.stand(),
@@ -1417,6 +1584,16 @@ export default function CafeScene({
                 telescope: spotBoxes(model, /^WS_Telescope_Tripod$/)[0] ?? null,
               },
               telescope: () => viewRef.current.onTelescopeClick?.(),
+              frame: world ? world.towerInfo.frame.clone() : null,
+              hangPhoto: (url) => {
+                if (!world) return;
+                const w = world;
+                new THREE.TextureLoader().load(url, (texture) => {
+                  texture.colorSpace = THREE.SRGBColorSpace;
+                  addedTextures.push(texture);
+                  w.setFramePhoto(texture);
+                });
+              },
               photo: {
                 start: () => {
                   if (photo.on) return;
@@ -1693,7 +1870,17 @@ export default function CafeScene({
             sunBlocked =
               sky.state.altitude > -1 && sunRay.intersectObjects(blockers, true).length > 0;
           }
-          sky.update(camera, phaseRef.current, t, delta, reduced, sunBlocked);
+          // Explore mode runs its own, faster day.
+          const gameClock = exploreRef.current.on ? exploreRef.current.clock : null;
+          sky.update(
+            camera,
+            gameClock ? 'live' : phaseRef.current,
+            t,
+            delta,
+            reduced,
+            sunBlocked,
+            gameClock ?? undefined,
+          );
           const sk = sky.state,
             lamps = 1 - THREE.MathUtils.smoothstep(sk.altitude, -3, 6),
             night = lamps > 0.5,
@@ -1754,12 +1941,40 @@ export default function CafeScene({
             renderer.shadowMap.needsUpdate = true;
           }
           nightLights.forEach((light) => {
+            // A touch brighter and warmer than before for cozy evenings.
             light.intensity = THREE.MathUtils.lerp(
               light.intensity,
-              light.userData.nightIntensity * lamps,
+              light.userData.nightIntensity * 1.5 * lamps,
               blend,
             );
           });
+          // Candles flicker; their glow comes up as the evening falls.
+          for (const m of tableGlow.materials) (m as THREE.SpriteMaterial).opacity = 0.95 * lamps;
+          if (tableGlow.flame) tableGlow.flame.visible = lamps > 0.05;
+          for (const candle of tableGlow.lamps) {
+            const { flame, glow, seed } = candle.userData as {
+              flame: THREE.Mesh;
+              glow: THREE.Sprite;
+              seed: number;
+            };
+            const flicker = reduced
+              ? 1
+              : 0.9 + Math.sin(t * 13 + seed) * 0.05 + Math.sin(t * 29 + seed * 3) * 0.05;
+            flame.scale.set(1, flicker, 1);
+            glow.scale.setScalar(0.4 * flicker);
+          }
+          world?.setTowerNight(lamps);
+          world?.update(t);
+          {
+            // Morning (06–11 WITA, game clock in explore mode) brings butterflies.
+            const when = gameClock ?? new Date(),
+              hour = (when.getUTCHours() + 8 + when.getUTCMinutes() / 60) % 24,
+              morning =
+                THREE.MathUtils.smoothstep(hour, 5.5, 6.5) *
+                (1 - THREE.MathUtils.smoothstep(hour, 10.5, 11.5)) *
+                sk.daylight;
+            critters?.update(t, delta, sk.night, morning, reduced, sk.daylight);
+          }
           bulbs.forEach((bulb) => {
             bulb.emissive.set('#ffd6a4');
             bulb.emissiveIntensity = THREE.MathUtils.lerp(
@@ -1805,6 +2020,9 @@ export default function CafeScene({
               .multiplyScalar(-explore.stick.y)
               .addScaledVector(followRight, explore.stick.x);
             people.drive(followMove.x, followMove.z);
+            people.setRunning(explore.run);
+            // A finger held down to run must not also turn the camera.
+            controls!.enableRotate = !explore.run;
           }
           people?.update(delta, reduced);
           const exploreCamera =
@@ -1918,56 +2136,100 @@ export default function CafeScene({
               followGoal.radius = followShown.radius = followSpherical.radius;
               followGoal.phi = followShown.phi = followSpherical.phi;
             }
-            followWish.radius = THREE.MathUtils.clamp(followWish.radius, 2.5, 7);
-            followWish.phi = THREE.MathUtils.clamp(followWish.phi, 0.35, 1.05);
+            // Free look: from above Luna down to just below her eye line (to see the sky).
+            followWish.radius = THREE.MathUtils.clamp(followWish.radius, 1.8, 9);
+            followWish.phi = THREE.MathUtils.clamp(followWish.phi, 0.2, 1.68);
             controls!.target.lerp(followTarget, reduced ? 1 : 1 - Math.exp(-delta * 6));
             // Camera collision: when a roof or wall is in the way, drop lower and/or come
             // closer instead of hiding anything (a few probes per second).
-            if (t - lastProbe > 0.08) {
+            // Inside the tower: a wide lens, no zooming in on Luna, and the camera stays within the
+            // walls so the library can be enjoyed.
+            const inTower = !!world && world.towerInfo.inside(people.baristaPosition());
+            const towerFov = inTower ? 86 : 60;
+            if (Math.abs(camera.fov - towerFov) > 0.05) {
+              camera.fov += (towerFov - camera.fov) * (reduced ? 1 : 1 - Math.exp(-delta * 4));
+              camera.updateProjectionMatrix();
+            }
+            if (inTower) {
+              followGoal.phi = followWish.phi;
+              followGoal.radius = Math.min(followWish.radius, 3.2);
+            } else if (t - lastProbe > 0.08) {
               lastProbe = t;
               if (!occluders) {
                 const list: THREE.Object3D[] = [];
                 occluders = list;
+                // The observatory too: Luna can walk into it and climb its stairs.
+                world?.tower.traverse((node) => {
+                  if ((node as THREE.Mesh).isMesh) list.push(node);
+                });
+                // Only big things (walls, floors, roofs): chairs, tables and plants never pull the
+                // camera in.
+                const size = new THREE.Vector3();
                 cafeModel?.traverse((node) => {
                   const mesh = node as THREE.Mesh;
                   if (
                     mesh.isMesh &&
-                    !/leaf|leaves|undergrowth|cable|socket|bulb|daun|rumput|grass/i.test(
+                    !/leaf|leaves|undergrowth|cable|socket|bulb|daun|rumput|grass|kursi|meja|pot|cup/i.test(
                       mesh.name + ' ' + (mesh.parent?.name ?? ''),
-                    )
+                    ) &&
+                    new THREE.Box3().setFromObject(mesh).getSize(size).length() > 1.4
                   )
                     list.push(mesh);
                 });
               }
-              let best = { phi: followWish.phi, radius: 0.6 };
-              for (let phi = followWish.phi; phi <= 1.42; phi += 0.12) {
-                followDir.setFromSphericalCoords(1, phi, followSpherical.theta);
-                probeRay.set(controls!.target, followDir);
-                probeRay.far = followWish.radius + 0.3;
-                const hit = probeRay.intersectObjects(occluders, false)[0];
-                const clear = hit ? Math.max(0.6, hit.distance - 0.25) : followWish.radius;
-                if (clear > best.radius + 0.05) best = { phi, radius: clear };
-                if (clear >= Math.min(followWish.radius, 2.2)) {
-                  best = { phi, radius: Math.min(clear, followWish.radius) };
-                  break;
-                }
+              // Calm camera: the player's angle is kept; only when a wall or roof has blocked the
+              // view for a moment does it ease closer, and it waits a while before easing back.
+              followDir.setFromSphericalCoords(1, followWish.phi, followSpherical.theta);
+              probeRay.near = 0.75;
+              probeRay.set(controls!.target, followDir);
+              probeRay.far = followWish.radius + 0.3;
+              const hit = probeRay.intersectObjects(occluders, false)[0];
+              const step = t - followHold.last;
+              followHold.last = t;
+              if (hit && hit.distance < followWish.radius) {
+                followHold.blocked += step;
+                followHold.clear = 0;
+                const safe = Math.max(1.8, hit.distance - 0.3);
+                if (followHold.blocked > 0.45 && Math.abs(safe - followGoal.radius) > 0.35)
+                  followGoal.radius = safe;
+              } else {
+                followHold.clear += step;
+                followHold.blocked = 0;
+                if (followHold.clear > 0.9) followGoal.radius = followWish.radius;
               }
-              followGoal.phi = best.phi;
-              followGoal.radius = best.radius;
+              followGoal.phi = followWish.phi;
             }
-            const k = reduced ? 1 : 1 - Math.exp(-delta * 5),
-              closing = followGoal.radius < followShown.radius;
-            followShown.phi += (followGoal.phi - followShown.phi) * k;
-            followShown.radius +=
-              (followGoal.radius - followShown.radius) *
-              (closing ? (reduced ? 1 : 1 - Math.exp(-delta * 18)) : k);
+            // Ease in and out gently; no sudden zoom.
+            const k = reduced ? 1 : 1 - Math.exp(-delta * 1.6);
+            followShown.phi +=
+              (followGoal.phi - followShown.phi) * (reduced ? 1 : 1 - Math.exp(-delta * 6));
+            followShown.radius += (followGoal.radius - followShown.radius) * k;
             followShown.theta = followSpherical.theta;
             camera.position.copy(controls!.target).add(followOffset.setFromSpherical(followShown));
-            // Out on the hills the camera stays above the grass.
+            if (inTower && world) {
+              const info = world.towerInfo,
+                y = THREE.MathUtils.clamp(camera.position.y, info.floor + 0.35, info.roof - 0.3),
+                dx = camera.position.x - info.centre.x,
+                dz = camera.position.z - info.centre.z,
+                r = Math.hypot(dx, dz),
+                max = info.radiusAt(y) - 0.3;
+              camera.position.y = y;
+              if (r > max) {
+                camera.position.x = info.centre.x + (dx / r) * max;
+                camera.position.z = info.centre.z + (dz / r) * max;
+              }
+            }
+            // Looking up at the sky, the camera stays just above Luna's feet…
+            const feet = people.baristaPosition().y + 0.25;
+            if (camera.position.y < feet) camera.position.y = feet;
+            // …and out on the hills, above the grass.
             if (world && people.outdoorsNow()) {
               const land = world.heightAt(camera.position.x, camera.position.z) + 0.35;
               if (camera.position.y < land) camera.position.y = land;
             }
+            // Remember where the camera really is after the clamps, so they never read as the
+            // player zooming in (which would creep the camera closer frame by frame).
+            followShown.setFromVector3(followOffset.copy(camera.position).sub(controls!.target));
           } else if (followShown.radius > 0) {
             followShown.radius = 0;
           }
@@ -1990,6 +2252,16 @@ export default function CafeScene({
             swimmer.position.z = Math.sin(angle) * (0.29 + (i % 2) * 0.11);
             swimmer.rotation.y = -angle - Math.PI / 2;
           });
+          // Luna at the zebra crossing (explore mode): cars on both lanes brake before it.
+          const lunaCrossing =
+            !!crossing &&
+            !!people &&
+            exploreRef.current.on &&
+            Math.hypot(
+              people.baristaPosition().x - crossing.center.x,
+              people.baristaPosition().z - crossing.center.z,
+            ) < crossing.reach;
+          const listener = controls!.target;
           for (const lane of trafficLanes) {
             if (lane.audio && !soundRef.current) {
               stopVehicleSound(lane.audio);
@@ -1997,8 +2269,11 @@ export default function CafeScene({
               lane.audio = undefined;
             }
             if (reduced) {
-              if (lane.active) lane.active.visible = false;
-              lane.active = undefined;
+              for (const car of lane.cars) {
+                car.active = false;
+                car.model.visible = false;
+                (car.model.userData.roadGlow as THREE.Mesh).visible = false;
+              }
               lane.headlight.intensity = 0;
               lane.nextVehicleAt = t + 2;
               if (lane.audio) {
@@ -2006,79 +2281,127 @@ export default function CafeScene({
                 activeSounds.delete(lane.audio);
                 lane.audio = undefined;
               }
-            } else if (lane.active) {
-              const progress = Math.min(1, (t - lane.driveStartedAt) / lane.driveDuration);
-              const fade = trafficVisibility(progress);
-              setVehicleFade(lane.active, fade);
-              lane.active.visible = fade > 0.001;
-              lane.active.position.lerpVectors(lane.start, lane.end, progress);
+              continue;
+            }
+            const driving = lane.cars.filter((c) => c.active).sort((p, q) => q.s - p.s);
+            if (t >= lane.nextVehicleAt) {
+              const idle = lane.cars.find((c) => !c.active),
+                lastStart = driving.length ? driving[driving.length - 1].s : Infinity;
+              if (idle && lastStart > 14) {
+                idle.active = true;
+                idle.s = 0;
+                idle.cruise = (1.45 + Math.random() * 0.55) * 1.1 * 1.38 * 2;
+                idle.v = idle.cruise;
+                if (!idle.truck) {
+                  const palette = ['#a65b4a', '#4f6772', '#a6a58e', '#d4b58e', '#6f7d5a'];
+                  (idle.model.userData.paint as THREE.MeshStandardMaterial).color.set(
+                    palette[Math.floor(Math.random() * palette.length)],
+                  );
+                }
+                setVehicleFade(idle.model, 0);
+                driving.push(idle);
+              }
+              lane.nextVehicleAt = t + 3 + Math.random() * 8;
+            }
+            const crossingAt = crossing
+              ? crossing.center.clone().sub(lane.start).dot(lane.direction)
+              : Infinity;
+            let nearest: TrafficCar | null = null,
+              nearestDistance = Infinity;
+            driving.forEach((car, k) => {
+              let target = car.cruise;
+              // Keep a gap to the car ahead in this lane.
+              const ahead = k ? driving[k - 1] : null;
+              if (ahead) {
+                const gap = ahead.s - car.s;
+                if (gap < 9)
+                  target = Math.min(target, ahead.v * THREE.MathUtils.clamp((gap - 4) / 4, 0, 1));
+              }
+              // Stop before the zebra crossing while Luna is there.
+              if (lunaCrossing) {
+                const before = crossingAt - car.s - 3.2;
+                if (before > -2.6 && before < 22)
+                  target = Math.min(target, Math.max(0, before) * 0.8);
+              }
+              car.v += THREE.MathUtils.clamp(target - car.v, -8 * delta, 3 * delta);
+              car.s += Math.max(0, car.v) * delta;
+              const fade =
+                THREE.MathUtils.smoothstep(car.s, 0, 10) *
+                (1 - THREE.MathUtils.smoothstep(car.s, lane.length - 18, lane.length));
+              car.model.position.copy(lane.start).addScaledVector(lane.direction, car.s);
+              setVehicleFade(car.model, fade);
+              car.model.visible = fade > 0.001;
+              (car.model.userData.lamp as THREE.MeshBasicMaterial).opacity =
+                (night ? 1 : 0.38) * fade;
+              const roadGlow = car.model.userData.roadGlow as THREE.Mesh;
+              roadGlow.visible = night && fade > 0.001;
+              (roadGlow.material as THREE.MeshBasicMaterial).opacity = night ? 0.7 * fade : 0;
+              const distance = car.model.position.distanceTo(listener);
+              if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearest = car;
+              }
+              if (car.s >= lane.length) {
+                car.active = false;
+                car.model.visible = false;
+                roadGlow.visible = false;
+              }
+            });
+            // One headlight and one engine sound per lane, on the car nearest to the view.
+            const near = nearest as TrafficCar | null;
+            if (near && near.active) {
+              const fade =
+                THREE.MathUtils.smoothstep(near.s, 0, 10) *
+                (1 - THREE.MathUtils.smoothstep(near.s, lane.length - 18, lane.length));
+              lane.headlight.position
+                .copy(near.model.position)
+                .addScaledVector(lane.direction, near.model.scale.x * (near.truck ? 1.15 : 0.8));
+              lane.headlight.position.y += near.model.scale.x * 0.42;
+              lane.headlight.intensity = night ? 1.8 * fade : 0;
               const audioContext = audioRef.current;
-              if (soundRef.current && audioContext?.state === 'running' && !lane.audio) {
-                lane.audio = startVehicleSound(audioContext, lane.active === lane.truck);
+              const loud = Math.max(0, 1 - nearestDistance / 28);
+              if (
+                soundRef.current &&
+                audioContext?.state === 'running' &&
+                !lane.audio &&
+                loud > 0
+              ) {
+                lane.audio = startVehicleSound(audioContext, near.truck);
                 activeSounds.add(lane.audio);
               }
               if (lane.audio && audioContext) {
                 const at = audioContext.currentTime,
-                  frequency = lane.audio.basePitch * (0.93 + progress * 0.2);
+                  frequency =
+                    lane.audio.basePitch * (0.8 + (near.v / Math.max(1, near.cruise)) * 0.3);
                 lane.audio.engine.frequency.setTargetAtTime(frequency, at, 0.06);
                 lane.audio.harmonic.frequency.setTargetAtTime(frequency * 1.52, at, 0.06);
                 lane.audio.gain.gain.setTargetAtTime(
-                  fade *
-                    Math.sin(Math.PI * progress) *
-                    (lane.active === lane.truck ? 0.038 : 0.028),
+                  fade * loud * (near.truck ? 0.038 : 0.028),
                   at,
                   0.07,
                 );
-                lane.audio.pan.pan.setTargetAtTime(0.8 - progress * 1.6, at, 0.05);
+                const side = near.model.position.clone().sub(listener).dot(lane.direction);
+                lane.audio.pan.pan.setTargetAtTime(
+                  THREE.MathUtils.clamp(side / 12, -0.8, 0.8),
+                  at,
+                  0.05,
+                );
               }
-              if (!lane.hornPlayed && progress >= lane.hornAt) {
+              if (t >= lane.hornAt && loud > 0.4) {
                 if (soundRef.current && audioContext?.state === 'running' && t - lastHornAt > 12) {
-                  playHonk(audioContext, 0.8 - progress * 1.6);
+                  playHonk(audioContext, 0);
                   lastHornAt = t;
                 }
-                lane.hornPlayed = true;
+                lane.hornAt = t + 25 + Math.random() * 50;
               }
-              lane.headlight.position
-                .copy(lane.active.position)
-                .addScaledVector(
-                  lane.direction,
-                  lane.active.scale.x * (lane.active === lane.truck ? 1.15 : 0.8),
-                );
-              lane.headlight.position.y += lane.active.scale.x * 0.42;
-              lane.headlight.intensity = night ? 1.8 * fade : 0;
-              (lane.active.userData.lamp as THREE.MeshBasicMaterial).opacity =
-                (night ? 1 : 0.38) * fade;
-              const roadGlow = lane.active.userData.roadGlow as THREE.Mesh;
-              roadGlow.visible = night && fade > 0.001;
-              (roadGlow.material as THREE.MeshBasicMaterial).opacity = night ? 0.7 * fade : 0;
-              if (progress >= 1) {
-                lane.active.visible = false;
-                lane.active = undefined;
-                lane.headlight.intensity = 0;
-                lane.nextVehicleAt = t + 1.8 + Math.random() * 3.5;
-                if (lane.audio) {
-                  stopVehicleSound(lane.audio);
-                  activeSounds.delete(lane.audio);
-                  lane.audio = undefined;
-                }
+            } else {
+              lane.headlight.intensity = 0;
+              if (lane.audio) {
+                stopVehicleSound(lane.audio);
+                activeSounds.delete(lane.audio);
+                lane.audio = undefined;
               }
-            } else if (t >= lane.nextVehicleAt) {
-              lane.active = Math.random() < 0.32 ? lane.truck : lane.car;
-              if (lane.active === lane.car) {
-                const palette = ['#a65b4a', '#4f6772', '#a6a58e', '#d4b58e'];
-                (lane.car.userData.paint as THREE.MeshStandardMaterial).color.set(
-                  palette[Math.floor(Math.random() * palette.length)],
-                );
-              }
-              lane.active.position.copy(lane.start);
-              setVehicleFade(lane.active, 0);
-              lane.active.visible = false;
-              lane.driveStartedAt = t;
-              lane.driveDuration =
-                lane.start.distanceTo(lane.end) / ((1.45 + Math.random() * 0.55) * 1.1 * 1.38 * 2);
-              lane.hornAt = Math.random() < 0.22 ? 0.24 + Math.random() * 0.43 : Infinity;
-              lane.hornPlayed = false;
-            } else lane.headlight.intensity = 0;
+            }
           }
           if (tvLayer && tvTarget && cssRenderer) {
             if (t - lastTvVisibilityAt > 0.35) {
@@ -2191,6 +2514,12 @@ export default function CafeScene({
         scene.remove(mesh);
       });
       trafficLights.forEach((light) => scene.remove(light));
+      tableGlow.lamps.forEach((lamp) => {
+        lamp.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+        scene.remove(lamp);
+      });
+      tableGlow.texture?.dispose();
+      critters?.dispose();
       trafficModels.forEach((vehicle) => {
         vehicle.traverse((o) => {
           if ((o as THREE.Mesh).isMesh) {
@@ -2224,6 +2553,7 @@ export default function CafeScene({
       floor.geometry.dispose();
       (floor.material as THREE.Material).dispose();
       addedMaterials.forEach((m) => m.dispose());
+      addedTextures.forEach((t) => t.dispose());
       toonOutline.dispose();
       sky.dispose();
       world?.dispose();

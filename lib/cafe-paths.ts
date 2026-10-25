@@ -180,6 +180,31 @@ export function cafePaths(cafe: THREE.Object3D, data: CafePathData) {
     }
     return Number.isFinite(best) ? best : p.y;
   }
+  // Solid parts (walls, counters, furniture) for checking a free step out over the site edge.
+  const solid: THREE.Mesh[] = [];
+  cafe.traverse((n) => {
+    if (
+      n instanceof THREE.Mesh &&
+      !walk.includes(n) &&
+      !/leaf|leaves|cable|bulb|kolam/i.test(n.name)
+    )
+      solid.push(n);
+  });
+  const sideRay = new THREE.Raycaster(),
+    sideDir = new THREE.Vector3();
+  /** Is something solid in the way of a short step (knee and chest height)? */
+  function blocked(from: THREE.Vector3, to: THREE.Vector3) {
+    sideDir.copy(to).sub(from).setY(0);
+    const length = sideDir.length();
+    if (length < 1e-5) return false;
+    sideDir.divideScalar(length);
+    for (const h of [0.3, 0.8]) {
+      sideRay.set(new THREE.Vector3(from.x, from.y + h * scale, from.z), sideDir);
+      sideRay.far = length + 0.22 * scale;
+      if (sideRay.intersectObjects(solid, false).length) return true;
+    }
+    return false;
+  }
   /** Like `ground`, but null where there is no café floor at all (outside the model). */
   function groundHit(p: THREE.Vector3) {
     const y = ground(p);
@@ -246,6 +271,7 @@ export function cafePaths(cafe: THREE.Object3D, data: CafePathData) {
     world,
     ground,
     groundHit,
+    blocked,
     nodes,
     snap(p: THREE.Vector3, max = 1) {
       const n = nearest(local(p), max);

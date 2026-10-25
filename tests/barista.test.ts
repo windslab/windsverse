@@ -79,3 +79,19 @@ test('menu: drinks only, demo menu when empty, customers pay enough', () => {
     'matcha',
   );
 });
+
+test('crowd: some hours quiet, some busy; lunch leans busier than late night', async () => {
+  const { crowdFor } = await import('../lib/barista-game');
+  const busy = (hour: number) => {
+    let seed = 7,
+      n = 0;
+    const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 400; i++) if (crowdFor(hour, rand).label === 'ramai') n++;
+    return n;
+  };
+  assert.ok(busy(12) > busy(2));
+  const labels = new Set(
+    Array.from({ length: 200 }, (_, i) => crowdFor(15, () => (i % 100) / 100).label),
+  );
+  assert.deepEqual([...labels].sort(), ['lumayan', 'ramai', 'sepi']);
+});

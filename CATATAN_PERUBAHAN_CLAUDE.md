@@ -425,3 +425,150 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   kamera POV & selfie, jepret tersimpan di album dengan bingkai film; menyapu.
   `typecheck`, `format:check`, `build` lulus; `barista.test` 5/5, `people.test` 13/13 (1 tes baru:
   duduk/berdiri/pekerjaan), `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
+
+## 24. Explore: lari, buka/tutup kafe, hari lebih cepat, panah tamu, zebra cross, menara (26 Okt 2026)
+
+- **Lari**: tahan Shift (keyboard), atau di HP satu jari menggeser di kiri bawah sambil jari lain
+  menahan layar. Kecepatan 2×, langkah lebih panjang; kamera tidak ikut berputar oleh jari penahan.
+- **Sapu** diperbaiki: batang condong ke depan dan ujungnya menyatu dengan sapu.
+- **Buka / tutup kafe** (tombol kecil di sebelah jam): kafe mulai tutup, Luna bebas membuka kapan pun.
+  Saat buka, tamu datang tidak tentu: tiap jam permainan dipilih sepi / lumayan / ramai (jam makan
+  siang dan sore lebih sering ramai, larut malam lebih sering sepi). `crowdFor()` di `barista-game`.
+- **Waktu permainan** tidak mengikuti jam asli: 1 jam permainan = 1 menit asli, mulai 08.00; langit,
+  matahari, lampu malam ikut jam ini (`sky.update(..., clock)`).
+- **Panah penunjuk** oranye berputar di atas tamu yang pesanannya sedang dibawa (terlihat menembus
+  dinding).
+- **Lalu lintas**: mobil kini melaju sepanjang jalan dunia (±135 dari kafe), muncul dari kejauhan dan
+  memudar pelan hanya di ujung jalan; 3 kendaraan per jalur dengan jarak aman. **Zebra cross** di
+  depan trotoar kafe: saat Luna mendekat/di atasnya, mobil di kedua jalur mengerem dan berhenti
+  sebelum garis.
+- **Menara observatorium**: jalan setapak batu marmer dari pinggir jalan ke pintu menara, bebatuan
+  marmer di sekitar bukit, tiga anak tangga ke alas, **pintu** yang bisa dimasuki, **tangga spiral**
+  menempel di dinding dalam (3 putaran, 60 anak tangga) sampai **balkon** berpagar di puncak sekitar
+  kubah. Papan kayu "CHAPTER 4 : LOCKED" di depan menara. Kamera ikut menghindari dinding menara.
+- Dicek di browser (ukuran HP): menara dari jauh; Luna masuk pintu, naik tangga spiral sampai balkon
+  (pagar menahan); zebra cross dan mobil berhenti; lari 2× jalan; buka kafe → tamu datang; panah
+  di atas tamu. `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6 (1 baru: keramaian),
+  `people.test` 13/13, `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
+
+## 25. Explore yang lebih cozy: menara perpustakaan, lampu meja, bulan besar, kunang-kunang (26 Okt 2026)
+
+- **Tutup kafe** → semua tamu pulang, bar dibersihkan. **Ulasan/bintang dihapus**: tamu selalu puas,
+  mengucapkan terima kasih (kalimat bervariasi) dan memberi poin.
+- **Animasi jalan & lari lebih imut**: badan memantul tiap langkah (melompat kecil saat lari), lengan
+  berayun lebar sedikit keluar, badan bergoyang kiri-kanan dengan kepala miring berlawanan; lari
+  memompa lengan yang ditekuk dan condong ke depan.
+- **Kamera Explore lebih bebas**: bisa diputar dari atas sampai sedikit di bawah mata Luna untuk
+  melihat langit, zoom 1,8–9; kamera tetap di atas lantai/tanah.
+- **Menara baru mengikuti lukisan referensi**: lebih lebar, dinding plester merah muda dengan tambalan
+  bata, 4 cincin batu, jendela kecil melengkung dengan lentera, **jendela kaca bulat besar di lantai 4**,
+  alas berbatu, **pintu besar melengkung** dengan daun pintu terbuka, anak tangga dari tanah (jumlahnya
+  menyesuaikan lereng), balustrade pilar di atap. **Isinya perpustakaan**: tangga spiral 4 putaran
+  **berpagar**, rak buku penuh buku warna-warni mengikuti tangga sampai puncak, karpet bulat di lantai
+  1, **lampu gantung berbentuk buku terbuka** dengan halaman menggantung. Puncak kosong, hanya **ruang
+  kecil beratap miring** selebar tangga yang menutup ujung tangga. Malam: lentera, jendela bulat dan
+  lampu buku menyala hangat + satu lampu di dalam menara.
+- **Jalan setapak marmer** kini mulai dari belakang Winds Space, berkelok-kelok, batunya berjarak.
+- **Bulan** jauh lebih besar dengan permukaan lembut dan cahaya halus; **matahari senja** lebih besar.
+- **Kunang-kunang** di malam hari dan **kupu-kupu** di pagi hari (06–11), muncul di tempat acak di
+  sekitar kafe dan menara (`lib/cafe-critters.ts`).
+- **Malam di kafe lebih hidup**: lampu kecil putih hangat di setiap meja (kap menyala, pendar, dan
+  genangan cahaya di meja — efek cahaya, bukan lampu asli, supaya HP tetap lancar); lampu interior
+  dibuat 30% lebih terang.
+- Pengembangan: `window.__explore.time(2100)` mengatur jam permainan (hanya `?sceneStats`).
+- Dicek di browser (ukuran HP): menara dari jauh dan perpustakaan di dalam; simulasi jalan naik dari
+  padang → anak tangga → pintu → 4 putaran tangga → atap, pagar dan dinding menahan; lampu meja malam;
+  bulan besar; jendela bulat menyala; kunang-kunang & kupu-kupu muncul. `typecheck`, `format:check`,
+  `build` lulus; `barista.test` 6/6, `people.test` 13/13, `engine.test` 21/25 seperti sebelumnya.
+  Tidak ada aset baru, `?v=` tetap.
+
+## 26. Menara mercusuar, kamera di dalam menara, lilin, langit malam lembut, sungai bercabang (26 Okt 2026)
+
+- **Menara** sedikit mengecil ke atas seperti mercusuar. **Pintu**: kotak di atas lengkungan hilang
+  (hanya sudut lengkungan yang diisi), daun pintu membuka ke dalam. **Tangga masuk memutari alas
+  menara** dari kaki jalan setapak sampai pintu (jumlah anak tangga menyesuaikan lereng). Batu-batu
+  kini **tertanam di bukit** (sepertiga terbenam) dan **padat** (Luna tidak menembus), tidak lagi
+  berbentuk cincin donat dan tidak menutupi tangga.
+- **Perpustakaan** hanya sampai lantai 3; **jendela bulat besar** kini benar-benar berlubang dengan
+  kaca tipis, dan letaknya lurus dengan tangga pada ketinggian itu sehingga dari tangga bisa melihat
+  keluar.
+- **Lampu buku**: 9 tali panjang menggantung utuh dari puncak; tiap tali membawa 1–3 buku terbuka di
+  ketinggian acak sampai lantai 2.
+- **Atap**: lantai atap kini terbuka tepat di atas ujung tangga (sebelumnya sudut lubangnya keliru
+  sehingga Luna seperti menembus langit-langit); ruang beratap miring menaunginya.
+- **Kamera di dalam menara**: lensa lebar (86°), tidak lagi zoom ke Luna, dan tetap di dalam dinding
+  menara walau digeser.
+- **Malam di menara**: 3 lampu hangat di dalam + lampu di atas pintu, lentera/jendela/lampu buku
+  menyala.
+- **Langit malam** kafe kini indigo-lila lembut yang serasi dengan warna scene (teleskop tetap langit
+  hitam asli); kabut malam ikut.
+- **Lilin** menggantikan lampu meja: lilin di piring kecil dengan nyala berkedip, pendar dan genangan
+  cahaya hangat yang lebih luas; lampu interior 50% lebih terang. Lampu yang melayang di tengah lantai
+  2 outdoor dihapus (itu "meja atas luar", sebenarnya atap, bukan meja).
+- **Sungai bercabang**: 4 anak sungai berkelok dari sungai utama ke arah perbukitan (ikut membentuk
+  lembah, ditanami pohon tidak di airnya, tidak bisa dilewati Luna).
+- **Kupu-kupu** dibuat kecil.
+- Dicek di browser (ukuran HP): menara luar siang & malam, simulasi jalan dari kaki tangga memutar →
+  pintu → tangga dalam → atap lolos, kamera lebar di dalam menara dengan Luna di depan jendela bulat,
+  atap dengan lubang tangga di bawah ruang kecil, lilin malam dan langit lembut, sungai bercabang dari
+  atas. `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6, `people.test` 13/13,
+  `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
+
+## 27. Kamera santai, lompat, ruang tamu menara, danau hati, burung, matahari terbit di depan kafe (26 Okt 2026)
+
+- **Kamera** lebih santai: hanya benda besar (dinding, lantai, atap) yang bisa mendekatkan kamera —
+  kursi, meja, tanaman tidak; benda tepat di samping Luna diabaikan; jarak minimum 1,6; geraknya
+  pelan (tidak ada zoom tiba-tiba).
+- **Lompat**: Spasi (laptop) atau ketuk 2× (HP); pose lompat ceria. Tombol aksi kini **E**.
+- **Turun dari kafe** bisa di mana saja di pinggir site (ujung trotoar, sisi jalan, belakang) asal
+  tidak terhalang dinding; **anak tangga beton** baru di belakang kafe (di balik pojok baca) ke rumput.
+- **Menara**: jendela bulat besar di lantai 4 kini **menghadap kafe/jalan raya**; **tangga masuk
+  dimulai dari ujung jalan setapak marmer** di sisi depan. Tangga dinding (perpustakaan) **berhenti di
+  lantai 4**: **ruang tamu** dengan sofa, piano + kursi, gitar, cello, meja belajar (kursi, lampu,
+  buku) dan **bingkai kosong** yang bisa diisi foto Story of Winds dari mode Explore ("Pasang foto di
+  bingkai" saat berdiri di dekatnya; tersimpan di perangkat). **Tangga spiral di tengah** naik ke
+  **lantai 5 terbuka** (pagar batu + 8 pilar silinder) dan **rooftop**; ruang beratap miring dihapus.
+  Lampu buku menggantung dari bawah lantai 4.
+- **Kunang-kunang** juga di sepanjang jalan setapak ke menara, jalan ke jembatan, dan jembatan.
+- **Burung**: sesekali (tiap 1–2 menit, siang) sekawanan kecil terbang melintas berformasi V.
+- **Gunung** di belakang menara dipindah jauh (±140–210) dan dibuat jauh lebih besar; bukit karst di
+  seberang sungai juga lebih jauh & besar. Batas jalan Luna 92 dari kafe, jadi tidak tergapai.
+- **Pinggiran dunia memudar** ke warna kabut/langit (tanah, sungai, jalan, pohon) seperti semesta
+  kecil yang melayang.
+- **Bintang & Bima Sakti** lebih terang dan besar di atas langit malam yang lembut.
+- **Sungai** memanjang sampai ujung peta; cabang kecil diganti **danau besar berbentuk hati** (tepian
+  alami bergelombang) yang tersambung ke sungai lewat saluran; dari menara bentuk hatinya terbaca.
+- **Matahari terbit di depan Winds Space** (arah jalan raya) dan tenggelam di belakangnya.
+- Dicek di browser (ukuran HP): menara luar & ruang tamu; simulasi jalan dari jalan setapak → tangga
+  luar → tangga dinding → lantai 4 → tangga tengah → lantai 5 → atap; turun dari ujung utara/selatan
+  trotoar, sisi jalan, dan keluar lewat belakang; danau hati dari atas; matahari pagi di depan kafe.
+  `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6, `people.test` 13/13,
+  `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
+
+## 28. Kamera stabil, laut & dermaga, danau hati di kiri, alat musik detail, lubang tangga menara (26 Okt 2026)
+
+- **Kamera stabil**: sudut pilihan pemain tidak lagi diubah otomatis (tanpa pencarian sudut yang
+  membuat glitch); kamera hanya mendekat jika dinding/atap menghalangi lebih dari ±0,5 detik, dan
+  menunggu ±1 detik sebelum mundur lagi; gerak dekat-jauh sangat pelan; jarak minimum 1,8.
+- **Gunung belakang** dipindah sangat jauh (±190–215) dan diperkecil sehingga tampak kecil & samar di
+  cakrawala, tidak menutupi langit.
+- **Bukit karst di depan kafe dihapus**; diganti **laut lepas**: daratan di seberang sungai turun ke
+  **pantai pasir** lalu laut (air bergelombang lembut dengan kilau). **Dermaga kayu** menjulur 20 m ke
+  laut (bisa dijalani Luna, ada pagar & tiang), dan **1 perahu nelayan** (lambung putih, garis biru,
+  kabin atap merah, tiang bendera) bergoyang pelan di sampingnya. Luna tidak bisa masuk ke laut.
+- **Sungai** utama mengalir sampai ujung peta (bertemu laut).
+- **Danau hati** dipindah ke **ujung kiri** dan dikecilkan, diisi oleh **dua anak sungai kecil
+  berkelok** dari sungai utama (satu bercabang); lembahnya sempit dan alami.
+- **Ruang tamu**: kursi piano dan kursi belajar kini **berkaki**; sofa berkaki. **Piano** tegak dengan
+  29 tuts putih dan tuts hitam berpola 2–3 asli, pipi kiri-kanan, kaki depan, 3 pedal kuningan.
+  **Gitar** berbadan lekuk angka-8, lubang suara + rosette, bridge, papan fret dengan fret, kepala
+  dengan pasak, 6 senar. **Cello** berlekuk, f-hole, bridge, papan jari hitam, scroll, endpin, 4 senar.
+  Semua di atas stand.
+- **Lubang tangga**: lubang di lantai 4 diperlebar sehingga kepala Luna tidak membentur langit-langit;
+  pita batu lantai 5 tidak lagi menutup tengah (dulu silinder padat); lantai 5 dan atap kini hanya
+  berlubang di atas jalur tangga tengah yang naik, sisanya **pijakan** — tangga terakhir tiba di
+  lantai, bukan di lubang.
+- Dicek di browser (ukuran HP): laut/pantai/dermaga/perahu, danau hati & anak sungai dari atas,
+  gunung dari kafe, piano/gitar/cello; simulasi jalan dari jalan setapak sampai atap (melangkah dari
+  tangga tengah ke pijakan atap) lolos. `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6,
+  `people.test` 13/13, `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.

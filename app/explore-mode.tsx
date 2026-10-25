@@ -2,23 +2,24 @@
 // Explore mode: walk Luna around the café and run the bar for virtual guests.
 // Take the order at the cashier, give change, mix the drink at the bar (your own recipe),
 // pull espresso for coffee, then carry it to the guest's table for a star rating.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { Coffee, LogOut, Star } from 'lucide-react';
+import { Coffee, LogOut } from 'lucide-react';
 import type { CafeVisitor } from '@/lib/cafe-activity';
 import {
   CUPS,
   DENOMINATIONS,
   INGREDIENTS,
+  crowdFor,
   drinkMenu,
+  GAME_MINUTES_PER_SECOND,
   newCustomer,
-  review,
   rupiah,
+  type Crowd,
   type CupId,
   type Drink,
   type MenuItem,
   type Order,
-  type Review,
 } from '@/lib/barista-game';
 import styles from './explore-mode.module.css';
 import VintageCamera from './vintage-camera';
@@ -35,6 +36,14 @@ export type ExploreApi = {
   walking: () => boolean;
   luna: () => THREE.Vector3;
   stations: { cashier: THREE.Vector3; bar: THREE.Vector3; espresso: THREE.Vector3 };
+  /** Explore mode's own clock for the sky (faster than real time). */
+  setClock: (date: Date | null) => void;
+  /** Run while Shift or a second finger is held. */
+  setRun: (on: boolean) => void;
+  /** Hop (Space, or a double tap on a phone). */
+  jump: () => void;
+  /** Arrow over the guest whose order Luna carries (null = none). */
+  marker: (key: string | null) => void;
   /** A free seat within reach, then sit / stand. */
   seatNear: () => { id: string; position: THREE.Vector3 } | null;
   sit: (id: string) => boolean;
@@ -52,6 +61,9 @@ export type ExploreApi = {
     tables: Spot[];
     telescope: Spot | null;
   };
+  /** Where to stand to hang a photo in the tower's living-room frame, and hang one (image URL). */
+  frame: THREE.Vector3 | null;
+  hangPhoto: (url: string) => void;
   /** Open Windstronout through the café's telescope. */
   telescope: () => void;
   /** Story of Winds from Luna's camera. */
@@ -80,6 +92,27 @@ type Panel = 'cashier' | 'cup' | 'prep' | 'espresso' | null;
 type MenuSource = { id: string; name: string; price: number; category: string; status?: string };
 
 const NEAR = 1.15;
+const FRAME_KEY = 'explore-frame-photo';
+/** A Story of Winds photo scaled down to a small JPEG data URL (fits in local storage). */
+async function shrinkPhoto(blob: Blob) {
+  const bitmap = await createImageBitmap(blob),
+    scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height)),
+    canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return canvas.toDataURL('image/jpeg', 0.82);
+}
+const THANKS = [
+  'Enak banget, makasih kak!',
+  'Wah, pas banget rasanya.',
+  'Ini favoritku sekarang!',
+  'Makasih Luna, bikin semangat.',
+  'Hmm… hangatnya nyampe hati.',
+  'Besok aku balik lagi ya!',
+  'Cantik banget penyajiannya.',
+];
 // Each "walk there" goal and the action it leads to.
 const GOAL_ACTION: Record<string, string[]> = {
   'go-cashier': ['cashier'],
@@ -106,18 +139,30 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     [ticket, setTicket] = useState<string | null>(null),
     [drink, setDrink] = useState<Drink>(emptyDrink()),
     [holding, setHolding] = useState(false),
-    [score, setScore] = useState({ points: 0, served: 0, stars: 0 }),
-    [toast, setToast] = useState<{ name: string; review: Review } | null>(null),
+    [score, setScore] = useState({ points: 0, served: 0 }),
+    [toast, setToast] = useState<{ name: string; line: string; points: number } | null>(null),
     [hint, setHint] = useState('Jalan ke kasir untuk menyambut tamu.'),
     [goals, setGoals] = useState<{ id: string; label: string }[]>([]),
     [photoOpen, setPhotoOpen] = useState(false),
+    [open, setOpen] = useState(false),
+    [minutes, setMinutes] = useState(8 * 60),
+    [crowdLabel, setCrowdLabel] = useState('sepi'),
     [note, setNote] = useState('');
   const customersRef = useRef<Customer[]>([]),
     keys = useRef(new Set<string>()),
     stick = useRef({ x: 0, y: 0 }),
     counter = useRef(0),
     chase = useRef<string | null>(null),
-    cooldown = useRef<Record<string, number>>({});
+    cooldown = useRef<Record<string, number>>({}),
+    lastPhoto = useRef<string | null>(null),
+    keyRun = useRef(false),
+    touchRun = useRef(false),
+    stickHeld = useRef(false),
+    touchIds = useRef(new Set<number>()),
+    minutesRef = useRef(8 * 60),
+    openRef = useRef(false),
+    crowdHour = useRef(-1),
+    crowdRef = useRef<Crowd>({ label: 'sepi', chance: 0.12, max: 2 });
   useEffect(() => {
     customersRef.current = customers;
   }, [customers]);
@@ -145,6 +190,32 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     );
   }, [customers, api]);
 
+  // Story of Winds from Luna's camera: keep the latest shot (small) for the tower's frame.
+  const photoLens = useMemo(
+    () => ({
+      ...api.photo,
+      onPhoto: (blob: Blob) => {
+        void shrinkPhoto(blob).then((url) => (lastPhoto.current = url));
+      },
+    }),
+    [api],
+  );
+  // The frame keeps the last photo hung in it (on this device).
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(FRAME_KEY);
+      if (saved) {
+        lastPhoto.current = saved;
+        api.hangPhoto(saved);
+      }
+    } catch {
+      /* Storage blocked: the frame starts empty. */
+    }
+  }, [api]);
+  // Point at the guest whose drink Luna is carrying.
+  useEffect(() => {
+    api.marker(holding ? ticket : null);
+  }, [holding, ticket, api]);
   useEffect(() => {
     api.setTask(
       photoOpen
@@ -159,11 +230,48 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     );
   }, [holding, panel, photoOpen, api]);
 
-  // Guests arrive now and then (at most three at a time while testing).
+  // Explore mode's own day: a game hour per real minute, starting at 08.00. The sky follows it.
+  useEffect(() => {
+    let last = performance.now();
+    const t = setInterval(() => {
+      const now = performance.now();
+      setMinutes((m) => (m + ((now - last) / 1000) * GAME_MINUTES_PER_SECOND) % (24 * 60));
+      last = now;
+    }, 500);
+    return () => {
+      clearInterval(t);
+      api.setClock(null);
+    };
+  }, [api]);
+  useEffect(() => {
+    // Game time is WITA (UTC+8), today.
+    const d = new Date();
+    api.setClock(
+      new Date(
+        Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0) +
+          (minutes - 8 * 60) * 60_000,
+      ),
+    );
+  }, [minutes, api]);
+  const hour = Math.floor(minutes / 60);
+
+  // While the café is open, guests walk in now and then: some hours quiet, some busy.
+  useEffect(() => {
+    minutesRef.current = minutes;
+  }, [minutes]);
   useEffect(() => {
     if (!menu.length) return;
     const spawn = () => {
-      if (customersRef.current.filter((c) => c.stage !== 'served').length >= 3) return;
+      const h = Math.floor(minutesRef.current / 60);
+      if (crowdHour.current !== h) {
+        crowdHour.current = h;
+        crowdRef.current = crowdFor(h);
+        setCrowdLabel(crowdRef.current.label);
+      }
+      if (!openRef.current) return;
+      const crowd = crowdRef.current,
+        waiting = customersRef.current.filter((c) => c.stage !== 'served').length;
+      if (waiting >= crowd.max || Math.random() > crowd.chance) return;
       const { name, order } = newCustomer(menu);
       counter.current += 1;
       setCustomers((list) => [
@@ -177,13 +285,26 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         },
       ]);
     };
-    const first = setTimeout(spawn, 2500),
-      timer = setInterval(spawn, 26000);
-    return () => {
-      clearTimeout(first);
-      clearInterval(timer);
-    };
+    spawn();
+    const timer = setInterval(spawn, 5000);
+    return () => clearInterval(timer);
   }, [menu]);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+  /** Closing up: every guest heads home and the bar is cleared. */
+  const toggleOpen = () => {
+    if (open) {
+      setCustomers([]);
+      setTicket(null);
+      setHolding(false);
+      setDrink(emptyDrink());
+      setPanel(null);
+      setNote('Kafe tutup · sampai jumpa besok');
+      setTimeout(() => setNote(''), 2500);
+    }
+    setOpen(!open);
+  };
 
   // Guests who were served leave after their drink.
   useEffect(() => {
@@ -214,25 +335,70 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     const down = (e: KeyboardEvent) => {
       if (panel) return;
       const key = e.key.toLowerCase();
-      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+      if (key === 'shift') {
+        keyRun.current = true;
+        api.setRun(true);
+      } else if (
+        ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)
+      ) {
         keys.current.add(key);
         applyStick();
         e.preventDefault();
-      } else if ((key === 'e' || key === ' ') && actionsRef.current[0]) {
+      } else if (key === ' ') {
+        if (!e.repeat) api.jump();
+        e.preventDefault();
+      } else if (key === 'e' && actionsRef.current[0]) {
         runRef.current(actionsRef.current[0].id);
         e.preventDefault();
       }
     };
     const up = (e: KeyboardEvent) => {
       keys.current.delete(e.key.toLowerCase());
+      if (e.key === 'Shift') {
+        keyRun.current = false;
+        api.setRun(touchRun.current);
+      }
       applyStick();
     };
+    // Phone: one thumb on the (invisible) stick, the other held anywhere on the screen to run.
+    const touches = touchIds.current;
+    const touchUpdate = () => {
+      touchRun.current = stickHeld.current && touches.size >= 2;
+      api.setRun(keyRun.current || touchRun.current);
+    };
+    let lastTap = { at: 0, x: 0, y: 0 };
+    const pointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch') return;
+      touches.add(e.pointerId);
+      touchUpdate();
+      // Double tap (on the scene, not on a button) → hop.
+      const now = performance.now();
+      if (
+        !(e.target as HTMLElement).closest('button, [role=dialog]') &&
+        now - lastTap.at < 320 &&
+        Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40
+      ) {
+        api.jump();
+        lastTap = { at: 0, x: 0, y: 0 };
+      } else lastTap = { at: now, x: e.clientX, y: e.clientY };
+    };
+    const pointerUp = (e: PointerEvent) => {
+      touches.delete(e.pointerId);
+      touchUpdate();
+    };
+    window.addEventListener('pointerdown', pointerDown, true);
+    window.addEventListener('pointerup', pointerUp, true);
+    window.addEventListener('pointercancel', pointerUp, true);
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     return () => {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
+      window.removeEventListener('pointerdown', pointerDown, true);
+      window.removeEventListener('pointerup', pointerUp, true);
+      window.removeEventListener('pointercancel', pointerUp, true);
       api.setStick(0, 0);
+      api.setRun(false);
     };
   }, [panel, applyStick, api]);
 
@@ -270,6 +436,13 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         (p) => spotDistance(at, p.box) < 0.4 && !(cooldown.current[p.name] > Date.now()),
       );
       if (table && !holding) list.push({ id: 'wipe:' + table.name, label: 'Lap meja' });
+      if (
+        api.frame &&
+        lastPhoto.current &&
+        flat(at, api.frame) < 0.9 &&
+        Math.abs(at.y - api.frame.y) < 0.6
+      )
+        list.push({ id: 'hang', label: 'Pasang foto di bingkai' });
       if (api.sitting()) list.push({ id: 'stand', label: 'Berdiri' });
       else if (!holding) {
         const seat = api.seatNear();
@@ -308,11 +481,13 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
               ? `${queue.name} menunggu di kasir.`
               : tickets.length
                 ? 'Lanjutkan racikan di meja bar.'
-                : 'Jalan-jalan dulu, tamu berikutnya segera datang.',
+                : open
+                  ? `Kafe buka (${crowdLabel}). Tunggu tamu, atau jalan-jalan dulu.`
+                  : 'Kafe tutup. Ketuk "buka kafe" kapan saja.',
       );
     }, 200);
     return () => clearInterval(t);
-  }, [api, holding, ticket, drink.cup, drink.amounts.espresso]);
+  }, [api, holding, ticket, drink.cup, drink.amounts.espresso, open, crowdLabel]);
 
   const run = (id: string) => {
     chase.current = id === 'go-guest' ? ticket : null;
@@ -359,6 +534,16 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
       reward('Lantai disapu', 2, 4);
     }
     if (verb === 'photo') setPhotoOpen(true);
+    if (verb === 'hang' && lastPhoto.current) {
+      api.hangPhoto(lastPhoto.current);
+      try {
+        localStorage.setItem(FRAME_KEY, lastPhoto.current);
+      } catch {
+        /* Too big or storage blocked: it still hangs for this visit. */
+      }
+      setNote('Foto terpasang di bingkai');
+      setTimeout(() => setNote(''), 2200);
+    }
     if (id === 'cashier') setPanel('cashier');
     if (id === 'cup' || id === 'prep') {
       if (!ticket) {
@@ -374,21 +559,15 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     if (id === 'serve' && ticket) {
       const c = customersRef.current.find((x) => x.key === ticket);
       if (!c) return;
-      const waited = (Date.now() - c.arrivedAt) / 1000;
-      const result = review(c.order, drink, c.change ?? { given: 0, due: 0 }, waited);
-      const penalty = c.wrongItem ? 1 : 0;
-      const final = { ...result, stars: Math.max(1, result.stars - penalty) };
-      if (c.wrongItem) final.lines = ['Tadi sempat salah catat pesanan.', ...final.lines];
+      // Every guest loves what Luna makes: a thank-you and a few points, no ratings.
+      const thanks = THANKS[Math.floor(Math.random() * THANKS.length)];
+      const points = 20 + Math.round(c.order.item.price / 1000);
       api.deliver(c.key);
       setCustomers((list) =>
         list.map((x) => (x.key === c.key ? { ...x, stage: 'served', servedAt: Date.now() } : x)),
       );
-      setScore((s) => ({
-        points: s.points + final.points,
-        served: s.served + 1,
-        stars: s.stars + final.stars,
-      }));
-      setToast({ name: c.name, review: final });
+      setScore((s) => ({ points: s.points + points, served: s.served + 1 }));
+      setToast({ name: c.name, line: thanks, points });
       setTimeout(() => setToast(null), 5500);
       setHolding(false);
       setTicket(null);
@@ -403,6 +582,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     if (process.env.NODE_ENV === 'production' || !location.search.includes('sceneStats')) return;
     (window as unknown as { __explore: unknown }).__explore = {
       run: (id: string) => runRef.current(id),
+      time: (hhmm: number) => setMinutes(Math.floor(hhmm / 100) * 60 + (hhmm % 100)),
       luna: () => api.luna().toArray(),
       stations: () =>
         Object.fromEntries(Object.entries(api.stations).map(([k, v]) => [k, v.toArray()])),
@@ -414,14 +594,18 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
 
   const queueCustomer = customers.find((c) => c.stage === 'queue');
   const ticketCustomer = customers.find((c) => c.key === ticket);
-  const average = score.served ? score.stars / score.served : 0;
 
   return (
     <div className={styles.hud}>
       <header className={styles.top}>
         <span className={styles.score}>
-          {score.points} poin · {average ? average.toFixed(1) : '–'}
-          <Star size={10} /> · {score.served} tamu
+          {score.points} poin · {score.served} tamu
+        </span>
+        <span className={styles.clock}>
+          {String(hour).padStart(2, '0')}.{String(Math.floor(minutes % 60)).padStart(2, '0')}
+          <button onClick={toggleOpen} aria-pressed={open}>
+            {open ? 'tutup kafe' : 'buka kafe'}
+          </button>
         </span>
         <button className={styles.exit} onClick={onExit} aria-label="Keluar dari mode explore">
           <LogOut size={14} />
@@ -440,6 +624,11 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         onMove={(x, y) => {
           stick.current = { x, y };
           applyStick();
+        }}
+        onHold={(held) => {
+          stickHeld.current = held;
+          touchRun.current = held && touchIds.current.size >= 2;
+          api.setRun(keyRun.current || touchRun.current);
         }}
       />
       {!panel && actions.length > 0 && (
@@ -469,7 +658,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
           onOpenChange={(open) => {
             if (!open) setPhotoOpen(false);
           }}
-          scene={api.photo}
+          scene={photoLens}
         />
       )}
       {!panel &&
@@ -480,14 +669,9 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         ))}
       {toast && (
         <div className={styles.toast} role="status">
-          <strong>
-            {toast.name} {'★'.repeat(toast.review.stars)}
-            {'☆'.repeat(5 - toast.review.stars)}
-          </strong>
-          {toast.review.lines.map((l) => (
-            <span key={l}>“{l}”</span>
-          ))}
-          <small>+{toast.review.points} poin</small>
+          <strong>{toast.name} ♡</strong>
+          <span>“{toast.line}”</span>
+          <small>+{toast.points} poin</small>
         </div>
       )}
       {panel === 'cashier' && queueCustomer && (
@@ -562,7 +746,13 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
  * Invisible stick: drag anywhere in the lower-left part of the screen to walk. The point where
  * the finger lands is the centre; nothing is drawn.
  */
-function TouchStick({ onMove }: { onMove: (x: number, y: number) => void }) {
+function TouchStick({
+  onMove,
+  onHold,
+}: {
+  onMove: (x: number, y: number) => void;
+  onHold: (held: boolean) => void;
+}) {
   const origin = useRef<{ id: number; x: number; y: number } | null>(null);
   const RADIUS = 48;
   const move = (e: React.PointerEvent) => {
@@ -581,12 +771,14 @@ function TouchStick({ onMove }: { onMove: (x: number, y: number) => void }) {
     if (origin.current?.id !== e.pointerId) return;
     origin.current = null;
     onMove(0, 0);
+    onHold(false);
   };
   return (
     <div
       className={styles.stickZone}
       onPointerDown={(e) => {
         origin.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        onHold(true);
         try {
           e.currentTarget.setPointerCapture(e.pointerId);
         } catch {

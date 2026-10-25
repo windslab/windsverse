@@ -387,3 +387,25 @@ export const DENOMINATIONS = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500
 export const rupiah = (n: number) => 'Rp' + n.toLocaleString('id-ID');
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
+/** Explore mode's day runs faster than real time: one game hour per real minute. */
+export const GAME_MINUTES_PER_SECOND = 1;
+
+export type Crowd = { label: string; chance: number; max: number };
+/**
+ * How busy the café is this game hour. Some hours are quiet, some normal, some busy, with the
+ * lunch and evening hours leaning busier and late night leaning quiet. `chance` is the chance a
+ * guest walks in at each check (every few seconds while open); `max` caps guests at once.
+ */
+export function crowdFor(hour: number, rand = Math.random): Crowd {
+  const lean =
+    (hour >= 11 && hour < 14) || (hour >= 17 && hour < 21)
+      ? 0.25
+      : hour >= 22 || hour < 6
+        ? -0.3
+        : 0;
+  const roll = rand() + lean;
+  if (roll < 0.35) return { label: 'sepi', chance: 0.12, max: 2 };
+  if (roll < 0.8) return { label: 'lumayan', chance: 0.35, max: 4 };
+  return { label: 'ramai', chance: 0.75, max: 6 };
+}
