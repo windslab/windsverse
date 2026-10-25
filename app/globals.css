@@ -5378,3 +5378,60 @@ td {
     opacity: 1;
   }
 }
+
+/* Explore mode: the café scene goes full screen and Luna is yours to drive. */
+.cafe-scene-shell.exploring {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-height: none !important;
+  z-index: 70;
+  margin: 0 !important;
+  border-radius: 0 !important;
+}
+.cafe-scene-shell.exploring .cafe-scene {
+  height: 100dvh !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  border-radius: 0 !important;
+}
+html:has(.cafe-scene-shell.exploring) {
+  overflow: hidden;
+}
+/* No edge fade in full screen, and keep the music pill out of the controls' way. */
+.cafe-scene-shell.exploring .cafe-scene {
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
+}
+html:has(.cafe-scene-shell.exploring) .noisegasm-mini {
+  display: none !important;
+}
+.cafe-scene-shell.exploring .scene-header-caption,
+.cafe-scene-shell.exploring .scene-bookshelf-hotspot {
+  display: none;
+}
+.cafe-scene-shell.exploring .scene-sound-toggle,
+.cafe-scene-shell.exploring .scene-time-switch {
+  top: auto;
+  bottom: max(150px, calc(env(safe-area-inset-bottom) + 150px));
+}
+.scene-explore-toggle {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: 14px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 0;
+  background: #e39a3b;
+  color: #2a1c10;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(30, 15, 5, 0.25);
+}

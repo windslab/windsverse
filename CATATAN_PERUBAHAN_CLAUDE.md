@@ -341,3 +341,25 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Mode pengembangan `?sceneStats`: kamera boleh mundur sampai 90 untuk memeriksa dunia.
 - Dicek di browser: jalan & bahu, jembatan, malam (Bimasakti, lampu interior & lampu tali). `typecheck`,
   `format:check`, `build` lulus; `people.test` 8/8, `engine.test` 21/25.
+
+## 21. Mode Explore: main jadi barista virtual (25 Okt 2026)
+
+- Tombol **Explore** di scene kafe: layar penuh, pengunjung mengendalikan Luna (joystick di HP,
+  WASD/panah di laptop, E/Spasi untuk aksi). Kamera mengikuti Luna dari atas belakang; lantai/atap di
+  atas Luna dan dinding yang menghalangi pandangan disembunyikan sementara (dikembalikan saat keluar).
+  Tombol "Pergi ke kasir / meja bar / mesin espresso / meja tamu" membuat Luna berjalan sendiri ke sana.
+- Alur barista (`app/explore-mode.tsx`, aturan di `lib/barista-game.ts`): tamu datang dan antre →
+  di kasir pilih menu yang diucapkan tamu, terima uang (20rb/50rb/100rb/pas), ambil kembalian dari
+  laci → di meja bar pilih gelas (cangkir panas, gelas es, cup bawa pulang) dan takar bahan (SKM, susu
+  full cream, gula, aren, bubuk cokelat/matcha/taro, sirup, teh, air, es, kopi tubruk) → menu kopi wajib
+  memakai mesin espresso (tahan untuk menggiling, tamp, hentikan jarum di zona hijau; maks 3 shot) →
+  antar ke meja tamu → tamu memberi bintang 1–5, komentar, dan poin.
+- Menu diambil dari menu kafe (minuman saja); jika kosong memakai 6 menu contoh. **Resep asli tidak
+  dipakai**: rasa yang diharapkan tamu dihitung dari nama menu + permintaan (manis/kuat), jadi pemain
+  bebas meracik sendiri. Skor hanya di browser, tidak disimpan ke database.
+- Tamu di dunia 3D memakai sistem tamu yang sudah ada (antre, duduk, menerima minuman).
+- `?sceneStats` (khusus pengembangan) menambah `window.__explore` untuk tes; tidak aktif di production.
+- Tidak ada file aset baru, jadi tidak ada `?v=` yang perlu dinaikkan.
+- Dicek di browser (ukuran HP): satu putaran penuh kasir → kembalian → racik → espresso → antar →
+  bintang. `typecheck`, `format:check`, `build` lulus; `barista.test` 5/5, `people.test` 8/8,
+  `engine.test` 21/25 seperti sebelumnya.

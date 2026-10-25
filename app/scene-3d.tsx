@@ -9,13 +9,14 @@ import { Reflector } from 'three/addons/objects/Reflector.js';
 import { CSS3DObject, CSS3DRenderer } from 'three/addons/renderers/CSS3DRenderer.js';
 import DriveTV, { type TVProgram } from './drive-tv';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { BookOpen, Coffee, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { BookOpen, Coffee, Gamepad2, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import { createSceneAmbience, type SceneAmbience } from './scene-ambience';
 import { cafePaths, type CafePathData } from '@/lib/cafe-paths';
 import { prepareCafeBarWorkspace } from '@/lib/cafe-bar-workspace';
 import { addCafeWalkSurfaces } from '@/lib/cafe-walk-surfaces';
 import { placeCafePeople } from './scene-people';
-import { EMPTY_CAFE_ACTIVITY, type CafeActivity } from '@/lib/cafe-activity';
+import { EMPTY_CAFE_ACTIVITY, type CafeActivity, type CafeVisitor } from '@/lib/cafe-activity';
+import ExploreMode, { type ExploreApi } from './explore-mode';
 import { createToonOutline, toonGradient, toonify } from '@/lib/toon';
 import { createCafeSky, SKY_PHASES, type SkyPhase } from '@/lib/cafe-sky';
 import { createCafeWorld } from '@/lib/cafe-world';
@@ -305,7 +306,25 @@ export default function CafeScene({
     [mode, setMode] = useState<'morning' | 'night'>('morning'),
     [skyPhase, setSkyPhase] = useState<SkyPhase>('live'),
     [livePhase, setLivePhase] = useState<Exclude<SkyPhase, 'live'>>('siang'),
-    [soundEnabled, setSoundEnabled] = useState(false);
+    [soundEnabled, setSoundEnabled] = useState(false),
+    [exploring, setExploring] = useState(false),
+    [exploreApi, setExploreApi] = useState<ExploreApi | null>(null);
+  // Explore mode: the player drives Luna; the game supplies its own virtual guests.
+  const exploreRef = useRef({
+    on: false,
+    stick: { x: 0, y: 0 },
+    visitors: [] as CafeVisitor[],
+    onToggle: (() => {}) as (on: boolean) => void,
+  });
+  const toggleExplore = (on: boolean) => {
+    exploreRef.current.on = on;
+    exploreRef.current.stick = { x: 0, y: 0 };
+    if (!on) exploreRef.current.visitors = [];
+    exploreApi?.setManual(on);
+    exploreRef.current.onToggle(on);
+    setExploring(on);
+    if (!on) viewRef.current.reset += 1;
+  };
   modeRef.current = mode;
   phaseRef.current = skyPhase;
   soundRef.current = soundEnabled;
@@ -416,6 +435,41 @@ export default function CafeScene({
     const sky = createCafeSky(220);
     let world: ReturnType<typeof createCafeWorld> | undefined;
     const sunRay = new THREE.Raycaster();
+    const sightRay = new THREE.Raycaster();
+    let cutaway: { mesh: THREE.Mesh; bottom: number }[] | undefined,
+      lastCutaway = 0;
+    const followForward = new THREE.Vector3(),
+      followRight = new THREE.Vector3(),
+      followUp = new THREE.Vector3(0, 1, 0),
+      followMove = new THREE.Vector3(),
+      followTarget = new THREE.Vector3(),
+      followOffset = new THREE.Vector3();
+    // Entering/leaving explore mode changes how close the camera may come.
+    exploreRef.current.onToggle = (on: boolean) => {
+      controls!.minDistance = on ? 2.5 : 5;
+      controls!.maxDistance = on ? 7 : debugPerf ? 90 : MAX_CAFE_DISTANCE;
+      // Look down on Luna rather than through walls.
+      controls!.minPolarAngle = on ? 0.35 : 0.2;
+      controls!.maxPolarAngle = on ? 1.05 : Math.PI * 0.48;
+      if (on) {
+        libraryMode = tvMode = false;
+        setLibraryActive(false);
+        setTvActive(false);
+        transition = undefined;
+        // Start behind and above Luna, looking over her shoulder toward the café's centre.
+        const luna = people?.baristaPosition();
+        if (luna) {
+          const back = luna.clone().sub(overviewTarget).setY(0);
+          if (back.lengthSq() < 0.01) back.set(-1, 0, 0);
+          back.setLength(2.6);
+          controls!.target.copy(luna).add(new THREE.Vector3(0, 0.75, 0));
+          camera.position
+            .copy(controls!.target)
+            .add(back)
+            .add(new THREE.Vector3(0, 3.6, 0));
+        }
+      }
+    };
     let lastSunCheck = 0,
       sunBlocked = false;
     scene.add(sky.group, sky.flareGroup);
@@ -1253,6 +1307,32 @@ export default function CafeScene({
           prepareCafeBarWorkspace(model);
           addCafeWalkSurfaces(model);
           people = placeCafePeople(model, cafePaths(model, navData), luna.scene);
+          {
+            const crew = people;
+            const machine = objectByModelName(model, 'mesin kopi');
+            setExploreApi({
+              setManual: (on) => crew.setManual(on),
+              setTask: (task) => crew.setManualTask(task),
+              setStick: (x, y) => {
+                exploreRef.current.stick = { x, y };
+              },
+              setVisitors: (visitors) => {
+                exploreRef.current.visitors = visitors;
+              },
+              guests: () => crew.guests(),
+              deliver: (key) => crew.deliver(key),
+              walkTo: (point) => crew.walkTo(point),
+              walking: () => crew.walking(),
+              luna: () => crew.baristaPosition(),
+              stations: {
+                cashier: crew.stations.cashier.clone(),
+                bar: crew.stations.bar.clone(),
+                espresso: machine
+                  ? machine.getWorldPosition(new THREE.Vector3())
+                  : crew.stations.bar.clone(),
+              },
+            });
+          }
           addedMaterials.push(...toonify(people.root));
           toonOutline.addHull(luna.scene);
           assetRoot!.add(people.root);
@@ -1436,6 +1516,7 @@ export default function CafeScene({
             }
           }
           controls!.autoRotate =
+            !exploreRef.current.on &&
             !telescopeMode &&
             !libraryMode &&
             !tvMode &&
@@ -1572,8 +1653,62 @@ export default function CafeScene({
           frustum.setFromProjectionMatrix(
             viewMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
           );
-          people?.updateActivity(viewRef.current.activity);
+          const explore = exploreRef.current;
+          people?.updateActivity(
+            explore.on
+              ? { ...EMPTY_CAFE_ACTIVITY, visitors: explore.visitors }
+              : viewRef.current.activity,
+          );
+          if (explore.on && people) {
+            // Stick → walk direction relative to the camera, then keep the camera following Luna.
+            followForward.copy(controls!.target).sub(camera.position).setY(0).normalize();
+            followRight.crossVectors(followForward, followUp);
+            followMove
+              .copy(followForward)
+              .multiplyScalar(-explore.stick.y)
+              .addScaledVector(followRight, explore.stick.x);
+            people.drive(followMove.x, followMove.z);
+          }
           people?.update(delta, reduced);
+          if (explore.on && people && assetRoot) {
+            // Dollhouse cut-away: hide what is above Luna's floor (upper storey, roof) so the
+            // camera can look down on her; checked a few times a second.
+            if (t - lastCutaway > 0.25) {
+              lastCutaway = t;
+              if (!cutaway) {
+                const list: { mesh: THREE.Mesh; bottom: number }[] = [];
+                cutaway = list;
+                assetRoot.traverse((node) => {
+                  const mesh = node as THREE.Mesh;
+                  if (!mesh.isMesh || !mesh.visible) return;
+                  for (let up: THREE.Object3D | null = mesh; up; up = up.parent)
+                    if (up === people!.root) return;
+                  list.push({ mesh, bottom: new THREE.Box3().setFromObject(mesh).min.y });
+                });
+              }
+              // Low enough to lift the bar box's own roof off when Luna works inside it.
+              const ceiling = people.baristaPosition().y + 1.05;
+              for (const item of cutaway ?? []) item.mesh.visible = item.bottom < ceiling;
+              // Walls between the camera and Luna step aside too.
+              const head = people.baristaPosition().clone();
+              head.y += 0.6;
+              sightRay.set(camera.position, head.clone().sub(camera.position).normalize());
+              sightRay.far = camera.position.distanceTo(head) - 0.3;
+              const visibleParts = (cutaway ?? []).filter((c) => c.mesh.visible).map((c) => c.mesh);
+              for (const hit of sightRay.intersectObjects(visibleParts, false))
+                (hit.object as THREE.Mesh).visible = false;
+            }
+          } else if (cutaway) {
+            for (const item of cutaway) item.mesh.visible = true;
+            cutaway = undefined;
+          }
+          if (explore.on && people) {
+            followTarget.copy(people.baristaPosition());
+            followTarget.y += 0.75;
+            followOffset.copy(camera.position).sub(controls!.target);
+            controls!.target.lerp(followTarget, reduced ? 1 : 1 - Math.exp(-delta * 6));
+            camera.position.copy(controls!.target).add(followOffset);
+          }
           foliage.forEach(({ node, x, z, phase, amplitude }) => {
             node.rotation.x = x + (reduced ? 0 : Math.sin(t * 0.7 + phase) * amplitude);
             node.rotation.z =
@@ -1838,7 +1973,7 @@ export default function CafeScene({
   }, []);
   return (
     <>
-      <div className="cafe-scene-shell">
+      <div className={'cafe-scene-shell' + (exploring ? ' exploring' : '')}>
         {enteringScope && <div className="scope-entry-veil" aria-hidden="true" />}
         <div
           className={'cafe-scene ' + (!modelReady ? 'scene-loading' : '')}
@@ -1897,6 +2032,19 @@ export default function CafeScene({
                 : 'Seret untuk memutar · Cubit untuk zoom'}
           </span>
         </div>
+        {exploring && exploreApi && (
+          <ExploreMode api={exploreApi} onExit={() => toggleExplore(false)} />
+        )}
+        {!exploring && exploreApi && (
+          <button
+            type="button"
+            className="scene-explore-toggle"
+            onClick={() => toggleExplore(true)}
+          >
+            <Gamepad2 size={14} />
+            <span>Explore</span>
+          </button>
+        )}
         <button
           type="button"
           className="scene-sound-toggle"

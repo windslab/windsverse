@@ -237,6 +237,13 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
   type Person = (typeof people)[number];
   const retired = new Set<string>();
   const barista = people[0];
+  // Explore mode: the player drives Luna; the game decides her pose and serves guests itself.
+  let manual = false,
+    manualTask = 'idle';
+  const manualMove = new THREE.Vector3(),
+    manualNext = new THREE.Vector3();
+  /** Auto-walk route (e.g. "go to the cashier"); the stick always takes over. */
+  let manualRoute: THREE.Vector3[] = [];
   let task = 'idle',
     taskKey = '',
     cleanUntil = 0,
@@ -471,7 +478,9 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       if (amount === distance) actor.waypoint++;
     }
     const arrived = actor.waypoint >= actor.waypoints.length,
-      moving = moved > 0.0001 * scale;
+      moving =
+        moved > 0.0001 * scale ||
+        (isBarista && manual && (manualMove.lengthSq() > 0.0001 || manualRoute.length > 0));
     if (arrived && actor.yieldTo) {
       actor.yieldWait += dt;
       if (actor.yieldWait > 1) {
@@ -549,6 +558,10 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     return arrived;
   }
   function chooseTask() {
+    if (manual) {
+      task = manualTask;
+      return;
+    }
     const guest = people
       .slice(1)
       .find((p) => p.key && p.status === 'selesai' && !p.delivered && p.phase === 'sitting');
@@ -589,6 +602,50 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
   return {
     root,
     updateActivity,
+    /** Explore mode on/off. Off hands Luna back to the automatic barista. */
+    setManual(on: boolean) {
+      manual = on;
+      manualMove.set(0, 0, 0);
+      manualRoute = [];
+      taskKey = '';
+      if (!on) manualTask = 'idle';
+    },
+    /** World-space direction to walk (length 0–1 = speed). */
+    drive(x: number, z: number) {
+      manualMove.set(x, 0, z);
+    },
+    /** Walk Luna to a point along the café's paths; returns false if there is no way. */
+    walkTo(point: THREE.Vector3) {
+      const route = paths.path(barista.position, point, 'staff');
+      manualRoute = route ?? [];
+      return !!route;
+    },
+    walking: () => manualRoute.length > 0,
+    /** Pose while standing: 'idle', 'cashier', 'preparing', 'serving' (carrying a tray). */
+    setManualTask(next: string) {
+      manualTask = next;
+    },
+    baristaPosition: () => barista.position,
+    stations: { cashier: anchors.cashier, bar: anchors.working, entrance: anchors.entrance },
+    /** Guests currently in the scene (for proximity checks). */
+    guests: () =>
+      people
+        .slice(1)
+        .filter((p) => p.key && p.visual.visible)
+        .map((p) => ({
+          key: p.key,
+          phase: p.phase,
+          status: p.status,
+          position: p.phase === 'sitting' ? p.visual.position : p.position,
+        })),
+    /** Hands the drink to a guest: they sip for a while, then leave. */
+    deliver(key: string) {
+      const guest = people.slice(1).find((p) => p.key === key);
+      if (!guest) return;
+      guest.delivered = true;
+      guest.drinkUntil = age + 45;
+      guest.drinkUntilWall = Date.now() + 45_000;
+    },
     inspect: () => ({
       task,
       people: people.map((p) => ({
@@ -607,6 +664,42 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       const dt = Math.min(delta, 0.05);
       age += dt;
       chooseTask();
+      if (manual) {
+        // Walk where the stick points, staying on the café's walkable floors (no walls, no void).
+        if (manualMove.lengthSq() > 0.0001) manualRoute = [];
+        else if (manualRoute.length) {
+          // Follow the route at walking pace.
+          let budget = 1.15 * scale * dt;
+          while (budget > 0 && manualRoute.length) {
+            const goal = manualRoute[0],
+              step = goal.clone().sub(barista.position),
+              distance = step.length();
+            if (distance <= budget) {
+              barista.position.copy(goal);
+              manualRoute.shift();
+              budget -= distance;
+            } else {
+              barista.position.addScaledVector(step, budget / distance);
+              budget = 0;
+            }
+            if (distance > 0.001) barista.heading = Math.atan2(step.x, step.z);
+          }
+        }
+        if (manualMove.lengthSq() > 0.0001) {
+          const speed = 1.15 * scale * Math.min(1, manualMove.length());
+          manualNext
+            .copy(barista.position)
+            .addScaledVector(manualMove.clone().normalize(), speed * dt);
+          if (paths.snap(manualNext, 0.32)) {
+            manualNext.y = paths.ground(manualNext);
+            barista.position.copy(manualNext);
+          }
+          barista.heading = Math.atan2(manualMove.x, manualMove.z);
+        }
+        barista.waypoints = [];
+        barista.waypoint = 0;
+        barista.yieldTo = null;
+      }
       const arrived = animate(barista, dt, reduced, true),
         // Friends at the same table can block the last step; standing beside any of them is enough.
         atTable =
@@ -625,7 +718,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
                 ) <
                   0.6 * scale,
             );
-      if ((arrived || atTable) && task === 'serving' && servingGuest) {
+      if (!manual && (arrived || atTable) && task === 'serving' && servingGuest) {
         barista.serveAge += dt;
         if (barista.serveAge > 2) {
           // One tray for the whole group at the table, then wipe down the bar.
