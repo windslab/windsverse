@@ -47,16 +47,16 @@ type Customer = {
   wrongItem?: boolean;
   servedAt?: number;
 };
-type Panel = 'cashier' | 'prep' | 'espresso' | null;
+type Panel = 'cashier' | 'cup' | 'prep' | 'espresso' | null;
 type MenuSource = { id: string; name: string; price: number; category: string; status?: string };
 
 const NEAR = 1.15;
 // Each "walk there" goal and the action it leads to.
-const GOAL_ACTION: Record<string, string> = {
-  'go-cashier': 'cashier',
-  'go-bar': 'prep',
-  'go-espresso': 'espresso',
-  'go-guest': 'serve',
+const GOAL_ACTION: Record<string, string[]> = {
+  'go-cashier': ['cashier'],
+  'go-bar': ['cup', 'prep'],
+  'go-espresso': ['espresso'],
+  'go-guest': ['serve'],
 };
 const flat = (a: THREE.Vector3, b: THREE.Vector3) => Math.hypot(a.x - b.x, a.z - b.z);
 const emptyDrink = (): Drink => ({ cup: null, amounts: {}, espressoQuality: 1 });
@@ -76,8 +76,11 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
   const customersRef = useRef<Customer[]>([]),
     keys = useRef(new Set<string>()),
     stick = useRef({ x: 0, y: 0 }),
-    counter = useRef(0);
-  customersRef.current = customers;
+    counter = useRef(0),
+    chase = useRef<string | null>(null);
+  useEffect(() => {
+    customersRef.current = customers;
+  }, [customers]);
 
   // Menu from the café (names and prices only; recipes stay private).
   useEffect(() => {
@@ -149,11 +152,15 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         (k.has('d') || k.has('arrowright') ? 1 : 0) - (k.has('a') || k.has('arrowleft') ? 1 : 0),
       y = (k.has('s') || k.has('arrowdown') ? 1 : 0) - (k.has('w') || k.has('arrowup') ? 1 : 0);
     const len = Math.hypot(x, y) || 1;
+    // Walking by hand cancels following a guest.
+    if (x || y || stick.current.x || stick.current.y) chase.current = null;
     if (x || y) api.setStick(x / len, y / len);
     else api.setStick(stick.current.x, stick.current.y);
   }, [api]);
   const actionsRef = useRef(actions);
-  actionsRef.current = actions;
+  useEffect(() => {
+    actionsRef.current = actions;
+  }, [actions]);
   const runRef = useRef<(id: string) => void>(() => {});
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -191,29 +198,39 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
       if (flat(at, api.stations.cashier) < NEAR && queue)
         list.push({ id: 'cashier', label: 'Terima pesanan' });
       if (!holding && flat(at, api.stations.bar) < NEAR && tickets.length)
-        list.push({ id: 'prep', label: 'Racik minuman' });
+        list.push(
+          ticket && drink.cup
+            ? { id: 'prep', label: 'Masukkan takaran' }
+            : { id: 'cup', label: 'Ambil cangkir / cup' },
+        );
       if (!holding && ticket && drink.cup && flat(at, api.stations.espresso) < NEAR)
-        list.push({ id: 'espresso', label: 'Mesin espresso' });
+        list.push({ id: 'espresso', label: 'Pakai mesin espresso' });
       if (holding && ticket) {
         const guest = api.guests().find((g) => g.key === ticket);
         if (guest && flat(at, guest.position) < NEAR + 0.25)
           list.push({ id: 'serve', label: 'Antar pesanan' });
       }
       setActions((old) => (JSON.stringify(old) === JSON.stringify(list) ? old : list));
+      // Heading to a guest who was still walking to their seat: follow them there.
+      if (chase.current && !api.walking() && !list.some((a) => a.id === 'serve')) {
+        const guest = api.guests().find((g) => g.key === chase.current);
+        if (guest && flat(at, guest.position) > NEAR) api.walkTo(guest.position);
+        else chase.current = null;
+      }
       // Where to go next, offered as a one-tap "walk there" button when Luna is not there yet.
       let next: { id: string; label: string } | null = null;
-      if (holding && ticket) next = { id: 'go-guest', label: 'Pergi ke meja tamu' };
+      if (holding && ticket) next = { id: 'go-guest', label: 'ke meja tamu' };
       else if (
         ticket &&
         drink.cup &&
         customersRef.current.find((c) => c.key === ticket)?.order.coffee &&
         !(drink.amounts.espresso > 0)
       )
-        next = { id: 'go-espresso', label: 'Pergi ke mesin espresso' };
-      else if (tickets.length) next = { id: 'go-bar', label: 'Pergi ke meja bar' };
-      else if (queue) next = { id: 'go-cashier', label: 'Pergi ke kasir' };
+        next = { id: 'go-espresso', label: 'ke mesin espresso' };
+      else if (tickets.length) next = { id: 'go-bar', label: 'ke meja bar' };
+      else if (queue) next = { id: 'go-cashier', label: 'ke kasir' };
       // Hide it only once the matching action is already within reach.
-      const arrived = next && list.some((a) => GOAL_ACTION[next.id] === a.id);
+      const arrived = next && list.some((a) => GOAL_ACTION[next.id].includes(a.id));
       const nextList = next && !arrived ? [next] : [];
       setGoals((old) => (JSON.stringify(old) === JSON.stringify(nextList) ? old : nextList));
       setHint(
@@ -232,6 +249,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
   }, [api, holding, ticket, drink.cup, drink.amounts.espresso]);
 
   const run = (id: string) => {
+    chase.current = id === 'go-guest' ? ticket : null;
     if (id.startsWith('go-')) {
       const target =
         id === 'go-cashier'
@@ -241,11 +259,11 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
             : id === 'go-espresso'
               ? api.stations.bar
               : api.guests().find((g) => g.key === ticket)?.position;
-      if (target && !api.walkTo(target)) setHint('Jalannya tertutup, coba pakai joystick.');
+      if (target && !api.walkTo(target)) setHint('Jalannya tertutup, coba geser layar.');
       return;
     }
     if (id === 'cashier') setPanel('cashier');
-    if (id === 'prep') {
+    if (id === 'cup' || id === 'prep') {
       if (!ticket) {
         const next = customersRef.current.find((c) => c.stage === 'waiting');
         if (next) {
@@ -253,7 +271,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
           setDrink(emptyDrink());
         }
       }
-      setPanel('prep');
+      setPanel(id);
     }
     if (id === 'espresso') setPanel('espresso');
     if (id === 'serve' && ticket) {
@@ -280,7 +298,9 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
       setDrink(emptyDrink());
     }
   };
-  runRef.current = run;
+  useEffect(() => {
+    runRef.current = run;
+  });
   // Development only (?sceneStats): a handle for testing the flows without walking.
   useEffect(() => {
     if (process.env.NODE_ENV === 'production' || !location.search.includes('sceneStats')) return;
@@ -302,51 +322,49 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
   return (
     <div className={styles.hud}>
       <header className={styles.top}>
-        <div className={styles.score}>
-          <strong>{score.points}</strong>
-          <small>poin</small>
-        </div>
-        <div className={styles.score}>
-          <strong>
-            {average ? average.toFixed(1) : '–'} <Star size={13} />
-          </strong>
-          <small>{score.served} tamu</small>
-        </div>
-        <p className={styles.hint}>{hint}</p>
+        <span className={styles.score}>
+          {score.points} poin · {average ? average.toFixed(1) : '–'}
+          <Star size={10} /> · {score.served} tamu
+        </span>
         <button className={styles.exit} onClick={onExit} aria-label="Keluar dari mode explore">
-          <LogOut size={16} />
+          <LogOut size={14} />
         </button>
       </header>
+      <p className={styles.hint}>{hint}</p>
       {ticketCustomer && (
         <aside className={styles.ticket}>
-          <small>PESANAN · {ticketCustomer.name}</small>
+          <small>pesanan · {ticketCustomer.name}</small>
           <strong>{ticketCustomer.order.item.name}</strong>
           <span>{ticketCustomer.order.line}</span>
-          {holding && <em>Siap diantar</em>}
+          {holding && <em>siap diantar</em>}
         </aside>
       )}
-      <Joystick
+      <TouchStick
         onMove={(x, y) => {
           stick.current = { x, y };
           applyStick();
         }}
       />
-      <div className={styles.actions}>
-        {goals.map((g) => (
+      {!panel && actions.length > 0 && (
+        <div className={styles.prompts}>
+          {actions.map((a, i) => (
+            <button key={a.id} className={styles.prompt} onClick={() => run(a.id)}>
+              {a.label}
+              {i === 0 && <kbd>E</kbd>}
+            </button>
+          ))}
+        </div>
+      )}
+      {!panel &&
+        goals.map((g) => (
           <button key={g.id} className={styles.goal} onClick={() => run(g.id)}>
             {g.label} →
           </button>
         ))}
-        {actions.map((a) => (
-          <button key={a.id} className={styles.action} onClick={() => run(a.id)}>
-            {a.label}
-          </button>
-        ))}
-      </div>
       {toast && (
         <div className={styles.toast} role="status">
           <strong>
-            {toast.name}: {'★'.repeat(toast.review.stars)}
+            {toast.name} {'★'.repeat(toast.review.stars)}
             {'☆'.repeat(5 - toast.review.stars)}
           </strong>
           {toast.review.lines.map((l) => (
@@ -369,6 +387,27 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
             setPanel(null);
           }}
         />
+      )}
+      {panel === 'cup' && (
+        <div className={styles.panel} role="dialog" aria-label="Ambil cangkir atau cup">
+          <p className={styles.speech}>Ambil yang mana?</p>
+          <div className={styles.choices}>
+            {CUPS.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => {
+                  setDrink((d) => ({ ...d, cup: c.id as CupId }));
+                  setPanel(null);
+                }}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+          <button className={styles.close} onClick={() => setPanel(null)}>
+            batal
+          </button>
+        </div>
       )}
       {panel === 'prep' && ticketCustomer && (
         <PrepPanel
@@ -402,44 +441,42 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
   );
 }
 
-function Joystick({ onMove }: { onMove: (x: number, y: number) => void }) {
-  const base = useRef<HTMLDivElement>(null),
-    [knob, setKnob] = useState({ x: 0, y: 0 }),
-    active = useRef<number | null>(null);
+/**
+ * Invisible stick: drag anywhere in the lower-left part of the screen to walk. The point where
+ * the finger lands is the centre; nothing is drawn.
+ */
+function TouchStick({ onMove }: { onMove: (x: number, y: number) => void }) {
+  const origin = useRef<{ id: number; x: number; y: number } | null>(null);
+  const RADIUS = 48;
   const move = (e: React.PointerEvent) => {
-    const r = base.current!.getBoundingClientRect(),
-      radius = r.width / 2;
-    let x = (e.clientX - r.left - radius) / radius,
-      y = (e.clientY - r.top - radius) / radius;
+    const o = origin.current;
+    if (!o || o.id !== e.pointerId) return;
+    let x = (e.clientX - o.x) / RADIUS,
+      y = (e.clientY - o.y) / RADIUS;
     const len = Math.hypot(x, y);
     if (len > 1) {
       x /= len;
       y /= len;
     }
-    setKnob({ x, y });
     onMove(x, y);
   };
-  const end = () => {
-    active.current = null;
-    setKnob({ x: 0, y: 0 });
+  const end = (e: React.PointerEvent) => {
+    if (origin.current?.id !== e.pointerId) return;
+    origin.current = null;
     onMove(0, 0);
   };
   return (
     <div
-      ref={base}
-      className={styles.joystick}
+      className={styles.stickZone}
       onPointerDown={(e) => {
-        active.current = e.pointerId;
+        origin.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
         e.currentTarget.setPointerCapture(e.pointerId);
-        move(e);
       }}
-      onPointerMove={(e) => active.current === e.pointerId && move(e)}
+      onPointerMove={move}
       onPointerUp={end}
       onPointerCancel={end}
-      aria-label="Joystick: geser untuk berjalan"
-    >
-      <i style={{ transform: `translate(${knob.x * 34}px, ${knob.y * 34}px)` }} />
-    </div>
+      aria-label="Geser di sini untuk berjalan"
+    />
   );
 }
 
@@ -462,34 +499,27 @@ function CashierPanel({
     given = tray.reduce((a, b) => a + b, 0);
   return (
     <div className={styles.panel} role="dialog" aria-label="Kasir">
-      <header>
-        <strong>Kasir</strong>
-        <button onClick={onClose} aria-label="Tutup">
-          ×
-        </button>
-      </header>
       <p className={styles.speech}>
-        <b>{customer.name}:</b> “{customer.order.line}”
+        <b>{customer.name}</b> “{customer.order.line}”
       </p>
       {step === 'order' ? (
         <>
-          <small className={styles.label}>Pilih menu yang dipesan</small>
-          <div className={styles.menuGrid}>
+          <small className={styles.label}>catat pesanan</small>
+          <div className={styles.choices}>
             {menu.map((m) => (
               <button
                 key={m.id}
                 onClick={() => {
                   if (m.id !== customer.order.item.id) {
                     setWrong(true);
-                    setReply(`Bukan itu, saya pesan ${customer.order.item.name}.`);
+                    setReply(`Bukan itu kak, ${customer.order.item.name}.`);
                     return;
                   }
                   setStep('pay');
                   setReply('');
                 }}
               >
-                <span>{m.name}</span>
-                <small>{rupiah(m.price)}</small>
+                {m.name}
               </button>
             ))}
           </div>
@@ -497,36 +527,40 @@ function CashierPanel({
         </>
       ) : (
         <>
-          <div className={styles.bill}>
-            <span>Total</span>
-            <strong>{rupiah(customer.order.item.price)}</strong>
-            <span>Uang diterima</span>
-            <strong>{rupiah(customer.order.paid)}</strong>
-            <span>Kembalian diberikan</span>
-            <strong>{rupiah(given)}</strong>
-          </div>
+          <p className={styles.bill}>
+            total <b>{rupiah(customer.order.item.price)}</b> · dibayar{' '}
+            <b>{rupiah(customer.order.paid)}</b>
+            {due > 0 && (
+              <>
+                {' '}
+                · kembalian <b className={given === due ? styles.ok : undefined}>{rupiah(given)}</b>
+              </>
+            )}
+          </p>
           {due === 0 ? (
-            <p className={styles.reply}>Uangnya pas, tidak perlu kembalian.</p>
+            <p className={styles.reply}>Uangnya pas.</p>
           ) : (
-            <>
-              <small className={styles.label}>Ambil uang kembalian dari laci</small>
-              <div className={styles.drawer}>
-                {DENOMINATIONS.filter((d) => d < customer.order.paid).map((d) => (
-                  <button key={d} onClick={() => setTray((t) => [...t, d])}>
-                    {d >= 1000 ? d / 1000 + 'rb' : d}
-                  </button>
-                ))}
-              </div>
-              <button className={styles.secondary} onClick={() => setTray([])}>
-                Ulangi kembalian
-              </button>
-            </>
+            <div className={styles.choices}>
+              {DENOMINATIONS.filter((d) => d < customer.order.paid).map((d) => (
+                <button key={d} onClick={() => setTray((t) => [...t, d])}>
+                  +{d >= 1000 ? d / 1000 + 'rb' : d}
+                </button>
+              ))}
+              {tray.length > 0 && (
+                <button className={styles.muted} onClick={() => setTray([])}>
+                  ulang
+                </button>
+              )}
+            </div>
           )}
           <button className={styles.primary} onClick={() => onDone(wrong, { given, due })}>
-            {due === 0 ? 'Terima uang' : 'Berikan kembalian'}
+            {due === 0 ? 'terima uang' : 'berikan kembalian'} →
           </button>
         </>
       )}
+      <button className={styles.close} onClick={onClose}>
+        tutup
+      </button>
     </div>
   );
 }
@@ -554,90 +588,47 @@ function PrepPanel({
       },
     }));
   };
-  const fill = Math.min(
-    1,
-    Object.entries(drink.amounts).reduce((v, [id, n]) => {
-      const ing = INGREDIENTS.find((i) => i.id === id);
-      if (!ing) return v;
-      return (
-        v +
-        (ing.unit === 'ml'
-          ? n
-          : ing.unit === 'shot'
-            ? n * 30
-            : ing.unit === 'sendok'
-              ? n * 20
-              : n * 0.5)
-      );
-    }, 0) / 280,
-  );
+  const cup = CUPS.find((c) => c.id === drink.cup);
   return (
-    <div className={styles.panel} role="dialog" aria-label="Meja racik">
-      <header>
-        <strong>Meja racik · {customer.order.item.name}</strong>
-        <button onClick={onClose} aria-label="Tutup">
-          ×
-        </button>
-      </header>
-      <p className={styles.speech}>“{customer.order.line}”</p>
-      <small className={styles.label}>1. Ambil gelas</small>
-      <div className={styles.cups}>
-        {CUPS.map((c) => (
-          <button
-            key={c.id}
-            aria-pressed={drink.cup === c.id}
-            onClick={() => onChange((d) => ({ ...d, cup: c.id as CupId }))}
-          >
-            {c.name}
-            <small>{c.note}</small>
-          </button>
-        ))}
-      </div>
-      <small className={styles.label}>2. Takar bahan (racikanmu sendiri)</small>
-      <div className={styles.prep}>
-        <div className={styles.glass} aria-hidden>
-          <i style={{ height: `${fill * 100}%` }} />
-        </div>
-        <ul className={styles.ingredients}>
-          {INGREDIENTS.map((ing) => (
-            <li key={ing.id}>
-              <span>
-                {ing.name}
-                <small>
-                  {drink.amounts[ing.id] ?? 0} {ing.unit}
-                </small>
-              </span>
+    <div className={styles.panel} role="dialog" aria-label="Masukkan takaran">
+      <p className={styles.speech}>
+        {cup?.name} · {customer.order.item.name}
+      </p>
+      <ul className={styles.ingredients}>
+        {INGREDIENTS.map((ing) => {
+          const amount = drink.amounts[ing.id] ?? 0;
+          return (
+            <li key={ing.id} className={amount ? styles.used : undefined}>
+              <span>{ing.name}</span>
               {ing.espresso ? (
-                <small className={styles.machineOnly}>dari mesin espresso</small>
+                <small>{amount ? `${amount} shot` : 'mesin espresso'}</small>
               ) : (
                 <span className={styles.stepper}>
-                  <button
-                    disabled={!drink.cup}
-                    onClick={() => add(ing.id, -1)}
-                    aria-label={'Kurangi ' + ing.name}
-                  >
+                  <button onClick={() => add(ing.id, -1)} aria-label={'Kurangi ' + ing.name}>
                     −
                   </button>
-                  <button
-                    disabled={!drink.cup}
-                    onClick={() => add(ing.id, 1)}
-                    aria-label={'Tambah ' + ing.name}
-                  >
+                  <small>
+                    {amount} {ing.unit}
+                  </small>
+                  <button onClick={() => add(ing.id, 1)} aria-label={'Tambah ' + ing.name}>
                     +
                   </button>
                 </span>
               )}
             </li>
-          ))}
-        </ul>
-      </div>
+          );
+        })}
+      </ul>
       {customer.order.coffee && !(drink.amounts.espresso > 0) && (
         <p className={styles.reply}>
-          <Coffee size={14} /> Menu kopi: tutup panel ini lalu pakai mesin espresso.
+          <Coffee size={12} /> menu kopi: tarik shot di mesin espresso
         </p>
       )}
-      <button className={styles.primary} disabled={!drink.cup} onClick={onFinish}>
-        Selesai, bawa ke tamu
+      <button className={styles.primary} onClick={onFinish}>
+        selesai, siap diantar →
+      </button>
+      <button className={styles.close} onClick={onClose}>
+        tutup
       </button>
     </div>
   );

@@ -363,3 +363,38 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Dicek di browser (ukuran HP): satu putaran penuh kasir → kembalian → racik → espresso → antar →
   bintang. `typecheck`, `format:check`, `build` lulus; `barista.test` 5/5, `people.test` 8/8,
   `engine.test` 21/25 seperti sebelumnya.
+
+## 22. Mode Explore: tangga, kamera CCTV, antrean, tampilan minimalis, duduk lesehan (25 Okt 2026)
+
+- **Tangga**: Luna bisa naik-turun tangga melingkari pohon (ke lantai 2) dan tangga menuju box bar,
+  baik dengan geser layar/WASD maupun "ke …". Langkah bebas sekarang memakai peta jalan per anak
+  tangga (`cafePaths().step`), mengukur pijakan dari beberapa titik di sekitar kaki (menjembatani celah
+  kecil di antara anak tangga box), dan berbelok mengikuti dinding/pagar di tangga yang sempit.
+  Animasi: kaki depan terangkat lebih tinggi dan badan sedikit condong saat naik; turun dihaluskan.
+- **Kolam**: dasar kolam tidak lagi dianggap lantai; Luna berhenti di tepi kolam.
+- **Tidak ada objek yang dihilangkan** lagi. Kamera mengikuti Luna dan otomatis turun/mendekat bila
+  atap atau dinding menghalangi. Saat Luna masuk box bar, kamera pindah ke **CCTV** di pojok atas
+  dekat pintu samping box, lensa lebar dan terkunci (tidak bisa diputar); keluar box kembali normal.
+- **Antrean**: tamu antre tepat di depan jendela kasir tempat Luna berdiri, orang berikutnya di
+  belakangnya lalu barisan berbelok menyusuri trotoar (jalur sisi jalan tetap bisa dilewati). Barisan
+  maju saat tamu terdepan selesai memesan.
+- **Tampilan minimalis**: joystick tidak terlihat (geser layar di kiri bawah untuk berjalan); tombol
+  besar diganti tulisan kecil di tengah layar ("Terima pesanan", "Ambil cangkir / cup", "Masukkan
+  takaran", "Pakai mesin espresso", "Antar pesanan"). Kasir, pilihan gelas, takaran dan espresso
+  tampil sebagai teks kecil yang tetap bisa disentuh. Tombol suara & siang/malam disembunyikan
+  selama Explore.
+- **Pesanan tamu**: nama menu dari menu website (di production otomatis menu asli; di komputer lokal
+  yang kosong memakai menu contoh), kalimat bervariasi ("Americano nya 1 ya!", "Kak, … satu ya.",
+  "dibungkus ya", "less sugar ya", "kopinya yang kuat", dll.). Rasa yang dinilai hanya yang diucapkan
+  tamu. Resep asli tetap tidak dipakai.
+- **Duduk**: tamu duduk tepat di kursi beton panjang dan kursi besi putih; di lantai 2 indoor
+  (lesehan, meja atas 1 & 2) duduk bersila di lantai, 6 tempat per meja.
+- Perbaikan lain: Luna menyusul tamu yang masih berjalan ke kursinya; tamu tidak lagi macet karena
+  Luna diparkir di lorong (dan menyelip bila tertahan lama); klik "+" cepat terhitung semua.
+- Pengembangan (`?sceneStats`, tidak aktif di production): `window.__scene` untuk memeriksa kamera,
+  tamu dan posisi duduk.
+- Dicek di browser (ukuran HP): tangga pohon, CCTV di box, antrean di jendela, kasir → cangkir →
+  espresso 2 shot → takaran → antar → bintang; pose duduk di kursi beton, kursi besi dan lesehan.
+  `typecheck`, `format:check`, lint file Explore, `build` lulus; `barista.test` 5/5,
+  `people.test` 12/12 (4 tes baru: tangga & kolam, antrean, lesehan, Luna diparkir),
+  `engine.test` 21/25 seperti sebelumnya. Tidak ada file aset baru, jadi `?v=` tidak berubah.

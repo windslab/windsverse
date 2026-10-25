@@ -186,22 +186,69 @@ export function describeItem(item: MenuItem) {
 export function newCustomer(menu: MenuItem[], rand = Math.random) {
   const item = menu[Math.floor(rand() * menu.length)],
     d = describeItem(item);
+  const pick = <T>(list: T[]) => list[Math.floor(rand() * list.length)];
   const jitter = () => (rand() - 0.5) * 0.35;
+  // Unspoken preferences stay at the menu's usual taste, so players are only judged on what
+  // the customer actually said.
   const target: Taste = {
-    sweet: clamp01(d.base.sweet + jitter()),
-    milky: clamp01(d.base.milky + jitter() * 0.6),
-    coffee: d.coffee ? clamp01(d.base.coffee + jitter()) : 0,
+    sweet: d.base.sweet,
+    milky: d.base.milky,
+    coffee: d.coffee ? d.base.coffee : 0,
     flavor: d.flavor ? 0.6 : 0,
   };
   const takeaway = rand() < 0.2;
-  const parts = [`Saya mau ${item.name}`];
-  if (takeaway) parts.push('dibawa pulang');
-  parts.push(`manisnya ${level(target.sweet)}`);
-  if (d.coffee)
-    parts.push(
-      `kopinya ${target.coffee > 0.62 ? 'yang kuat' : target.coffee < 0.35 ? 'yang ringan' : 'sedang'}`,
+  const extras: string[] = [];
+  if (takeaway) extras.push(pick(['dibawa pulang ya', 'take away', 'dibungkus ya', 'buat dibawa']));
+  if (rand() < 0.6) {
+    target.sweet = clamp01(d.base.sweet + jitter() * 1.6);
+    const sweet = level(target.sweet);
+    extras.push(
+      pick(
+        sweet === 'sedikit'
+          ? ['gulanya dikit aja', 'jangan terlalu manis ya', 'kurangin manisnya', 'less sugar ya']
+          : sweet === 'banyak'
+            ? ['yang manis ya', 'manisnya agak banyak', 'suka yang manis nih', 'gulanya lebihin']
+            : ['manisnya pas aja', 'manisnya normal', 'manisnya biasa'],
+      ),
     );
-  if (target.milky > 0.4 && !d.coffee) parts.push(`susunya ${level(target.milky)}`);
+  }
+  if (d.coffee && rand() < 0.5) {
+    target.coffee = clamp01(d.base.coffee + jitter() * 1.6);
+    extras.push(
+      pick(
+        target.coffee > 0.62
+          ? [
+              'kopinya yang kuat',
+              'yang strong ya',
+              'kopinya dibanyakin',
+              'biar melek, kopinya kuat',
+            ]
+          : target.coffee < 0.35
+            ? ['kopinya ringan aja', 'jangan terlalu pahit', 'kopinya tipis aja']
+            : ['kopinya standar aja', 'kopinya sedang'],
+      ),
+    );
+  }
+  if (!d.coffee && target.milky > 0.4 && rand() < 0.35) {
+    target.milky = clamp01(d.base.milky + jitter());
+    extras.push(`susunya ${level(target.milky)}`);
+  }
+  const name = item.name,
+    opener = pick([
+      `${name} nya 1 ya!`,
+      `Kak, ${name} satu ya.`,
+      `Aku pesan ${name} satu.`,
+      `Mau ${name} dong, satu aja.`,
+      `${name} satu, kak!`,
+      `Halo kak, boleh ${name} satu?`,
+      `Saya ${name} ya, satu.`,
+      `Pesan ${name} 1, makasih kak!`,
+      `Hmm… ${name} deh, satu.`,
+      `Kak, aku mau coba ${name}.`,
+    ]);
+  const line = extras.length
+    ? `${opener} ${extras.map((e, i) => (i ? e : e[0].toUpperCase() + e.slice(1))).join(', ')}.`
+    : opener;
   const notes = [20000, 50000, 100000].filter((n) => n >= item.price);
   const paid =
     rand() < 0.15 ? item.price : (notes[Math.floor(rand() * notes.length)] ?? item.price);
@@ -209,7 +256,7 @@ export function newCustomer(menu: MenuItem[], rand = Math.random) {
     name: NAMES[Math.floor(rand() * NAMES.length)],
     order: {
       item,
-      line: parts.join(', ') + '.',
+      line,
       coffee: d.coffee,
       iced: d.iced,
       takeaway,

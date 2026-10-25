@@ -435,22 +435,36 @@ export default function CafeScene({
     const sky = createCafeSky(220);
     let world: ReturnType<typeof createCafeWorld> | undefined;
     const sunRay = new THREE.Raycaster();
-    const sightRay = new THREE.Raycaster();
-    let cutaway: { mesh: THREE.Mesh; bottom: number }[] | undefined,
-      lastCutaway = 0;
+    // Inside the bar box the view switches to a fixed wide "CCTV" in its upper corner.
+    let cctv: { position: THREE.Vector3; target: THREE.Vector3 } | undefined,
+      inCctv = false,
+      cafeModel: THREE.Object3D | undefined;
+    const followSaved = { offset: new THREE.Vector3(), fov: 0, limits: [0, 0, 0, 0] },
+      lunaLocal = new THREE.Vector3();
     const followForward = new THREE.Vector3(),
       followRight = new THREE.Vector3(),
       followUp = new THREE.Vector3(0, 1, 0),
       followMove = new THREE.Vector3(),
       followTarget = new THREE.Vector3(),
-      followOffset = new THREE.Vector3();
+      followOffset = new THREE.Vector3(),
+      followDir = new THREE.Vector3(),
+      followSpherical = new THREE.Spherical(),
+      // Player's wish, collision-safe goal and what is shown (radius 0 = not following yet).
+      followWish = new THREE.Spherical(),
+      followGoal = new THREE.Spherical(),
+      followShown = new THREE.Spherical(0),
+      probeRay = new THREE.Raycaster();
+    // Development only (?sceneStats): freeze the explore camera to inspect a spot.
+    const debugCamera = { frozen: false };
+    let occluders: THREE.Object3D[] | undefined,
+      lastProbe = 0;
     // Entering/leaving explore mode changes how close the camera may come.
     exploreRef.current.onToggle = (on: boolean) => {
-      controls!.minDistance = on ? 2.5 : 5;
+      controls!.minDistance = on ? 0.5 : 5;
       controls!.maxDistance = on ? 7 : debugPerf ? 90 : MAX_CAFE_DISTANCE;
       // Look down on Luna rather than through walls.
       controls!.minPolarAngle = on ? 0.35 : 0.2;
-      controls!.maxPolarAngle = on ? 1.05 : Math.PI * 0.48;
+      controls!.maxPolarAngle = on ? 1.45 : Math.PI * 0.48;
       if (on) {
         libraryMode = tvMode = false;
         setLibraryActive(false);
@@ -1307,6 +1321,35 @@ export default function CafeScene({
           prepareCafeBarWorkspace(model);
           addCafeWalkSurfaces(model);
           people = placeCafePeople(model, cafePaths(model, navData), luna.scene);
+          cafeModel = model;
+          const crewForDebug = people;
+          // Development only (?sceneStats): camera handle for checking views.
+          if (debugPerf && process.env.NODE_ENV !== 'production')
+            (window as unknown as { __scene: unknown }).__scene = {
+              camera,
+              controls,
+              model,
+              people: crewForDebug,
+              freeze: (on: boolean) => {
+                debugCamera.frozen = on;
+              },
+              visitors: (list: CafeVisitor[]) => {
+                exploreRef.current.visitors = list;
+              },
+              set: (cctvPos: number[], cctvTarget: number[]) => {
+                cctv = {
+                  position: model.localToWorld(new THREE.Vector3(...cctvPos)),
+                  target: model.localToWorld(new THREE.Vector3(...cctvTarget)),
+                };
+                inCctv = false;
+              },
+            };
+          // Upper corner of the bar box by its side door, under the roof, looking down the aisle
+          // to the cashier window.
+          cctv = {
+            position: model.localToWorld(new THREE.Vector3(-1.7, 1.75, 4.1)),
+            target: model.localToWorld(new THREE.Vector3(-3.6, 0.5, 3.75)),
+          };
           {
             const crew = people;
             const machine = objectByModelName(model, 'mesin kopi');
@@ -1670,44 +1713,129 @@ export default function CafeScene({
             people.drive(followMove.x, followMove.z);
           }
           people?.update(delta, reduced);
-          if (explore.on && people && assetRoot) {
-            // Dollhouse cut-away: hide what is above Luna's floor (upper storey, roof) so the
-            // camera can look down on her; checked a few times a second.
-            if (t - lastCutaway > 0.25) {
-              lastCutaway = t;
-              if (!cutaway) {
-                const list: { mesh: THREE.Mesh; bottom: number }[] = [];
-                cutaway = list;
-                assetRoot.traverse((node) => {
-                  const mesh = node as THREE.Mesh;
-                  if (!mesh.isMesh || !mesh.visible) return;
-                  for (let up: THREE.Object3D | null = mesh; up; up = up.parent)
-                    if (up === people!.root) return;
-                  list.push({ mesh, bottom: new THREE.Box3().setFromObject(mesh).min.y });
-                });
+          if (explore.on && people && assetRoot && !debugCamera.frozen) {
+            // Bar box (model units): staff floor between the counter and the back wall.
+            lunaLocal.copy(people.baristaPosition());
+            cafeModel?.worldToLocal(lunaLocal);
+            const inBox =
+              !!cctv &&
+              lunaLocal.x > -4.6 &&
+              lunaLocal.x < -2.05 &&
+              lunaLocal.z > 2.9 &&
+              lunaLocal.z < 5.05 &&
+              lunaLocal.y > 0.45 &&
+              lunaLocal.y < 1.5;
+            if (inBox !== inCctv) {
+              inCctv = inBox;
+              controls!.enabled = !inBox;
+              followShown.radius = 0;
+              if (inBox && cctv) {
+                followSaved.offset.copy(camera.position).sub(controls!.target);
+                followSaved.fov = camera.fov;
+                // The orbit limits would pull a camera this close back out of the box.
+                followSaved.limits = [
+                  controls!.minDistance,
+                  controls!.maxDistance,
+                  controls!.minPolarAngle,
+                  controls!.maxPolarAngle,
+                ];
+                controls!.minDistance = 0;
+                controls!.maxDistance = 100;
+                controls!.minPolarAngle = 0;
+                controls!.maxPolarAngle = Math.PI;
+                // Wide lens: about 100° across, but no more than 95° tall on a phone held upright.
+                camera.fov = Math.min(
+                  95,
+                  THREE.MathUtils.radToDeg(
+                    2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(50)) / camera.aspect),
+                  ),
+                );
+                camera.position.copy(cctv.position);
+                controls!.target.copy(cctv.target);
+                camera.lookAt(cctv.target);
+              } else {
+                [
+                  controls!.minDistance,
+                  controls!.maxDistance,
+                  controls!.minPolarAngle,
+                  controls!.maxPolarAngle,
+                ] = followSaved.limits;
+                camera.fov = followSaved.fov || camera.fov;
+                controls!.target.copy(people.baristaPosition()).add(new THREE.Vector3(0, 0.75, 0));
+                camera.position.copy(controls!.target).add(followSaved.offset);
               }
-              // Low enough to lift the bar box's own roof off when Luna works inside it.
-              const ceiling = people.baristaPosition().y + 1.05;
-              for (const item of cutaway ?? []) item.mesh.visible = item.bottom < ceiling;
-              // Walls between the camera and Luna step aside too.
-              const head = people.baristaPosition().clone();
-              head.y += 0.6;
-              sightRay.set(camera.position, head.clone().sub(camera.position).normalize());
-              sightRay.far = camera.position.distanceTo(head) - 0.3;
-              const visibleParts = (cutaway ?? []).filter((c) => c.mesh.visible).map((c) => c.mesh);
-              for (const hit of sightRay.intersectObjects(visibleParts, false))
-                (hit.object as THREE.Mesh).visible = false;
+              camera.updateProjectionMatrix();
             }
-          } else if (cutaway) {
-            for (const item of cutaway) item.mesh.visible = true;
-            cutaway = undefined;
+          } else if (inCctv) {
+            // Left explore mode from inside the box; onToggle already reset the orbit limits.
+            inCctv = false;
+            controls!.enabled = true;
+            camera.fov = followSaved.fov || camera.fov;
+            camera.updateProjectionMatrix();
           }
-          if (explore.on && people) {
+          if (explore.on && people && !inCctv && !debugCamera.frozen) {
             followTarget.copy(people.baristaPosition());
             followTarget.y += 0.75;
-            followOffset.copy(camera.position).sub(controls!.target);
+            // What the player asked for (drag/zoom since last frame) versus where we put it.
+            followSpherical.setFromVector3(
+              followOffset.copy(camera.position).sub(controls!.target),
+            );
+            if (followShown.radius > 0) {
+              followWish.radius *= followSpherical.radius / followShown.radius;
+              followWish.phi += followSpherical.phi - followShown.phi;
+            } else {
+              followWish.radius = followSpherical.radius;
+              followWish.phi = followSpherical.phi;
+              followGoal.radius = followShown.radius = followSpherical.radius;
+              followGoal.phi = followShown.phi = followSpherical.phi;
+            }
+            followWish.radius = THREE.MathUtils.clamp(followWish.radius, 2.5, 7);
+            followWish.phi = THREE.MathUtils.clamp(followWish.phi, 0.35, 1.05);
             controls!.target.lerp(followTarget, reduced ? 1 : 1 - Math.exp(-delta * 6));
-            camera.position.copy(controls!.target).add(followOffset);
+            // Camera collision: when a roof or wall is in the way, drop lower and/or come
+            // closer instead of hiding anything (a few probes per second).
+            if (t - lastProbe > 0.08) {
+              lastProbe = t;
+              if (!occluders) {
+                const list: THREE.Object3D[] = [];
+                occluders = list;
+                cafeModel?.traverse((node) => {
+                  const mesh = node as THREE.Mesh;
+                  if (
+                    mesh.isMesh &&
+                    !/leaf|leaves|undergrowth|cable|socket|bulb|daun|rumput|grass/i.test(
+                      mesh.name + ' ' + (mesh.parent?.name ?? ''),
+                    )
+                  )
+                    list.push(mesh);
+                });
+              }
+              let best = { phi: followWish.phi, radius: 0.6 };
+              for (let phi = followWish.phi; phi <= 1.42; phi += 0.12) {
+                followDir.setFromSphericalCoords(1, phi, followSpherical.theta);
+                probeRay.set(controls!.target, followDir);
+                probeRay.far = followWish.radius + 0.3;
+                const hit = probeRay.intersectObjects(occluders, false)[0];
+                const clear = hit ? Math.max(0.6, hit.distance - 0.25) : followWish.radius;
+                if (clear > best.radius + 0.05) best = { phi, radius: clear };
+                if (clear >= Math.min(followWish.radius, 2.2)) {
+                  best = { phi, radius: Math.min(clear, followWish.radius) };
+                  break;
+                }
+              }
+              followGoal.phi = best.phi;
+              followGoal.radius = best.radius;
+            }
+            const k = reduced ? 1 : 1 - Math.exp(-delta * 5),
+              closing = followGoal.radius < followShown.radius;
+            followShown.phi += (followGoal.phi - followShown.phi) * k;
+            followShown.radius +=
+              (followGoal.radius - followShown.radius) *
+              (closing ? (reduced ? 1 : 1 - Math.exp(-delta * 18)) : k);
+            followShown.theta = followSpherical.theta;
+            camera.position.copy(controls!.target).add(followOffset.setFromSpherical(followShown));
+          } else if (followShown.radius > 0) {
+            followShown.radius = 0;
           }
           foliage.forEach(({ node, x, z, phase, amplitude }) => {
             node.rotation.x = x + (reduced ? 0 : Math.sin(t * 0.7 + phase) * amplitude);

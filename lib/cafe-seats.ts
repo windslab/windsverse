@@ -6,6 +6,8 @@ export type CafeSeat = {
   table: string;
   heading: number;
   takeaway: boolean;
+  /** Lesehan: sit cross-legged on the floor (surface is the floor itself). */
+  floor?: boolean;
 };
 export const tableKey = (value: unknown) =>
   String(value ?? '')
@@ -115,6 +117,33 @@ export function findCafeSeats(cafe: THREE.Object3D): CafeSeat[] {
         }
       }
     }
+  });
+  // Upstairs indoor is lesehan: low tables (meja atas 1, 2) with places on the floor around them.
+  cafe.traverse((node) => {
+    if (!/^meja_?atas_?\d/i.test(node.name)) return;
+    const box = new THREE.Box3().setFromObject(node),
+      center = box.getCenter(new THREE.Vector3()),
+      floorY = box.min.y,
+      gap = 0.24 * scale;
+    const places = [
+      [box.min.x - gap, center.z],
+      [box.max.x + gap, center.z],
+      [center.x - 0.25 * scale, box.min.z - gap],
+      [center.x + 0.25 * scale, box.min.z - gap],
+      [center.x - 0.25 * scale, box.max.z + gap],
+      [center.x + 0.25 * scale, box.max.z + gap],
+    ];
+    places.forEach(([x, z], i) =>
+      seats.push({
+        id: node.uuid + ':floor' + i,
+        surface: new THREE.Vector3(x, floorY, z),
+        floorY,
+        table: tableKey(node.name),
+        heading: Math.atan2(center.x - x, center.z - z),
+        takeaway: false,
+        floor: true,
+      }),
+    );
   });
   return seats;
 }

@@ -5411,10 +5411,10 @@ html:has(.cafe-scene-shell.exploring) .noisegasm-mini {
 .cafe-scene-shell.exploring .scene-bookshelf-hotspot {
   display: none;
 }
+/* Explore keeps the screen clear: sound and time-of-day stay as set before entering. */
 .cafe-scene-shell.exploring .scene-sound-toggle,
 .cafe-scene-shell.exploring .scene-time-switch {
-  top: auto;
-  bottom: max(150px, calc(env(safe-area-inset-bottom) + 150px));
+  display: none;
 }
 .scene-explore-toggle {
   position: absolute;

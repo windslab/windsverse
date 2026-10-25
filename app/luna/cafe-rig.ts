@@ -46,11 +46,15 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
   return {
     root,
     feet,
-    update(age: number, stride: number, task: string, reduced: boolean) {
+    /** `climb` is -1…1 (down/up stairs): higher leading step and a slight lean. */
+    update(age: number, stride: number, task: string, reduced: boolean, climb = 0) {
       const working = task === 'preparing' || task === 'cleaning',
-        carrying = task === 'carrying' || task === 'serving';
-      pose(0, stride * 0.5);
-      pose(1, -stride * 0.5);
+        carrying = task === 'carrying' || task === 'serving',
+        up = Math.max(0, climb),
+        down = Math.max(0, -climb),
+        leg = (swing: number) => swing * (1 + down * 0.25) - Math.max(0, -swing) * up * 1.1;
+      pose(0, leg(stride * 0.5));
+      pose(1, leg(-stride * 0.5));
       pose(2, carrying ? -0.65 : working ? -0.5 : -stride * 0.3, 0, 0.05);
       // Cleaning: the right hand wipes the counter side to side.
       const wipe = task === 'cleaning' && !reduced ? Math.sin(age * 4) * 0.35 : 0;
@@ -58,7 +62,7 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
       pose(4, carrying ? -0.45 : working ? -0.45 + (reduced ? 0 : Math.sin(age * 5) * 0.1) : 0);
       pose(5, carrying ? -0.45 : working ? -0.45 + (reduced ? 0 : Math.sin(age * 5 + 1) * 0.1) : 0);
       pose(6, working ? 0.12 : 0, reduced ? 0 : Math.sin(age * 0.65) * 0.025, 0);
-      pose(7, 0, 0, reduced ? 0 : Math.sin(age * 1.3) * 0.006);
+      pose(7, up * 0.12 - down * 0.05, 0, reduced ? 0 : Math.sin(age * 1.3) * 0.006);
     },
     dispose() {
       const geometries = new Set<THREE.BufferGeometry>(),
