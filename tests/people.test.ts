@@ -249,3 +249,162 @@ test('one order with several drinks brings a group that sits together and is ser
   assert.ok(guests.every((p) => p.delivered));
   f.people.dispose();
 });
+/** Explore mode: steer Luna toward each point with small free steps (like holding the stick). */
+function freeWalk(f: Awaited<ReturnType<typeof fixture>>, goals: number[][]) {
+  const luna = () => f.people.baristaPosition();
+  f.people.setManual(true);
+  const reached: boolean[] = [];
+  for (const g of goals) {
+    const goal = f.cafe.localToWorld(new THREE.Vector3(g[0], g[1], g[2]));
+    let ok = false;
+    for (let i = 0; i < 60 * 12 && !ok; i++) {
+      const d = goal.clone().sub(luna());
+      d.y = 0;
+      if (d.length() < 0.08) ok = true;
+      else {
+        d.normalize();
+        f.people.drive(d.x, d.z);
+        f.people.update(1 / 60, true);
+      }
+    }
+    reached.push(ok);
+  }
+  f.people.drive(0, 0);
+  return reached;
+}
+test('explore mode: Luna climbs both staircases and stays out of the pond', async () => {
+  const f = await fixture();
+  // Courtyard → spiral stairs around the tree → upstairs indoor floor, then back down.
+  f.people.setManual(true);
+  f.people.walkTo(f.cafe.localToWorld(new THREE.Vector3(0.3, 0, 1.15)));
+  for (let i = 0; i < 60 * 20 && f.people.walking(); i++) f.people.update(1 / 60, true);
+  const up = freeWalk(f, [
+    [1.0, 0, 1.15],
+    [2.2, 1.0, 1.2],
+    [2.4, 1.0, 2.3],
+    [1.1, 2.07, 2.3],
+    [0.5, 2.07, 2.8],
+  ]);
+  assert.deepEqual(up, [true, true, true, true, true]);
+  assert.ok(Math.abs(f.paths.local(f.people.baristaPosition()).y - 2.07) < 0.05);
+  const down = freeWalk(f, [
+    [1.1, 2.07, 2.3],
+    [2.4, 1.0, 2.3],
+    [2.2, 1.0, 1.2],
+    [1.0, 0, 1.15],
+  ]);
+  assert.deepEqual(down, [true, true, true, true]);
+  // Bar box steps from the courtyard up to its raised floor.
+  const bar = freeWalk(f, [
+    [-2.0, 0, 1.5],
+    [-2.6, 0.19, 1.5],
+    [-2.8, 0.39, 1.5],
+    [-3.1, 0.58, 1.9],
+  ]);
+  assert.deepEqual(bar, [true, true, true, true]);
+  assert.ok(Math.abs(f.paths.local(f.people.baristaPosition()).y - 0.585) < 0.05);
+  // The pond: walking straight at it stops on the rim.
+  freeWalk(f, [
+    [-2.0, 0, 1.5],
+    [-3.8, 0, -3.0],
+    [-3.8, 0, -4.8],
+  ]);
+  assert.ok(f.paths.local(f.people.baristaPosition()).y > -0.05);
+  f.people.dispose();
+});
+test('queue lines up from the cashier window backwards and moves up', async () => {
+  const f = await fixture();
+  const visitors = [1, 2, 3].map((n) => ({ ...order, key: 'q' + n }));
+  f.people.updateActivity({ ...empty, active: 3, visitors });
+  f.advance(25);
+  const spots = () =>
+    f.people
+      .inspect()
+      .people.filter((p) => p.key.startsWith('q') && p.phase === 'queue')
+      .map((p) => ({ key: p.key, at: f.paths.local(p.position) }));
+  const line = spots();
+  assert.equal(line.length, 3);
+  // Front of the line right outside the window (box wall at x = -4.93), the rest behind it.
+  const first = line.find((p) => p.key === 'q1')!.at;
+  assert.ok(first.x > -5.4 && first.x < -4.95 && Math.abs(first.z - 3.93) < 0.2);
+  // Each next guest stands further back from the window.
+  const window = new THREE.Vector3(-4.93, first.y, 3.93),
+    gaps = ['q1', 'q2', 'q3'].map((k) => line.find((p) => p.key === k)!.at.distanceTo(window));
+  assert.ok(gaps[0] < gaps[1] && gaps[1] < gaps[2]);
+  // First guest ordered: the next one steps up to the window.
+  f.people.updateActivity({
+    ...empty,
+    active: 3,
+    visitors: [{ ...visitors[0], status: 'sedang_dibuat' }, visitors[1], visitors[2]],
+  });
+  f.advance(10);
+  const next = spots().find((p) => p.key === 'q2')!.at;
+  assert.ok(next.x > -5.4 && Math.abs(next.z - 3.93) < 0.2);
+  f.people.dispose();
+});
+test('upstairs lesehan guests sit cross-legged on the floor', async () => {
+  const f = await fixture();
+  const seats = (await import('../lib/cafe-seats')).findCafeSeats(f.cafe).filter((s) => s.floor);
+  assert.equal(seats.length, 12);
+  for (const s of seats) {
+    const local = f.paths.local(s.surface);
+    assert.ok(local.y > 1.95 && local.y < 2.1);
+    assert.ok(f.paths.snap(s.surface, 0.85));
+  }
+  // A guest for "meja atas 1" climbs the stairs and sits on the floor beside that low table.
+  f.people.updateActivity({
+    ...empty,
+    active: 1,
+    making: 1,
+    visitors: [{ ...order, key: 'lesehan', tableNumber: 'atas 1', status: 'sedang_dibuat' }],
+  });
+  f.advance(60);
+  const guest = f.people.inspect().people.find((p) => p.key === 'lesehan')!;
+  assert.equal(guest.phase, 'sitting');
+  assert.ok(Math.abs(f.paths.local(guest.seat!).y - 2.07) < 0.03);
+  f.people.dispose();
+});
+test('explore mode: guests still reach their seats when Luna is parked in the passage', async () => {
+  const f = await fixture();
+  f.people.setManual(true);
+  const visitors = ['atas 1', '3', '1', '4'].map((t, i) => ({
+    ...order,
+    key: 'park' + i,
+    group: 'park' + i,
+    tableNumber: t,
+    status: 'sedang_dibuat' as const,
+  }));
+  f.people.updateActivity({ ...empty, active: 4, making: 4, visitors });
+  f.advance(120);
+  const phases = f.people
+    .inspect()
+    .people.filter((p) => p.key.startsWith('park'))
+    .map((p) => p.phase);
+  assert.deepEqual(phases, ['sitting', 'sitting', 'sitting', 'sitting']);
+  f.people.dispose();
+});
+test('explore mode: Luna sits on a free seat, stands up when walking, and does chores', async () => {
+  const f = await fixture();
+  f.people.setManual(true);
+  // Walk to the stools by meja 3 in the courtyard.
+  f.people.walkTo(f.cafe.localToWorld(new THREE.Vector3(-2.3, 0.05, -2.2)));
+  for (let i = 0; i < 60 * 30 && f.people.walking(); i++) f.people.update(1 / 60, true);
+  const seat = f.people.seatNear();
+  assert.ok(seat);
+  assert.ok(f.people.sit(seat.id));
+  f.people.update(1 / 60, true);
+  assert.ok(f.people.sitting());
+  assert.equal(f.people.inspect().task, 'sitting');
+  // Pushing the stick stands her up.
+  f.people.drive(1, 0);
+  f.people.update(1 / 60, true);
+  f.people.drive(0, 0);
+  assert.ok(!f.people.sitting());
+  // Chores run for their time, then end.
+  f.people.chore('sweeping', 1);
+  f.people.update(1 / 60, true);
+  assert.equal(f.people.inspect().task, 'sweeping');
+  for (let i = 0; i < 70; i++) f.people.update(1 / 60, true);
+  assert.notEqual(f.people.inspect().task, 'sweeping');
+  f.people.dispose();
+});

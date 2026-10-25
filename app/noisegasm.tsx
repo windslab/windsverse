@@ -286,7 +286,7 @@ export default function Noisegasm({
         onVolumeChange={() => {}}
       />
       <div
-        className={styles.mini}
+        className={styles.mini + ' noisegasm-mini'}
         data-on={playing || undefined}
         data-youtube={youtube || undefined}
       >

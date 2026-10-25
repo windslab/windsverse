@@ -9,13 +9,14 @@ import { Reflector } from 'three/addons/objects/Reflector.js';
 import { CSS3DObject, CSS3DRenderer } from 'three/addons/renderers/CSS3DRenderer.js';
 import DriveTV, { type TVProgram } from './drive-tv';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { BookOpen, Coffee, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { BookOpen, Coffee, Gamepad2, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import { createSceneAmbience, type SceneAmbience } from './scene-ambience';
 import { cafePaths, type CafePathData } from '@/lib/cafe-paths';
 import { prepareCafeBarWorkspace } from '@/lib/cafe-bar-workspace';
 import { addCafeWalkSurfaces } from '@/lib/cafe-walk-surfaces';
 import { placeCafePeople } from './scene-people';
-import { EMPTY_CAFE_ACTIVITY, type CafeActivity } from '@/lib/cafe-activity';
+import { EMPTY_CAFE_ACTIVITY, type CafeActivity, type CafeVisitor } from '@/lib/cafe-activity';
+import ExploreMode, { type ExploreApi } from './explore-mode';
 import { createToonOutline, toonGradient, toonify } from '@/lib/toon';
 import { createCafeSky, SKY_PHASES, type SkyPhase } from '@/lib/cafe-sky';
 import { createCafeWorld } from '@/lib/cafe-world';
@@ -27,7 +28,16 @@ function objectByModelName(root: THREE.Object3D, name: string) {
   );
 }
 
+/** World boxes of the model's direct children whose names match (plants, tables…). */
+function spotBoxes(root: THREE.Object3D, pattern: RegExp) {
+  return root.children
+    .filter((node) => pattern.test(node.name))
+    .map((node) => ({ name: node.name, box: new THREE.Box3().setFromObject(node) }))
+    .filter(({ box }) => !box.isEmpty());
+}
+
 const MAX_CAFE_DISTANCE = 14.5;
+const UP = new THREE.Vector3(0, 1, 0);
 /** First view: from the street side (the café front), low enough to show the sky. */
 function frontDirection() {
   const az = (-82 * Math.PI) / 180,
@@ -305,7 +315,25 @@ export default function CafeScene({
     [mode, setMode] = useState<'morning' | 'night'>('morning'),
     [skyPhase, setSkyPhase] = useState<SkyPhase>('live'),
     [livePhase, setLivePhase] = useState<Exclude<SkyPhase, 'live'>>('siang'),
-    [soundEnabled, setSoundEnabled] = useState(false);
+    [soundEnabled, setSoundEnabled] = useState(false),
+    [exploring, setExploring] = useState(false),
+    [exploreApi, setExploreApi] = useState<ExploreApi | null>(null);
+  // Explore mode: the player drives Luna; the game supplies its own virtual guests.
+  const exploreRef = useRef({
+    on: false,
+    stick: { x: 0, y: 0 },
+    visitors: [] as CafeVisitor[],
+    onToggle: (() => {}) as (on: boolean) => void,
+  });
+  const toggleExplore = (on: boolean) => {
+    exploreRef.current.on = on;
+    exploreRef.current.stick = { x: 0, y: 0 };
+    if (!on) exploreRef.current.visitors = [];
+    exploreApi?.setManual(on);
+    exploreRef.current.onToggle(on);
+    setExploring(on);
+    if (!on) viewRef.current.reset += 1;
+  };
   modeRef.current = mode;
   phaseRef.current = skyPhase;
   soundRef.current = soundEnabled;
@@ -414,8 +442,71 @@ export default function CafeScene({
     // Windstronout's sky (atmosphere, clouds, stars, moon) with fog toward its horizon colour.
     scene.background = new THREE.Color('#05070c');
     const sky = createCafeSky(220);
-    let world: ReturnType<typeof createCafeWorld> | undefined;
+    let world: ReturnType<typeof createCafeWorld> | undefined, siteBox: THREE.Box3 | undefined;
     const sunRay = new THREE.Raycaster();
+    // Inside the bar box the view switches to a fixed wide "CCTV" in its upper corner.
+    let cctv: { position: THREE.Vector3; target: THREE.Vector3 } | undefined,
+      inCctv = false,
+      cafeModel: THREE.Object3D | undefined;
+    // Explore-mode photo camera (Story of Winds from Luna's hands).
+    const photo = { on: false, facing: 'environment' as 'environment' | 'user', yaw: 0, pitch: 0 },
+      photoDir = new THREE.Vector3(),
+      photoScale = new THREE.Vector3();
+    let photoSaved: { position: THREE.Vector3; target: THREE.Vector3; fov: number } | null = null;
+    const cctvLook = { yaw: 0, pitch: 0 },
+      cctvDrag = new Map<number, { x: number; y: number }>(),
+      cctvDir = new THREE.Vector3();
+    const followSaved = { offset: new THREE.Vector3(), fov: 0, limits: [0, 0, 0, 0] },
+      lunaLocal = new THREE.Vector3();
+    const followForward = new THREE.Vector3(),
+      followRight = new THREE.Vector3(),
+      followUp = new THREE.Vector3(0, 1, 0),
+      followMove = new THREE.Vector3(),
+      followTarget = new THREE.Vector3(),
+      followOffset = new THREE.Vector3(),
+      followDir = new THREE.Vector3(),
+      followSpherical = new THREE.Spherical(),
+      // Player's wish, collision-safe goal and what is shown (radius 0 = not following yet).
+      followWish = new THREE.Spherical(),
+      followGoal = new THREE.Spherical(),
+      followShown = new THREE.Spherical(0),
+      probeRay = new THREE.Raycaster();
+    // Development only (?sceneStats): freeze the explore camera to inspect a spot.
+    const debugCamera = { frozen: false };
+    let occluders: THREE.Object3D[] | undefined,
+      lastProbe = 0;
+    // Entering/leaving explore mode changes how close the camera may come.
+    exploreRef.current.onToggle = (on: boolean) => {
+      followShown.radius = 0;
+      if (on) {
+        // Coming back from the telescope's zoomed lens too.
+        camera.fov = 60;
+        camera.updateProjectionMatrix();
+      }
+      controls!.minDistance = on ? 0.5 : 5;
+      controls!.maxDistance = on ? 7 : debugPerf ? 90 : MAX_CAFE_DISTANCE;
+      // Look down on Luna rather than through walls.
+      controls!.minPolarAngle = on ? 0.35 : 0.2;
+      controls!.maxPolarAngle = on ? 1.45 : Math.PI * 0.48;
+      if (on) {
+        libraryMode = tvMode = false;
+        setLibraryActive(false);
+        setTvActive(false);
+        transition = undefined;
+        // Start behind and above Luna, looking over her shoulder toward the café's centre.
+        const luna = people?.baristaPosition();
+        if (luna) {
+          const back = luna.clone().sub(overviewTarget).setY(0);
+          if (back.lengthSq() < 0.01) back.set(-1, 0, 0);
+          back.setLength(2.6);
+          controls!.target.copy(luna).add(new THREE.Vector3(0, 0.75, 0));
+          camera.position
+            .copy(controls!.target)
+            .add(back)
+            .add(new THREE.Vector3(0, 3.6, 0));
+        }
+      }
+    };
     let lastSunCheck = 0,
       sunBlocked = false;
     scene.add(sky.group, sky.flareGroup);
@@ -567,6 +658,17 @@ export default function CafeScene({
     const onPointerMove = (event: PointerEvent) => {
       const previous = activePointers.get(event.pointerId);
       if (!previous) return;
+      // CCTV in the bar box: drag to pan and tilt it where it hangs.
+      if (inCctv && activePointers.size === 1) {
+        const last = cctvDrag.get(event.pointerId) ?? previous;
+        cctvLook.yaw += (event.clientX - last.x) * 0.006;
+        cctvLook.pitch = THREE.MathUtils.clamp(
+          cctvLook.pitch + (event.clientY - last.y) * 0.006,
+          -1.35,
+          0.6,
+        );
+        cctvDrag.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      }
       if (telescopeMode) return;
       if (
         cameraGestureActive ||
@@ -577,6 +679,7 @@ export default function CafeScene({
       }
     };
     const onPointerEnd = (event: PointerEvent) => {
+      cctvDrag.delete(event.pointerId);
       const start = activePointers.get(event.pointerId);
       const tapped =
         event.type === 'pointerup' &&
@@ -1146,6 +1249,7 @@ export default function CafeScene({
               rect: new THREE.Vector4(area.min.x, area.min.z, area.max.x, area.max.z),
             };
           }
+          siteBox = site.clone();
           world = createCafeWorld(
             { bounds: site, groundY: level, road: roadLayout, holeMask },
             windTime,
@@ -1253,6 +1357,108 @@ export default function CafeScene({
           prepareCafeBarWorkspace(model);
           addCafeWalkSurfaces(model);
           people = placeCafePeople(model, cafePaths(model, navData), luna.scene);
+          // Explore mode: beyond the sidewalk Luna walks on the surrounding world.
+          if (world && siteBox) people.setOutdoors({ walk: world.walkHeight, site: siteBox });
+          cafeModel = model;
+          const crewForDebug = people;
+          // Development only (?sceneStats): camera handle for checking views.
+          if (debugPerf && process.env.NODE_ENV !== 'production')
+            (window as unknown as { __scene: unknown }).__scene = {
+              camera,
+              controls,
+              model,
+              people: crewForDebug,
+              freeze: (on: boolean) => {
+                debugCamera.frozen = on;
+              },
+              visitors: (list: CafeVisitor[]) => {
+                exploreRef.current.visitors = list;
+              },
+              set: (cctvPos: number[], cctvTarget: number[]) => {
+                cctv = {
+                  position: model.localToWorld(new THREE.Vector3(...cctvPos)),
+                  target: model.localToWorld(new THREE.Vector3(...cctvTarget)),
+                };
+                inCctv = false;
+              },
+            };
+          // CCTV in the bar box: at the top corner of the front window glass (Cube048, the
+          // door side), looking across the counter to the cashier window. Drag to turn it.
+          cctv = {
+            position: model.localToWorld(new THREE.Vector3(-2.27, 1.86, 3.12)),
+            target: model.localToWorld(new THREE.Vector3(-3.8, 0.75, 4.2)),
+          };
+          {
+            const crew = people;
+            const machine = objectByModelName(model, 'mesin kopi');
+            setExploreApi({
+              setManual: (on) => crew.setManual(on),
+              setTask: (task) => crew.setManualTask(task),
+              setStick: (x, y) => {
+                exploreRef.current.stick = { x, y };
+              },
+              setVisitors: (visitors) => {
+                exploreRef.current.visitors = visitors;
+              },
+              guests: () => crew.guests(),
+              deliver: (key) => crew.deliver(key),
+              walkTo: (point) => crew.walkTo(point),
+              walking: () => crew.walking(),
+              luna: () => crew.baristaPosition(),
+              seatNear: () => crew.seatNear(),
+              sit: (id) => crew.sit(id),
+              stand: () => crew.stand(),
+              sitting: () => crew.sitting(),
+              chore: (kind, seconds, target) => crew.chore(kind, seconds, target),
+              outdoors: () => crew.outdoorsNow(),
+              spots: {
+                plants: spotBoxes(model, /^WS_Garden_\d+_(Pot|Leaves)|Planter_\d+_Pot|Raised_Pot/),
+                tables: spotBoxes(model, /^meja/),
+                telescope: spotBoxes(model, /^WS_Telescope_Tripod$/)[0] ?? null,
+              },
+              telescope: () => viewRef.current.onTelescopeClick?.(),
+              photo: {
+                start: () => {
+                  if (photo.on) return;
+                  photoSaved = {
+                    position: camera.position.clone(),
+                    target: controls!.target.clone(),
+                    fov: camera.fov,
+                  };
+                  Object.assign(photo, { on: true, facing: 'environment', yaw: 0, pitch: 0 });
+                },
+                stop: () => {
+                  photo.on = false;
+                  if (photoSaved) {
+                    camera.position.copy(photoSaved.position);
+                    controls!.target.copy(photoSaved.target);
+                    camera.fov = photoSaved.fov;
+                    camera.updateProjectionMatrix();
+                  }
+                },
+                look: (dx, dy) => {
+                  photo.yaw -= dx * 0.005;
+                  photo.pitch = THREE.MathUtils.clamp(photo.pitch - dy * 0.005, -0.9, 0.9);
+                },
+                facing: (f) => {
+                  photo.facing = f;
+                  photo.yaw = 0;
+                  photo.pitch = f === 'user' ? -0.05 : 0;
+                },
+                stream: () =>
+                  'captureStream' in renderer!.domElement
+                    ? renderer!.domElement.captureStream(30)
+                    : null,
+              },
+              stations: {
+                cashier: crew.stations.cashier.clone(),
+                bar: crew.stations.bar.clone(),
+                espresso: machine
+                  ? machine.getWorldPosition(new THREE.Vector3())
+                  : crew.stations.bar.clone(),
+              },
+            });
+          }
           addedMaterials.push(...toonify(people.root));
           toonOutline.addHull(luna.scene);
           assetRoot!.add(people.root);
@@ -1356,7 +1562,18 @@ export default function CafeScene({
           }
           if (wasPaused) {
             wasPaused = false;
-            if (viewRef.current.cafeReturnRequest !== lastCafeReturn && lensTarget && lensNormal) {
+            if (exploreRef.current.on && (telescopeMode || transition)) {
+              // Back from Windstronout during explore mode: straight back behind Luna.
+              telescopeMode = false;
+              setEnteringScope(false);
+              transition = undefined;
+              controls!.enabled = true;
+              exploreRef.current.onToggle(true);
+            } else if (
+              viewRef.current.cafeReturnRequest !== lastCafeReturn &&
+              lensTarget &&
+              lensNormal
+            ) {
               // Back from the illustration: open on the telescope's own point of view, facing the
               // café, then glide to the front view.
               camera.position.copy(lensTarget).addScaledVector(lensNormal, 0.5);
@@ -1436,6 +1653,7 @@ export default function CafeScene({
             }
           }
           controls!.autoRotate =
+            !exploreRef.current.on &&
             !telescopeMode &&
             !libraryMode &&
             !tvMode &&
@@ -1572,8 +1790,187 @@ export default function CafeScene({
           frustum.setFromProjectionMatrix(
             viewMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
           );
-          people?.updateActivity(viewRef.current.activity);
+          const explore = exploreRef.current;
+          people?.updateActivity(
+            explore.on
+              ? { ...EMPTY_CAFE_ACTIVITY, visitors: explore.visitors }
+              : viewRef.current.activity,
+          );
+          if (explore.on && people) {
+            // Stick → walk direction relative to the camera, then keep the camera following Luna.
+            followForward.copy(controls!.target).sub(camera.position).setY(0).normalize();
+            followRight.crossVectors(followForward, followUp);
+            followMove
+              .copy(followForward)
+              .multiplyScalar(-explore.stick.y)
+              .addScaledVector(followRight, explore.stick.x);
+            people.drive(followMove.x, followMove.z);
+          }
           people?.update(delta, reduced);
+          const exploreCamera =
+            explore.on && !telescopeMode && !transition && !debugCamera.frozen && !photo.on;
+          if (explore.on && photo.on && people) {
+            // Story of Winds in explore mode: the view through Luna's pocket camera, or a selfie
+            // held at arm's length in front of her.
+            const heading = people.baristaHeading() + photo.yaw,
+              eye = people.baristaPosition().clone();
+            eye.y += 0.97 * (cafeModel?.getWorldScale(photoScale).x ?? 1);
+            photoDir.setFromSphericalCoords(1, Math.PI / 2 - photo.pitch, heading);
+            if (photo.facing === 'environment') {
+              camera.position.copy(eye).addScaledVector(photoDir, 0.28);
+              controls!.target.copy(camera.position).add(photoDir);
+            } else {
+              // Arm's length plus a little: face and shoulders in the frame.
+              camera.position.copy(eye).addScaledVector(photoDir, 1.35);
+              controls!.target.copy(eye).addScaledVector(UP, -0.12);
+            }
+            if (camera.fov !== 58) {
+              camera.fov = 58;
+              camera.updateProjectionMatrix();
+            }
+            camera.lookAt(controls!.target);
+          }
+          if (exploreCamera && people && assetRoot) {
+            // Bar box (model units): staff floor between the counter and the back wall.
+            lunaLocal.copy(people.baristaPosition());
+            cafeModel?.worldToLocal(lunaLocal);
+            const inBox =
+              !!cctv &&
+              lunaLocal.x > -4.6 &&
+              lunaLocal.x < -2.05 &&
+              lunaLocal.z > 2.9 &&
+              lunaLocal.z < 5.05 &&
+              lunaLocal.y > 0.45 &&
+              lunaLocal.y < 1.5;
+            if (inBox !== inCctv) {
+              inCctv = inBox;
+              controls!.enabled = !inBox;
+              followShown.radius = 0;
+              if (inBox && cctv) {
+                followSaved.offset.copy(camera.position).sub(controls!.target);
+                followSaved.fov = camera.fov;
+                // The orbit limits would pull a camera this close back out of the box.
+                followSaved.limits = [
+                  controls!.minDistance,
+                  controls!.maxDistance,
+                  controls!.minPolarAngle,
+                  controls!.maxPolarAngle,
+                ];
+                controls!.minDistance = 0;
+                controls!.maxDistance = 100;
+                controls!.minPolarAngle = 0;
+                controls!.maxPolarAngle = Math.PI;
+                camera.position.copy(cctv.position);
+                cctvDir.copy(cctv.target).sub(cctv.position).normalize();
+                cctvLook.yaw = Math.atan2(cctvDir.x, cctvDir.z);
+                cctvLook.pitch = Math.asin(cctvDir.y);
+              } else {
+                [
+                  controls!.minDistance,
+                  controls!.maxDistance,
+                  controls!.minPolarAngle,
+                  controls!.maxPolarAngle,
+                ] = followSaved.limits;
+                camera.fov = followSaved.fov || camera.fov;
+                controls!.target.copy(people.baristaPosition()).add(new THREE.Vector3(0, 0.75, 0));
+                camera.position.copy(controls!.target).add(followSaved.offset);
+              }
+              camera.updateProjectionMatrix();
+            }
+            if (inCctv && cctv) {
+              // Ultra-wide straight-line lens (the opposite of a fisheye's bulge: lines stay
+              // straight and the edges stretch out): about 120° across, at most 120° tall.
+              const fov = Math.min(
+                120,
+                THREE.MathUtils.radToDeg(
+                  2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(60)) / camera.aspect),
+                ),
+              );
+              if (Math.abs(camera.fov - fov) > 0.01) {
+                camera.fov = fov;
+                camera.updateProjectionMatrix();
+              }
+              cctvDir.setFromSphericalCoords(1, Math.PI / 2 - cctvLook.pitch, cctvLook.yaw);
+              camera.position.copy(cctv.position);
+              controls!.target.copy(cctv.position).add(cctvDir);
+              camera.lookAt(controls!.target);
+            }
+          } else if (inCctv) {
+            // Left explore mode from inside the box; onToggle already reset the orbit limits.
+            inCctv = false;
+            controls!.enabled = true;
+            camera.fov = followSaved.fov || camera.fov;
+            camera.updateProjectionMatrix();
+          }
+          if (exploreCamera && people && !inCctv) {
+            followTarget.copy(people.baristaPosition());
+            followTarget.y += 0.75;
+            // What the player asked for (drag/zoom since last frame) versus where we put it.
+            followSpherical.setFromVector3(
+              followOffset.copy(camera.position).sub(controls!.target),
+            );
+            if (followShown.radius > 0) {
+              followWish.radius *= followSpherical.radius / followShown.radius;
+              followWish.phi += followSpherical.phi - followShown.phi;
+            } else {
+              followWish.radius = followSpherical.radius;
+              followWish.phi = followSpherical.phi;
+              followGoal.radius = followShown.radius = followSpherical.radius;
+              followGoal.phi = followShown.phi = followSpherical.phi;
+            }
+            followWish.radius = THREE.MathUtils.clamp(followWish.radius, 2.5, 7);
+            followWish.phi = THREE.MathUtils.clamp(followWish.phi, 0.35, 1.05);
+            controls!.target.lerp(followTarget, reduced ? 1 : 1 - Math.exp(-delta * 6));
+            // Camera collision: when a roof or wall is in the way, drop lower and/or come
+            // closer instead of hiding anything (a few probes per second).
+            if (t - lastProbe > 0.08) {
+              lastProbe = t;
+              if (!occluders) {
+                const list: THREE.Object3D[] = [];
+                occluders = list;
+                cafeModel?.traverse((node) => {
+                  const mesh = node as THREE.Mesh;
+                  if (
+                    mesh.isMesh &&
+                    !/leaf|leaves|undergrowth|cable|socket|bulb|daun|rumput|grass/i.test(
+                      mesh.name + ' ' + (mesh.parent?.name ?? ''),
+                    )
+                  )
+                    list.push(mesh);
+                });
+              }
+              let best = { phi: followWish.phi, radius: 0.6 };
+              for (let phi = followWish.phi; phi <= 1.42; phi += 0.12) {
+                followDir.setFromSphericalCoords(1, phi, followSpherical.theta);
+                probeRay.set(controls!.target, followDir);
+                probeRay.far = followWish.radius + 0.3;
+                const hit = probeRay.intersectObjects(occluders, false)[0];
+                const clear = hit ? Math.max(0.6, hit.distance - 0.25) : followWish.radius;
+                if (clear > best.radius + 0.05) best = { phi, radius: clear };
+                if (clear >= Math.min(followWish.radius, 2.2)) {
+                  best = { phi, radius: Math.min(clear, followWish.radius) };
+                  break;
+                }
+              }
+              followGoal.phi = best.phi;
+              followGoal.radius = best.radius;
+            }
+            const k = reduced ? 1 : 1 - Math.exp(-delta * 5),
+              closing = followGoal.radius < followShown.radius;
+            followShown.phi += (followGoal.phi - followShown.phi) * k;
+            followShown.radius +=
+              (followGoal.radius - followShown.radius) *
+              (closing ? (reduced ? 1 : 1 - Math.exp(-delta * 18)) : k);
+            followShown.theta = followSpherical.theta;
+            camera.position.copy(controls!.target).add(followOffset.setFromSpherical(followShown));
+            // Out on the hills the camera stays above the grass.
+            if (world && people.outdoorsNow()) {
+              const land = world.heightAt(camera.position.x, camera.position.z) + 0.35;
+              if (camera.position.y < land) camera.position.y = land;
+            }
+          } else if (followShown.radius > 0) {
+            followShown.radius = 0;
+          }
           foliage.forEach(({ node, x, z, phase, amplitude }) => {
             node.rotation.x = x + (reduced ? 0 : Math.sin(t * 0.7 + phase) * amplitude);
             node.rotation.z =
@@ -1838,7 +2235,7 @@ export default function CafeScene({
   }, []);
   return (
     <>
-      <div className="cafe-scene-shell">
+      <div className={'cafe-scene-shell' + (exploring ? ' exploring' : '')}>
         {enteringScope && <div className="scope-entry-veil" aria-hidden="true" />}
         <div
           className={'cafe-scene ' + (!modelReady ? 'scene-loading' : '')}
@@ -1897,6 +2294,19 @@ export default function CafeScene({
                 : 'Seret untuk memutar · Cubit untuk zoom'}
           </span>
         </div>
+        {exploring && exploreApi && (
+          <ExploreMode api={exploreApi} onExit={() => toggleExplore(false)} />
+        )}
+        {!exploring && exploreApi && (
+          <button
+            type="button"
+            className="scene-explore-toggle"
+            onClick={() => toggleExplore(true)}
+          >
+            <Gamepad2 size={14} />
+            <span>Explore</span>
+          </button>
+        )}
         <button
           type="button"
           className="scene-sound-toggle"

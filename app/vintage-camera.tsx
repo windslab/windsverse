@@ -116,12 +116,27 @@ const vibrate = (pattern: number | number[]) => {
 };
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Explore mode: the "lens" is Luna's camera inside the 3D café instead of the device camera.
+ * Everything else (films, daily roll, album, Memoirs) is the same Story of Winds.
+ */
+export type SceneLens = {
+  start: () => void;
+  stop: () => void;
+  stream: () => MediaStream | null;
+  /** Drag on the screen to aim. */
+  look: (dx: number, dy: number) => void;
+  facing: (facing: 'environment' | 'user') => void;
+};
+
 export default function VintageCamera({
   open,
   onOpenChange,
+  scene,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  scene?: SceneLens;
 }) {
   const [consented, setConsented] = useState(false),
     [agree, setAgree] = useState(false),
@@ -142,6 +157,7 @@ export default function VintageCamera({
     [playIndex, setPlayIndex] = useState(0),
     [review, setReview] = useState(''),
     [clock, setClock] = useState(() => new Date());
+  const aim = useRef<{ id: number; x: number; y: number } | null>(null);
   const video = useRef<HTMLVideoElement>(null),
     stream = useRef<MediaStream | null>(null),
     urls = useRef(new Map<string, string>());
@@ -214,6 +230,28 @@ export default function VintageCamera({
     if (!open || !consented || mode !== 'shoot') return;
     let cancelled = false;
     setCameraError('');
+    if (scene) {
+      // Luna's camera: the 3D view itself is the live picture.
+      scene.start();
+      scene.facing(facing);
+      const s = scene.stream();
+      if (!s) {
+        setCameraError(
+          'Browser ini belum bisa merekam tampilan 3D. Coba Chrome atau Safari terbaru.',
+        );
+        return () => scene.stop();
+      }
+      stream.current = s;
+      if (video.current) {
+        video.current.srcObject = s;
+        void video.current.play().catch(() => {});
+      }
+      return () => {
+        s.getTracks().forEach((t) => t.stop());
+        stream.current = null;
+        scene.stop();
+      };
+    }
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError('Browser ini belum mendukung kamera. Coba Chrome atau Safari terbaru.');
       return;
@@ -239,7 +277,7 @@ export default function VintageCamera({
       stream.current?.getTracks().forEach((t) => t.stop());
       stream.current = null;
     };
-  }, [open, consented, mode, facing]);
+  }, [open, consented, mode, facing, scene]);
 
   useEffect(() => {
     if (open) return;
@@ -292,7 +330,7 @@ export default function VintageCamera({
     setTimeout(() => setBlink(false), flash ? 260 : 110);
     setPhase('saving');
     try {
-      const blob = await develop(v, film, { mirror: facing === 'user', zoom });
+      const blob = await develop(v, film, { mirror: facing === 'user' && !scene, zoom });
       const res = await fetch('/api/photos', {
           method: 'POST',
           headers: { ...headers(), 'x-camera-film': film.id, 'content-type': 'image/jpeg' },
@@ -435,7 +473,22 @@ export default function VintageCamera({
             </div>
 
             <div className={styles.lcdBezel}>
-              <div className={styles.lcd}>
+              <div
+                className={styles.lcd}
+                style={scene ? { touchAction: 'none', cursor: 'grab' } : undefined}
+                onPointerDown={(e) => {
+                  if (!scene || mode !== 'shoot') return;
+                  aim.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+                }}
+                onPointerMove={(e) => {
+                  const a = aim.current;
+                  if (!scene || !a || a.id !== e.pointerId) return;
+                  scene.look(e.clientX - a.x, e.clientY - a.y);
+                  aim.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+                }}
+                onPointerUp={() => (aim.current = null)}
+                onPointerCancel={() => (aim.current = null)}
+              >
                 {mode === 'play' ? (
                   <Playback
                     photo={photos[playIndex]}
@@ -451,7 +504,7 @@ export default function VintageCamera({
                       muted
                       style={{
                         filter: film.preview,
-                        transform: `scale(${zoom})${facing === 'user' ? ' scaleX(-1)' : ''}`,
+                        transform: `scale(${zoom})${facing === 'user' && !scene ? ' scaleX(-1)' : ''}`,
                       }}
                     />
                     {review && <img className={styles.review} src={review} alt="Foto terbaru" />}

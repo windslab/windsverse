@@ -6,6 +6,28 @@ import { type CafeVisitor, type CafeActivity } from '@/lib/cafe-activity';
 import { type CafePaths } from '@/lib/cafe-paths';
 import { lunaCafeRig } from './luna/cafe-rig';
 
+// Free-walk steering tries straight first, then gradually sideways.
+const STEER = [0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2];
+// Cross-legged (lesehan) pose for the stand-in people: thighs out and forward, shins crossed.
+const DOWN = new THREE.Vector3(0, -1, 0);
+const CROSS_THIGH = [-1, 1].map((side) =>
+  new THREE.Quaternion().setFromUnitVectors(
+    DOWN,
+    new THREE.Vector3(side * 0.75, -0.05, 0.66).normalize(),
+  ),
+);
+const CROSS_SHIN = [-1, 1].map((side, i) =>
+  CROSS_THIGH[i]
+    .clone()
+    .invert()
+    .multiply(
+      new THREE.Quaternion().setFromUnitVectors(
+        DOWN,
+        new THREE.Vector3(-side * 0.9, -0.12, 0.3).normalize(),
+      ),
+    ),
+);
+
 /** Lightweight stand-in people; coordinates match the existing cafe model. */
 export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: THREE.Group) {
   const root = new THREE.Group();
@@ -20,6 +42,22 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     waiting: at(-5.5, 0.505, 3.35),
     entrance: at(-6.05, 0.505, 4.4),
   };
+  // Queue: first guest right at the cashier window (the box's street side), the next one behind
+  // them, then the line turns along the sidewalk so people can still walk past on the road side.
+  const queueSpots = [
+    [-5.2, 3.93],
+    [-5.62, 3.93],
+    [-5.62, 3.5],
+    [-5.62, 3.07],
+    [-5.62, 2.64],
+    [-5.62, 2.21],
+    [-5.62, 1.78],
+    [-5.62, 1.35],
+  ].map(([x, z]) => at(x, 0.505, z));
+  const queueFacing = queueSpots.map((spot, i) => {
+    const ahead = i ? queueSpots[i - 1] : anchors.cashier;
+    return Math.atan2(ahead.x - spot.x, ahead.z - spot.z);
+  });
   const sphere = new THREE.SphereGeometry(1, 12, 8),
     box = new THREE.BoxGeometry(1, 1, 1),
     cylinder = new THREE.CylinderGeometry(1, 1, 1, 10),
@@ -209,6 +247,8 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       shadow,
       position,
       blockedFor: 0,
+      stuckFor: 0,
+      slipUntil: 0,
       yieldTo: null as THREE.Vector3 | null,
       yieldWait: 0,
       velocity: new THREE.Vector3(),
@@ -227,6 +267,11 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       phase: 'hidden',
       drinkUntil: 0,
       drinkUntilWall: 0,
+      /** Floor height eased when stepping down, and -1…1 climbing down/up (for the gait). */
+      smoothY: NaN,
+      lastGround: NaN,
+      climb: 0,
+      queueHeading: Math.PI / 2,
       delivered: false,
       serveAge: 0,
     };
@@ -237,6 +282,156 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
   type Person = (typeof people)[number];
   const retired = new Set<string>();
   const barista = people[0];
+  // Explore mode: the player drives Luna; the game decides her pose and serves guests itself.
+  let manual = false,
+    manualTask = 'idle';
+  const manualMove = new THREE.Vector3(),
+    manualNext = new THREE.Vector3(),
+    manualSlide = new THREE.Vector3();
+  let manualNode: number | undefined;
+  /** Explore-mode chores (watering, sweeping, wiping) run for a few seconds, facing the target. */
+  const chore = { kind: '', until: 0 };
+  // Props in Luna's hands, in her own space (she faces +Z, her right hand is at −X).
+  const props = new THREE.Group(),
+    propMat = (color: string) => material(color);
+  props.name = 'Luna_Props';
+  const can = new THREE.Group(),
+    broom = new THREE.Group(),
+    cloth = new THREE.Group(),
+    camera = new THREE.Group();
+  {
+    const green = propMat('#5f8f6b'),
+      wood = propMat('#a8784a'),
+      straw = propMat('#d8b466'),
+      rag = propMat('#e9e2d0'),
+      black = propMat('#2b2a2c'),
+      silver = propMat('#c9c6c0');
+    const part = (
+      parent: THREE.Object3D,
+      geometry: THREE.BufferGeometry,
+      mat: THREE.Material,
+      position: number[],
+      size: number[],
+      rotation: number[] = [0, 0, 0],
+    ) => {
+      const m = mesh(parent, geometry, mat, position, size);
+      m.rotation.set(rotation[0], rotation[1], rotation[2]);
+      return m;
+    };
+    // Watering can: body, spout reaching forward and down, handle on top.
+    part(can, cylinder, green, [0, 0, 0], [0.06, 0.1, 0.06]);
+    part(can, cylinder, green, [0, 0.0, 0.1], [0.012, 0.16, 0.012], [Math.PI / 2.6, 0, 0]);
+    part(can, box, green, [0, 0.07, -0.01], [0.015, 0.03, 0.08]);
+    can.position.set(-0.17, 0.6, 0.27);
+    // Broom: stick from the hands down to bristles on the floor ahead.
+    part(broom, cylinder, wood, [0, -0.3, 0.17], [0.012, 0.7, 0.012], [0.5, 0, 0]);
+    part(broom, box, straw, [0, -0.6, 0.33], [0.2, 0.06, 0.07], [0.2, 0, 0]);
+    broom.position.set(0, 0.67, 0.12);
+    // Cloth under the right hand.
+    part(cloth, box, rag, [0, 0, 0], [0.12, 0.012, 0.09]);
+    cloth.position.set(-0.13, 0.5, 0.34);
+    // Pocket camera at the eyes.
+    part(camera, box, black, [0, 0, 0], [0.13, 0.08, 0.05]);
+    part(camera, cylinder, silver, [0, 0, 0.035], [0.025, 0.03, 0.025], [Math.PI / 2, 0, 0]);
+    camera.position.set(0, 0.97, 0.17);
+    props.add(can, broom, cloth, camera);
+    // Luna's own group is unscaled; the stand-in barista is already at café scale.
+    props.scale.setScalar(scale / barista.visual.scale.x);
+    props.children.forEach((p) => (p.visible = false));
+  }
+  // Water from the can and dust from the broom: a few points, recycled.
+  const DROPS = 24,
+    dropGeometry = new THREE.BufferGeometry(),
+    dropPositions = new Float32Array(DROPS * 3),
+    dropLife = new Float32Array(DROPS).map((_, i) => (i / DROPS) * 0.7);
+  dropGeometry.setAttribute('position', new THREE.BufferAttribute(dropPositions, 3));
+  geometries.push(dropGeometry);
+  const dropMaterial = new THREE.PointsMaterial({
+    color: '#9fd3ff',
+    size: 0.035,
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false,
+  });
+  materials.push(dropMaterial);
+  const drops = new THREE.Points(dropGeometry, dropMaterial);
+  drops.frustumCulled = false;
+  drops.visible = false;
+  props.add(drops);
+  function updateProps(dt: number, reduced: boolean) {
+    const kind = task;
+    can.visible = kind === 'watering';
+    broom.visible = kind === 'sweeping';
+    cloth.visible = kind === 'wiping';
+    camera.visible = kind === 'photo';
+    const pour = kind === 'watering' && !reduced,
+      dust = kind === 'sweeping' && !reduced;
+    drops.visible = pour || dust;
+    if (broom.visible) broom.rotation.y = reduced ? 0 : Math.sin(age * 4) * 0.45;
+    if (cloth.visible && !reduced) {
+      cloth.position.x = -0.13 + Math.sin(age * 5) * 0.05;
+      cloth.position.z = 0.34 + Math.cos(age * 5) * 0.04;
+    }
+    if (!drops.visible) return;
+    dropMaterial.color.set(pour ? '#9fd3ff' : '#cbbfa8');
+    dropMaterial.size = (pour ? 0.035 : 0.05) * scale;
+    for (let i = 0; i < DROPS; i++) {
+      dropLife[i] += dt;
+      const life = pour ? 0.7 : 0.9;
+      if (dropLife[i] > life) dropLife[i] -= life;
+      const t = dropLife[i],
+        k = i * 3;
+      if (pour) {
+        // Out of the spout tip, arcing down to the plant.
+        dropPositions[k] = -0.17 + Math.sin(i * 7.3) * 0.015;
+        dropPositions[k + 1] = 0.55 - 2.2 * t * t - 0.2 * t;
+        dropPositions[k + 2] = 0.44 + 0.25 * t;
+      } else {
+        // Little puffs rising behind the bristles.
+        const a = i * 2.4 + broom.rotation.y;
+        dropPositions[k] = Math.sin(a) * 0.12 + Math.sin(broom.rotation.y) * 0.3;
+        dropPositions[k + 1] = 0.03 + t * 0.18;
+        dropPositions[k + 2] = 0.45 + Math.cos(a) * 0.06 + t * 0.05;
+      }
+    }
+    dropGeometry.attributes.position.needsUpdate = true;
+  }
+  barista.visual.add(props);
+  function standUp() {
+    barista.phase = 'working';
+    barista.seat = null;
+  }
+  /** The world around the café (explore mode): walkable height outside, and the café's site. */
+  let outdoors: { walk: (x: number, z: number) => number | null; site: THREE.Box3 } | null = null,
+    outside = false;
+  /** Leaving the site is only possible over the sidewalk's outer (road-side) edge. */
+  const curbSide = (p: THREE.Vector3) => {
+    const l = paths.local(p);
+    return l.x < -6.12 && l.z > -5.75 && l.z < 5.7;
+  };
+  function outdoorStep(to: THREE.Vector3) {
+    if (!outdoors) return null;
+    const from = barista.position.y,
+      land = outdoors.walk(to.x, to.z),
+      curb = paths.groundHit(new THREE.Vector3(to.x, from, to.z));
+    const y = Math.max(land ?? -Infinity, curb ?? -Infinity);
+    if (!Number.isFinite(y) || Math.abs(y - from) > 0.4 * scale) return null;
+    return { point: new THREE.Vector3(to.x, y, to.z) };
+  }
+  /** One free-walking step: café floors (walk graph) inside, the land outside. */
+  function freeStep(to: THREE.Vector3): { point: THREE.Vector3; node?: number } | null {
+    const inSite = !!outdoors && outdoors.site.containsPoint(to);
+    if (!outside || inSite) {
+      const step = paths.step(barista.position, to, outside ? undefined : manualNode);
+      if (step) return step;
+    }
+    if (!outdoors) return null;
+    if (inSite && !curbSide(to)) return null;
+    if (!outside && !curbSide(barista.position) && inSite) return null;
+    return outdoorStep(to);
+  }
+  /** Auto-walk route (e.g. "go to the cashier"); the stick always takes over. */
+  let manualRoute: THREE.Vector3[] = [];
   let task = 'idle',
     taskKey = '',
     cleanUntil = 0,
@@ -281,7 +476,12 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     );
     for (const seat of candidates) {
       const target = seat.surface.clone();
-      target.y = paths.ground(new THREE.Vector3(target.x, seat.surface.y - 0.3 * scale, target.z));
+      target.y = seat.floor
+        ? // Lesehan: the table legs sink a little into the floor; sit on the floor itself.
+          (seat.surface.y = paths.ground(
+            new THREE.Vector3(target.x, seat.surface.y + 0.1 * scale, target.z),
+          ))
+        : paths.ground(new THREE.Vector3(target.x, seat.surface.y - 0.3 * scale, target.z));
       const approach = paths.snap(target, 0.85);
       if (!approach || Math.abs(approach.y - seat.surface.y) > 0.95 * scale) continue;
       const route = paths.path(actor.position, approach, 'visitor');
@@ -318,6 +518,8 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
           .filter((p) => p.key && present.has(p.key) && p.seat)
           .map((p) => p.seat!.id),
       );
+    // Luna may be sitting somewhere in explore mode.
+    if (barista.seat) occupied.add(barista.seat.id);
     for (const actor of people.slice(1))
       if (actor.key && !present.has(actor.key) && actor.phase !== 'leaving') exit(actor);
     for (const visitor of visitors) {
@@ -343,14 +545,9 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       if (actor.status === visitor.status) continue;
       actor.status = visitor.status;
       if (visitor.status === 'diproses') {
-        const index = people
-            .slice(1)
-            .filter((p) => p.key && p.status === 'diproses')
-            .indexOf(actor),
-          queue = anchors.waiting
-            .clone()
-            .add(new THREE.Vector3(0, 0, -Math.max(0, index) * 0.48 * scale));
-        travel(actor, queue, 'queue');
+        // Placed by arrangeQueue below.
+        actor.phase = 'queue';
+        actor.waypoints = [];
       } else if (!actor.seat) {
         findSeat(actor, visitor, occupied);
       }
@@ -363,6 +560,20 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         }
       }
     }
+    arrangeQueue(visitors);
+  }
+  /** Everyone still ordering stands in line, in arrival order; the line moves up as it shrinks. */
+  function arrangeQueue(visitors: CafeVisitor[]) {
+    const line = visitors
+      .filter((v) => v.status === 'diproses' && !retired.has(v.key))
+      .map((v) => people.slice(1).find((p) => p.key === v.key))
+      .filter((p): p is Person => !!p && p.phase === 'queue');
+    line.forEach((actor, i) => {
+      const spot = queueSpots[Math.min(i, queueSpots.length - 1)];
+      actor.queueHeading = queueFacing[Math.min(i, queueFacing.length - 1)];
+      if (actor.destination.distanceTo(spot) < 0.05 * scale) return;
+      if (!travel(actor, spot, 'queue')) actor.destination.copy(spot);
+    });
   }
   people.slice(1).forEach((p) => {
     p.visual.visible = p.shadow.visible = false;
@@ -389,7 +600,8 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
           (p) =>
             p !== actor &&
             p.visual.visible &&
-            (p === barista || p.key) &&
+            // In explore mode the player may park Luna anywhere; guests walk around her.
+            ((p === barista && !manual) || p.key) &&
             Math.abs(p.floorY - next.y) < 0.65 * scale,
         )
         .map(
@@ -401,6 +613,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
             ),
         );
       if (
+        age >= actor.slipUntil &&
         blockers.some(
           (p) =>
             Math.hypot(p.x - next.x, p.z - next.z) < 0.29 * scale &&
@@ -409,6 +622,13 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         )
       ) {
         actor.blockedFor += dt;
+        // Stuck for a while (a narrow passage, or a player who parked Luna in the way):
+        // squeeze past for a moment rather than waiting forever.
+        actor.stuckFor += dt;
+        if (actor.stuckFor > 3) {
+          actor.stuckFor = 0;
+          actor.slipUntil = age + 1.2;
+        }
         if (actor.blockedFor > 1.2 && age > rerouteAt) {
           rerouteAt = age + 0.4;
           const replacement = paths.path(
@@ -427,6 +647,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
                 .some(
                   (p) =>
                     p.visual.visible &&
+                    !(p === barista && manual) &&
                     Math.abs(p.floorY - next.y) < 0.65 * scale &&
                     p.position.distanceTo(next) < 0.65 * scale,
                 );
@@ -464,6 +685,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         break;
       }
       actor.blockedFor = 0;
+      actor.stuckFor = Math.max(0, actor.stuckFor - dt);
       actor.heading = Math.atan2(direction.x, direction.z);
       actor.position.addScaledVector(direction, amount / distance);
       budget -= amount;
@@ -471,7 +693,9 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       if (amount === distance) actor.waypoint++;
     }
     const arrived = actor.waypoint >= actor.waypoints.length,
-      moving = moved > 0.0001 * scale;
+      moving =
+        moved > 0.0001 * scale ||
+        (isBarista && manual && (manualMove.lengthSq() > 0.0001 || manualRoute.length > 0));
     if (arrived && actor.yieldTo) {
       actor.yieldWait += dt;
       if (actor.yieldWait > 1) {
@@ -486,10 +710,23 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     const sitting = actor.phase === 'sitting' && !!actor.seat;
     const ground = paths.ground(actor.position);
     actor.floorY = ground;
+    if (!Number.isFinite(actor.smoothY) || Math.abs(ground - actor.smoothY) > 0.6 * scale)
+      actor.smoothY = actor.lastGround = ground;
+    const lift = (ground - actor.lastGround) / Math.max(dt, 1e-3);
+    actor.lastGround = ground;
+    actor.climb +=
+      ((moving ? THREE.MathUtils.clamp(lift / (0.45 * scale), -1, 1) : 0) - actor.climb) *
+      (1 - Math.exp(-dt * 5));
+    // Stepping down eases onto the lower tread; stepping up lands at once (feet never sink).
+    actor.smoothY = Math.max(
+      ground,
+      actor.smoothY + (ground - actor.smoothY) * (reduced ? 1 : 1 - Math.exp(-dt * 14)),
+    );
+    const floorY = actor.smoothY;
     const heading = sitting
       ? actor.headingAtSeat
       : !moving && actor.phase === 'queue'
-        ? Math.PI / 2
+        ? actor.queueHeading
         : isBarista && !moving && task === 'cashier'
           ? -Math.PI / 2
           : isBarista && !moving && (task === 'preparing' || task === 'cleaning')
@@ -502,20 +739,49 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       ) *
       (1 - Math.exp(-dt * 9));
     actor.visual.position.copy(actor.position);
-    actor.visual.position.y = ground;
+    actor.visual.position.y = floorY;
+    const crossLegged = sitting && !!actor.seat?.floor;
     if (sitting && actor.seat) {
       const target = actor.seat.surface;
-      actor.visual.position.set(target.x, target.y - 0.445 * scale, target.z);
+      actor.visual.position.set(
+        target.x,
+        target.y -
+          (isBarista && detailed
+            ? detailed.hip - 0.05 * scale
+            : (crossLegged ? 0.43 : 0.445) * scale),
+        target.z,
+      );
     }
     const stride = reduced ? 0 : moving ? Math.sin(age * 7 + actor.phase.length) * 0.8 : 0;
     if (isBarista && detailed)
-      detailed.update(age, stride, moving && task === 'serving' ? 'carrying' : task, reduced);
+      detailed.update(
+        age,
+        stride,
+        moving && task === 'serving' ? 'carrying' : task,
+        reduced,
+        actor.climb,
+      );
     else {
       actor.legs.forEach((leg, i) => {
-        leg.rotation.x = sitting ? -Math.PI / 2 : stride * (i ? -1 : 1) * 0.5;
-        actor.knees[i].rotation.x = sitting
-          ? Math.PI / 2
-          : Math.max(0, stride * (i ? 1 : -1)) * 0.55;
+        if (crossLegged) {
+          leg.quaternion.copy(CROSS_THIGH[i]);
+          actor.knees[i].quaternion.copy(CROSS_SHIN[i]);
+          return;
+        }
+        // On stairs the leading leg lifts higher and the knee bends more.
+        const swing = stride * (i ? -1 : 1) * 0.5,
+          up = Math.max(0, actor.climb),
+          lead = Math.max(0, -swing);
+        leg.rotation.set(sitting ? -Math.PI / 2 : swing - lead * up * 1.1, 0, 0);
+        actor.knees[i].rotation.set(
+          sitting
+            ? Math.PI / 2
+            : Math.max(0, stride * (i ? 1 : -1)) * 0.55 +
+                lead * Math.abs(actor.climb) * 1.6 +
+                Math.abs(actor.climb) * 0.15,
+          0,
+          0,
+        );
       });
       actor.arms.forEach((arm, i) => {
         arm.rotation.x = sitting ? -0.3 : -stride * (i ? -1 : 1) * 0.3;
@@ -523,6 +789,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         actor.elbows[i].rotation.x = sitting ? -0.65 : -0.12;
       });
       actor.torso.rotation.z = sitting || reduced ? 0 : Math.sin(age * 1.2) * 0.007;
+      actor.torso.rotation.x = sitting ? 0 : actor.climb * (actor.climb > 0 ? 0.12 : 0.05);
     }
     // Measure articulated shoes after posing, then raise the avatar if a toe would enter the floor.
     if (!sitting) {
@@ -532,7 +799,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         feetBox.setFromObject(foot);
         bottom = Math.min(bottom, feetBox.min.y);
       }
-      if (Number.isFinite(bottom)) actor.visual.position.y += ground + 0.006 * scale - bottom;
+      if (Number.isFinite(bottom)) actor.visual.position.y += floorY + 0.006 * scale - bottom;
     }
     actor.drink.visible = !isBarista && sitting && actor.delivered;
     if (actor.drink.visible) {
@@ -543,12 +810,21 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     actor.serving.visible = isBarista && task === 'serving';
     actor.shadow.position.set(
       actor.visual.position.x,
-      ground + 0.004 * scale,
+      floorY + 0.004 * scale,
       actor.visual.position.z,
     );
     return arrived;
   }
   function chooseTask() {
+    if (manual) {
+      task =
+        barista.phase === 'sitting' && barista.seat
+          ? 'sitting'
+          : chore.kind && age < chore.until
+            ? chore.kind
+            : manualTask;
+      return;
+    }
     const guest = people
       .slice(1)
       .find((p) => p.key && p.status === 'selesai' && !p.delivered && p.phase === 'sitting');
@@ -588,7 +864,106 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
   }
   return {
     root,
+    paths,
     updateActivity,
+    /** Explore mode on/off. Off hands Luna back to the automatic barista. */
+    setManual(on: boolean) {
+      manual = on;
+      manualMove.set(0, 0, 0);
+      manualRoute = [];
+      manualNode = undefined;
+      taskKey = '';
+      if (!on) manualTask = 'idle';
+    },
+    /** World-space direction to walk (length 0–1 = speed). */
+    drive(x: number, z: number) {
+      manualMove.set(x, 0, z);
+    },
+    /** Walk Luna to a point along the café's paths; returns false if there is no way. */
+    setOutdoors(world: { walk: (x: number, z: number) => number | null; site: THREE.Box3 }) {
+      outdoors = world;
+    },
+    /** True while Luna is out on the land around the café. */
+    outdoorsNow: () => outside,
+    /** A free seat (any chair, bench or lesehan spot) within reach of Luna, if any. */
+    seatNear() {
+      const taken = new Set(people.slice(1).flatMap((p) => (p.seat ? [p.seat.id] : [])));
+      let best: CafeSeat | null = null,
+        d = 0.75 * scale;
+      for (const seat of seats) {
+        if (taken.has(seat.id) || seat.takeaway) continue;
+        const distance = Math.hypot(
+          seat.surface.x - barista.position.x,
+          seat.surface.z - barista.position.z,
+        );
+        if (distance < d && Math.abs(seat.surface.y - barista.position.y) < 0.75 * scale) {
+          d = distance;
+          best = seat;
+        }
+      }
+      return best ? { id: best.id, position: best.surface } : null;
+    },
+    sit(id: string) {
+      const seat = seats.find((s) => s.id === id);
+      if (!seat) return false;
+      if (seat.floor)
+        seat.surface.y = paths.ground(
+          new THREE.Vector3(seat.surface.x, seat.surface.y + 0.1 * scale, seat.surface.z),
+        );
+      manualRoute = [];
+      chore.until = 0;
+      barista.seat = seat;
+      barista.headingAtSeat = seat.heading;
+      barista.phase = 'sitting';
+      return true;
+    },
+    stand: () => standUp(),
+    sitting: () => barista.phase === 'sitting' && !!barista.seat,
+    /** Water a plant, sweep or wipe a table for a few seconds, facing `target`. */
+    chore(kind: 'watering' | 'sweeping' | 'wiping', seconds: number, target?: THREE.Vector3) {
+      if (barista.phase === 'sitting') standUp();
+      manualRoute = [];
+      chore.kind = kind;
+      chore.until = age + seconds;
+      if (target)
+        barista.heading = Math.atan2(target.x - barista.position.x, target.z - barista.position.z);
+    },
+    choreActive: () => !!chore.kind && age < chore.until,
+    walkTo(point: THREE.Vector3) {
+      if (barista.phase === 'sitting') standUp();
+      const route = paths.path(barista.position, point, 'staff');
+      manualRoute = route ?? [];
+      return !!route;
+    },
+    walking: () => manualRoute.length > 0,
+    /** Pose while standing: 'idle', 'cashier', 'preparing', 'serving' (carrying a tray). */
+    setManualTask(next: string) {
+      manualTask = next;
+    },
+    baristaPosition: () => barista.position,
+    /** Which way Luna faces (radians about Y; 0 = +Z). */
+    baristaHeading: () => barista.visual.rotation.y,
+    stations: { cashier: anchors.cashier, bar: anchors.working, entrance: anchors.entrance },
+    /** Guests currently in the scene (for proximity checks). */
+    guests: () =>
+      people
+        .slice(1)
+        .filter((p) => p.key && p.visual.visible)
+        .map((p) => ({
+          key: p.key,
+          phase: p.phase,
+          status: p.status,
+          // Seated guests: the floor spot beside their seat, where Luna can stand.
+          position: p.phase === 'sitting' ? p.destination : p.position,
+        })),
+    /** Hands the drink to a guest: they sip for a while, then leave. */
+    deliver(key: string) {
+      const guest = people.slice(1).find((p) => p.key === key);
+      if (!guest) return;
+      guest.delivered = true;
+      guest.drinkUntil = age + 45;
+      guest.drinkUntilWall = Date.now() + 45_000;
+    },
     inspect: () => ({
       task,
       people: people.map((p) => ({
@@ -607,8 +982,64 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       const dt = Math.min(delta, 0.05);
       age += dt;
       chooseTask();
-      const arrived = animate(barista, dt, reduced, true),
-        // Friends at the same table can block the last step; standing beside any of them is enough.
+      if (manual) {
+        // Walk where the stick points, staying on the café's walkable floors (no walls, no void).
+        if (manualMove.lengthSq() > 0.0001) {
+          manualRoute = [];
+          chore.until = 0;
+          if (barista.phase === 'sitting') standUp();
+        } else if (manualRoute.length) {
+          // Follow the route at walking pace.
+          let budget = 1.15 * scale * dt;
+          while (budget > 0 && manualRoute.length) {
+            const goal = manualRoute[0],
+              step = goal.clone().sub(barista.position),
+              distance = step.length();
+            if (distance <= budget) {
+              barista.position.copy(goal);
+              manualRoute.shift();
+              budget -= distance;
+            } else {
+              barista.position.addScaledVector(step, budget / distance);
+              budget = 0;
+            }
+            if (distance > 0.001) barista.heading = Math.atan2(step.x, step.z);
+          }
+        }
+        if (manualMove.lengthSq() > 0.0001) {
+          const speed = 1.15 * scale * Math.min(1, manualMove.length());
+          manualNext
+            .copy(barista.position)
+            .addScaledVector(manualMove.clone().normalize(), speed * dt);
+          // Straight ahead, else veer up to ~70° to slide along a wall or rail (narrow stairs).
+          let free: { point: THREE.Vector3; node?: number } | null = null;
+          for (const turn of STEER) {
+            const c = Math.cos(turn),
+              sn = Math.sin(turn),
+              dx = manualNext.x - barista.position.x,
+              dz = manualNext.z - barista.position.z;
+            manualSlide.set(
+              barista.position.x + (dx * c - dz * sn) * c,
+              barista.position.y,
+              barista.position.z + (dx * sn + dz * c) * c,
+            );
+            free = freeStep(manualSlide);
+            if (free) break;
+          }
+          if (free) {
+            barista.position.copy(free.point);
+            manualNode = free.node;
+            outside = free.node === undefined;
+          }
+          barista.heading = Math.atan2(manualMove.x, manualMove.z);
+        }
+        barista.waypoints = [];
+        barista.waypoint = 0;
+        barista.yieldTo = null;
+      }
+      const arrived = animate(barista, dt, reduced, true);
+      updateProps(dt, reduced);
+      const // Friends at the same table can block the last step; standing beside any of them is enough.
         atTable =
           task === 'serving' &&
           !!servingGuest &&
@@ -625,7 +1056,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
                 ) <
                   0.6 * scale,
             );
-      if ((arrived || atTable) && task === 'serving' && servingGuest) {
+      if (!manual && (arrived || atTable) && task === 'serving' && servingGuest) {
         barista.serveAge += dt;
         if (barista.serveAge > 2) {
           // One tray for the whole group at the table, then wipe down the bar.

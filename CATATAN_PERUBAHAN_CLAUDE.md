@@ -341,3 +341,87 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Mode pengembangan `?sceneStats`: kamera boleh mundur sampai 90 untuk memeriksa dunia.
 - Dicek di browser: jalan & bahu, jembatan, malam (Bimasakti, lampu interior & lampu tali). `typecheck`,
   `format:check`, `build` lulus; `people.test` 8/8, `engine.test` 21/25.
+
+## 21. Mode Explore: main jadi barista virtual (25 Okt 2026)
+
+- Tombol **Explore** di scene kafe: layar penuh, pengunjung mengendalikan Luna (joystick di HP,
+  WASD/panah di laptop, E/Spasi untuk aksi). Kamera mengikuti Luna dari atas belakang; lantai/atap di
+  atas Luna dan dinding yang menghalangi pandangan disembunyikan sementara (dikembalikan saat keluar).
+  Tombol "Pergi ke kasir / meja bar / mesin espresso / meja tamu" membuat Luna berjalan sendiri ke sana.
+- Alur barista (`app/explore-mode.tsx`, aturan di `lib/barista-game.ts`): tamu datang dan antre →
+  di kasir pilih menu yang diucapkan tamu, terima uang (20rb/50rb/100rb/pas), ambil kembalian dari
+  laci → di meja bar pilih gelas (cangkir panas, gelas es, cup bawa pulang) dan takar bahan (SKM, susu
+  full cream, gula, aren, bubuk cokelat/matcha/taro, sirup, teh, air, es, kopi tubruk) → menu kopi wajib
+  memakai mesin espresso (tahan untuk menggiling, tamp, hentikan jarum di zona hijau; maks 3 shot) →
+  antar ke meja tamu → tamu memberi bintang 1–5, komentar, dan poin.
+- Menu diambil dari menu kafe (minuman saja); jika kosong memakai 6 menu contoh. **Resep asli tidak
+  dipakai**: rasa yang diharapkan tamu dihitung dari nama menu + permintaan (manis/kuat), jadi pemain
+  bebas meracik sendiri. Skor hanya di browser, tidak disimpan ke database.
+- Tamu di dunia 3D memakai sistem tamu yang sudah ada (antre, duduk, menerima minuman).
+- `?sceneStats` (khusus pengembangan) menambah `window.__explore` untuk tes; tidak aktif di production.
+- Tidak ada file aset baru, jadi tidak ada `?v=` yang perlu dinaikkan.
+- Dicek di browser (ukuran HP): satu putaran penuh kasir → kembalian → racik → espresso → antar →
+  bintang. `typecheck`, `format:check`, `build` lulus; `barista.test` 5/5, `people.test` 8/8,
+  `engine.test` 21/25 seperti sebelumnya.
+
+## 22. Mode Explore: tangga, kamera CCTV, antrean, tampilan minimalis, duduk lesehan (25 Okt 2026)
+
+- **Tangga**: Luna bisa naik-turun tangga melingkari pohon (ke lantai 2) dan tangga menuju box bar,
+  baik dengan geser layar/WASD maupun "ke …". Langkah bebas sekarang memakai peta jalan per anak
+  tangga (`cafePaths().step`), mengukur pijakan dari beberapa titik di sekitar kaki (menjembatani celah
+  kecil di antara anak tangga box), dan berbelok mengikuti dinding/pagar di tangga yang sempit.
+  Animasi: kaki depan terangkat lebih tinggi dan badan sedikit condong saat naik; turun dihaluskan.
+- **Kolam**: dasar kolam tidak lagi dianggap lantai; Luna berhenti di tepi kolam.
+- **Tidak ada objek yang dihilangkan** lagi. Kamera mengikuti Luna dan otomatis turun/mendekat bila
+  atap atau dinding menghalangi. Saat Luna masuk box bar, kamera pindah ke **CCTV** di pojok atas
+  dekat pintu samping box, lensa lebar dan terkunci (tidak bisa diputar); keluar box kembali normal.
+- **Antrean**: tamu antre tepat di depan jendela kasir tempat Luna berdiri, orang berikutnya di
+  belakangnya lalu barisan berbelok menyusuri trotoar (jalur sisi jalan tetap bisa dilewati). Barisan
+  maju saat tamu terdepan selesai memesan.
+- **Tampilan minimalis**: joystick tidak terlihat (geser layar di kiri bawah untuk berjalan); tombol
+  besar diganti tulisan kecil di tengah layar ("Terima pesanan", "Ambil cangkir / cup", "Masukkan
+  takaran", "Pakai mesin espresso", "Antar pesanan"). Kasir, pilihan gelas, takaran dan espresso
+  tampil sebagai teks kecil yang tetap bisa disentuh. Tombol suara & siang/malam disembunyikan
+  selama Explore.
+- **Pesanan tamu**: nama menu dari menu website (di production otomatis menu asli; di komputer lokal
+  yang kosong memakai menu contoh), kalimat bervariasi ("Americano nya 1 ya!", "Kak, … satu ya.",
+  "dibungkus ya", "less sugar ya", "kopinya yang kuat", dll.). Rasa yang dinilai hanya yang diucapkan
+  tamu. Resep asli tetap tidak dipakai.
+- **Duduk**: tamu duduk tepat di kursi beton panjang dan kursi besi putih; di lantai 2 indoor
+  (lesehan, meja atas 1 & 2) duduk bersila di lantai, 6 tempat per meja.
+- Perbaikan lain: Luna menyusul tamu yang masih berjalan ke kursinya; tamu tidak lagi macet karena
+  Luna diparkir di lorong (dan menyelip bila tertahan lama); klik "+" cepat terhitung semua.
+- Pengembangan (`?sceneStats`, tidak aktif di production): `window.__scene` untuk memeriksa kamera,
+  tamu dan posisi duduk.
+- Dicek di browser (ukuran HP): tangga pohon, CCTV di box, antrean di jendela, kasir → cangkir →
+  espresso 2 shot → takaran → antar → bintang; pose duduk di kursi beton, kursi besi dan lesehan.
+  `typecheck`, `format:check`, lint file Explore, `build` lulus; `barista.test` 5/5,
+  `people.test` 12/12 (4 tes baru: tangga & kolam, antrean, lesehan, Luna diparkir),
+  `engine.test` 21/25 seperti sebelumnya. Tidak ada file aset baru, jadi `?v=` tidak berubah.
+
+## 23. Explore: CCTV bisa diputar, jelajah dunia, duduk, Story of Winds, teleskop, bersih-bersih (26 Okt 2026)
+
+- **CCTV box bar** pindah ke sudut kanan atas kaca jendela depan box (sisi pintu). Geser layar untuk
+  memutar ke segala arah (kiri-kanan, atas-bawah). Lensa ultra-lebar garis lurus (kebalikan fisheye:
+  garis tetap lurus, tepi gambar melebar) ±120° melintang, tinggi maksimum 120° di HP tegak.
+- **Jelajah dunia**: dari tepi luar trotoar Luna bisa turun ke jalan, berjalan di padang dan bukit,
+  menyusuri tepi sungai (tidak masuk air), menyeberang jembatan kayu, naik ke bukit menara (tidak
+  menembus menara dan batang pohon). Masuk kembali ke kafe lewat trotoar. Kamera tidak masuk ke tanah.
+  (`createCafeWorld().walkHeight`, `cafePaths().groundHit`, langkah luar di `scene-people.ts`.)
+- **Duduk**: dekat kursi kosong mana pun (kursi besi, kursi beton, lesehan) muncul "Duduk"; Luna
+  duduk dengan tangan di pangkuan; "Berdiri" atau menggeser layar membuatnya berdiri. Tamu tidak
+  memakai kursi yang sedang diduduki Luna.
+- **Story of Winds dari dalam scene**: tombol kecil "kamera" membuka kamera digital yang sama persis
+  (film, jatah harian 08.00 WITA, album, Memoirs), tetapi lensanya mata Luna di dunia 3D. Geser
+  layar LCD untuk membidik; tombol ⟲ untuk selfie Luna. Luna memegang kamera saat memotret.
+- **Teleskop**: dekat teleskop muncul "Lihat teleskop" → Windstronout terbuka di atas mode Explore;
+  saat ditutup kamera kembali di belakang Luna.
+- **Bersih-bersih**: "Siram tanaman" dekat pot/planter (gembor + tetes air), "Lap meja" dekat meja
+  (lap + gerakan memutar), "sapu" di pojok kanan bawah (sapu + debu). Masing-masing memberi poin
+  kecil (+5 / +5 / +2), tanaman dan meja yang sama bisa diulang setelah 45 detik.
+- Dialog (Windstronout, Story of Winds) kini tampil di atas layar penuh Explore.
+- Dicek di browser (ukuran HP): CCTV di sudut kaca + putar dengan geser; keluar trotoar, menyeberang
+  jalan, berhenti di tepi sungai; lap meja; duduk & berdiri; teleskop → Windstronout → kembali;
+  kamera POV & selfie, jepret tersimpan di album dengan bingkai film; menyapu.
+  `typecheck`, `format:check`, `build` lulus; `barista.test` 5/5, `people.test` 13/13 (1 tes baru:
+  duduk/berdiri/pekerjaan), `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
