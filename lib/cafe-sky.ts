@@ -298,9 +298,11 @@ export function createCafeSky(radius = 85) {
       reduced: boolean,
       /** True while something (café, hill, mountain) stands between the camera and the sun. */
       sunBlocked = false,
+      /** A clock other than the real one (explore mode's faster day); used with phase 'live'. */
+      clock?: Date,
     ) {
       group.position.copy(camera.position);
-      const now = new Date();
+      const now = clock ?? new Date();
       // Stars and the real sun/moon move slowly: recompute twice a second.
       if (time - lastRotation > 0.5) {
         lastRotation = time;

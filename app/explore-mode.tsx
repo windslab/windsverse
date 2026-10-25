@@ -10,10 +10,13 @@ import {
   CUPS,
   DENOMINATIONS,
   INGREDIENTS,
+  crowdFor,
   drinkMenu,
+  GAME_MINUTES_PER_SECOND,
   newCustomer,
   review,
   rupiah,
+  type Crowd,
   type CupId,
   type Drink,
   type MenuItem,
@@ -35,6 +38,12 @@ export type ExploreApi = {
   walking: () => boolean;
   luna: () => THREE.Vector3;
   stations: { cashier: THREE.Vector3; bar: THREE.Vector3; espresso: THREE.Vector3 };
+  /** Explore mode's own clock for the sky (faster than real time). */
+  setClock: (date: Date | null) => void;
+  /** Run while Shift or a second finger is held. */
+  setRun: (on: boolean) => void;
+  /** Arrow over the guest whose order Luna carries (null = none). */
+  marker: (key: string | null) => void;
   /** A free seat within reach, then sit / stand. */
   seatNear: () => { id: string; position: THREE.Vector3 } | null;
   sit: (id: string) => boolean;
@@ -111,13 +120,24 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     [hint, setHint] = useState('Jalan ke kasir untuk menyambut tamu.'),
     [goals, setGoals] = useState<{ id: string; label: string }[]>([]),
     [photoOpen, setPhotoOpen] = useState(false),
+    [open, setOpen] = useState(false),
+    [minutes, setMinutes] = useState(8 * 60),
+    [crowdLabel, setCrowdLabel] = useState('sepi'),
     [note, setNote] = useState('');
   const customersRef = useRef<Customer[]>([]),
     keys = useRef(new Set<string>()),
     stick = useRef({ x: 0, y: 0 }),
     counter = useRef(0),
     chase = useRef<string | null>(null),
-    cooldown = useRef<Record<string, number>>({});
+    cooldown = useRef<Record<string, number>>({}),
+    keyRun = useRef(false),
+    touchRun = useRef(false),
+    stickHeld = useRef(false),
+    touchIds = useRef(new Set<number>()),
+    minutesRef = useRef(8 * 60),
+    openRef = useRef(false),
+    crowdHour = useRef(-1),
+    crowdRef = useRef<Crowd>({ label: 'sepi', chance: 0.12, max: 2 });
   useEffect(() => {
     customersRef.current = customers;
   }, [customers]);
@@ -145,6 +165,10 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     );
   }, [customers, api]);
 
+  // Point at the guest whose drink Luna is carrying.
+  useEffect(() => {
+    api.marker(holding ? ticket : null);
+  }, [holding, ticket, api]);
   useEffect(() => {
     api.setTask(
       photoOpen
@@ -159,11 +183,48 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     );
   }, [holding, panel, photoOpen, api]);
 
-  // Guests arrive now and then (at most three at a time while testing).
+  // Explore mode's own day: a game hour per real minute, starting at 08.00. The sky follows it.
+  useEffect(() => {
+    let last = performance.now();
+    const t = setInterval(() => {
+      const now = performance.now();
+      setMinutes((m) => (m + ((now - last) / 1000) * GAME_MINUTES_PER_SECOND) % (24 * 60));
+      last = now;
+    }, 500);
+    return () => {
+      clearInterval(t);
+      api.setClock(null);
+    };
+  }, [api]);
+  useEffect(() => {
+    // Game time is WITA (UTC+8), today.
+    const d = new Date();
+    api.setClock(
+      new Date(
+        Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0) +
+          (minutes - 8 * 60) * 60_000,
+      ),
+    );
+  }, [minutes, api]);
+  const hour = Math.floor(minutes / 60);
+
+  // While the café is open, guests walk in now and then: some hours quiet, some busy.
+  useEffect(() => {
+    minutesRef.current = minutes;
+  }, [minutes]);
   useEffect(() => {
     if (!menu.length) return;
     const spawn = () => {
-      if (customersRef.current.filter((c) => c.stage !== 'served').length >= 3) return;
+      const h = Math.floor(minutesRef.current / 60);
+      if (crowdHour.current !== h) {
+        crowdHour.current = h;
+        crowdRef.current = crowdFor(h);
+        setCrowdLabel(crowdRef.current.label);
+      }
+      if (!openRef.current) return;
+      const crowd = crowdRef.current,
+        waiting = customersRef.current.filter((c) => c.stage !== 'served').length;
+      if (waiting >= crowd.max || Math.random() > crowd.chance) return;
       const { name, order } = newCustomer(menu);
       counter.current += 1;
       setCustomers((list) => [
@@ -177,13 +238,13 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         },
       ]);
     };
-    const first = setTimeout(spawn, 2500),
-      timer = setInterval(spawn, 26000);
-    return () => {
-      clearTimeout(first);
-      clearInterval(timer);
-    };
+    spawn();
+    const timer = setInterval(spawn, 5000);
+    return () => clearInterval(timer);
   }, [menu]);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   // Guests who were served leave after their drink.
   useEffect(() => {
@@ -214,7 +275,12 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     const down = (e: KeyboardEvent) => {
       if (panel) return;
       const key = e.key.toLowerCase();
-      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+      if (key === 'shift') {
+        keyRun.current = true;
+        api.setRun(true);
+      } else if (
+        ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)
+      ) {
         keys.current.add(key);
         applyStick();
         e.preventDefault();
@@ -225,14 +291,40 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     };
     const up = (e: KeyboardEvent) => {
       keys.current.delete(e.key.toLowerCase());
+      if (e.key === 'Shift') {
+        keyRun.current = false;
+        api.setRun(touchRun.current);
+      }
       applyStick();
     };
+    // Phone: one thumb on the (invisible) stick, the other held anywhere on the screen to run.
+    const touches = touchIds.current;
+    const touchUpdate = () => {
+      touchRun.current = stickHeld.current && touches.size >= 2;
+      api.setRun(keyRun.current || touchRun.current);
+    };
+    const pointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch') return;
+      touches.add(e.pointerId);
+      touchUpdate();
+    };
+    const pointerUp = (e: PointerEvent) => {
+      touches.delete(e.pointerId);
+      touchUpdate();
+    };
+    window.addEventListener('pointerdown', pointerDown, true);
+    window.addEventListener('pointerup', pointerUp, true);
+    window.addEventListener('pointercancel', pointerUp, true);
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     return () => {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
+      window.removeEventListener('pointerdown', pointerDown, true);
+      window.removeEventListener('pointerup', pointerUp, true);
+      window.removeEventListener('pointercancel', pointerUp, true);
       api.setStick(0, 0);
+      api.setRun(false);
     };
   }, [panel, applyStick, api]);
 
@@ -308,11 +400,13 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
               ? `${queue.name} menunggu di kasir.`
               : tickets.length
                 ? 'Lanjutkan racikan di meja bar.'
-                : 'Jalan-jalan dulu, tamu berikutnya segera datang.',
+                : open
+                  ? `Kafe buka (${crowdLabel}). Tunggu tamu, atau jalan-jalan dulu.`
+                  : 'Kafe tutup. Ketuk "buka kafe" kapan saja.',
       );
     }, 200);
     return () => clearInterval(t);
-  }, [api, holding, ticket, drink.cup, drink.amounts.espresso]);
+  }, [api, holding, ticket, drink.cup, drink.amounts.espresso, open, crowdLabel]);
 
   const run = (id: string) => {
     chase.current = id === 'go-guest' ? ticket : null;
@@ -423,6 +517,12 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
           {score.points} poin · {average ? average.toFixed(1) : '–'}
           <Star size={10} /> · {score.served} tamu
         </span>
+        <span className={styles.clock}>
+          {String(hour).padStart(2, '0')}.{String(Math.floor(minutes % 60)).padStart(2, '0')}
+          <button onClick={() => setOpen((o) => !o)} aria-pressed={open}>
+            {open ? 'tutup kafe' : 'buka kafe'}
+          </button>
+        </span>
         <button className={styles.exit} onClick={onExit} aria-label="Keluar dari mode explore">
           <LogOut size={14} />
         </button>
@@ -440,6 +540,11 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         onMove={(x, y) => {
           stick.current = { x, y };
           applyStick();
+        }}
+        onHold={(held) => {
+          stickHeld.current = held;
+          touchRun.current = held && touchIds.current.size >= 2;
+          api.setRun(keyRun.current || touchRun.current);
         }}
       />
       {!panel && actions.length > 0 && (
@@ -562,7 +667,13 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
  * Invisible stick: drag anywhere in the lower-left part of the screen to walk. The point where
  * the finger lands is the centre; nothing is drawn.
  */
-function TouchStick({ onMove }: { onMove: (x: number, y: number) => void }) {
+function TouchStick({
+  onMove,
+  onHold,
+}: {
+  onMove: (x: number, y: number) => void;
+  onHold: (held: boolean) => void;
+}) {
   const origin = useRef<{ id: number; x: number; y: number } | null>(null);
   const RADIUS = 48;
   const move = (e: React.PointerEvent) => {
@@ -581,12 +692,14 @@ function TouchStick({ onMove }: { onMove: (x: number, y: number) => void }) {
     if (origin.current?.id !== e.pointerId) return;
     origin.current = null;
     onMove(0, 0);
+    onHold(false);
   };
   return (
     <div
       className={styles.stickZone}
       onPointerDown={(e) => {
         origin.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        onHold(true);
         try {
           e.currentTarget.setPointerCapture(e.pointerId);
         } catch {

@@ -374,3 +374,24 @@
   color: #a8e2a0;
   white-space: nowrap;
 }
+/* Game clock and the open/close switch, next to the score. */
+.clock {
+  margin-left: auto;
+  margin-right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.clock button {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px !important;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 238, 214, 0.6) !important;
+}
+.clock button[aria-pressed='true'] {
+  color: #a8e2a0;
+  border-color: rgba(168, 226, 160, 0.7) !important;
+}

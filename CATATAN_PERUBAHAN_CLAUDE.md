@@ -425,3 +425,28 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   kamera POV & selfie, jepret tersimpan di album dengan bingkai film; menyapu.
   `typecheck`, `format:check`, `build` lulus; `barista.test` 5/5, `people.test` 13/13 (1 tes baru:
   duduk/berdiri/pekerjaan), `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
+
+## 24. Explore: lari, buka/tutup kafe, hari lebih cepat, panah tamu, zebra cross, menara (26 Okt 2026)
+
+- **Lari**: tahan Shift (keyboard), atau di HP satu jari menggeser di kiri bawah sambil jari lain
+  menahan layar. Kecepatan 2×, langkah lebih panjang; kamera tidak ikut berputar oleh jari penahan.
+- **Sapu** diperbaiki: batang condong ke depan dan ujungnya menyatu dengan sapu.
+- **Buka / tutup kafe** (tombol kecil di sebelah jam): kafe mulai tutup, Luna bebas membuka kapan pun.
+  Saat buka, tamu datang tidak tentu: tiap jam permainan dipilih sepi / lumayan / ramai (jam makan
+  siang dan sore lebih sering ramai, larut malam lebih sering sepi). `crowdFor()` di `barista-game`.
+- **Waktu permainan** tidak mengikuti jam asli: 1 jam permainan = 1 menit asli, mulai 08.00; langit,
+  matahari, lampu malam ikut jam ini (`sky.update(..., clock)`).
+- **Panah penunjuk** oranye berputar di atas tamu yang pesanannya sedang dibawa (terlihat menembus
+  dinding).
+- **Lalu lintas**: mobil kini melaju sepanjang jalan dunia (±135 dari kafe), muncul dari kejauhan dan
+  memudar pelan hanya di ujung jalan; 3 kendaraan per jalur dengan jarak aman. **Zebra cross** di
+  depan trotoar kafe: saat Luna mendekat/di atasnya, mobil di kedua jalur mengerem dan berhenti
+  sebelum garis.
+- **Menara observatorium**: jalan setapak batu marmer dari pinggir jalan ke pintu menara, bebatuan
+  marmer di sekitar bukit, tiga anak tangga ke alas, **pintu** yang bisa dimasuki, **tangga spiral**
+  menempel di dinding dalam (3 putaran, 60 anak tangga) sampai **balkon** berpagar di puncak sekitar
+  kubah. Papan kayu "CHAPTER 4 : LOCKED" di depan menara. Kamera ikut menghindari dinding menara.
+- Dicek di browser (ukuran HP): menara dari jauh; Luna masuk pintu, naik tangga spiral sampai balkon
+  (pagar menahan); zebra cross dan mobil berhenti; lari 2× jalan; buka kafe → tamu datang; panah
+  di atas tamu. `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6 (1 baru: keramaian),
+  `people.test` 13/13, `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.

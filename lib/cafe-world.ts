@@ -150,6 +150,31 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     .addScaledVector(roadSide, sideOfCafe * 46)
     .addScaledVector(roadDir, -34);
 
+  // Marble footpath from the road (on the café's side, level with the tower) up to the tower's
+  // door, which faces the path. Trees keep clear of it.
+  const towerPathStart = road.origin
+    .clone()
+    .addScaledVector(roadDir, towerAt.clone().sub(road.origin).dot(roadDir) + 6)
+    .addScaledVector(roadSide, sideOfCafe * (road.halfWidth + 0.9));
+  const doorDir = towerPathStart.clone().sub(towerAt).setY(0).normalize(),
+    doorAngle = Math.atan2(doorDir.x, doorDir.z),
+    towerPathEnd = towerAt.clone().addScaledVector(doorDir, 4.1);
+  const towerPathCurve = new THREE.QuadraticBezierCurve3(
+    towerPathStart.clone().setY(0),
+    towerPathStart
+      .clone()
+      .lerp(towerPathEnd, 0.5)
+      .addScaledVector(new THREE.Vector3(-doorDir.z, 0, doorDir.x), 7)
+      .setY(0),
+    towerPathEnd.clone().setY(0),
+  );
+  const towerPathPoints = towerPathCurve.getSpacedPoints(80);
+  const towerPathDistance = (x: number, z: number) => {
+    let best = Infinity;
+    for (const p of towerPathPoints) best = Math.min(best, (p.x - x) ** 2 + (p.z - z) ** 2);
+    return Math.sqrt(best);
+  };
+
   const flatZone = (x: number, z: number) => {
     const dx = Math.max(bounds.min.x - x, 0, x - bounds.max.x),
       dz = Math.max(bounds.min.z - z, 0, z - bounds.max.z);
@@ -629,7 +654,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       z = center.z + Math.sin(a) * r;
     const { flat, roadGap } = flatZone(x, z);
     if (flat < 0.9 || roadGap < 3 || riverDistance(x, z) < 5) continue;
-    if (Math.hypot(x - towerAt.x, z - towerAt.z) < 5) continue;
+    if (Math.hypot(x - towerAt.x, z - towerAt.z) < 10) continue;
+    if (towerPathDistance(x, z) < 2.5) continue;
     const s = 0.8 + noise(i, 8) * 0.9;
     treeSpots.push(
       new THREE.Matrix4().compose(
@@ -652,14 +678,48 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   group.add(trunks, canopies);
 
   // --- Observatory tower (the panorama landmark) ----------------------------------------------
+  // Hollow, with a door facing the marble path; inside, a staircase hugs the wall and spirals up
+  // three turns to a balcony around the dome. All heights below are relative to the tower base.
   const tower = new THREE.Group();
   tower.name = 'World_Observatory';
-  tower.position.set(towerAt.x, height(towerAt.x, towerAt.z) - 0.2, towerAt.z);
-  const brick = new THREE.MeshToonMaterial({ color: '#a2603f', gradientMap: toonGradient() }),
-    stone = new THREE.MeshToonMaterial({ color: '#c9b9a0', gradientMap: toonGradient() }),
+  const towerBase = height(towerAt.x, towerAt.z) - 0.2;
+  tower.position.set(towerAt.x, towerBase, towerAt.z);
+  const T = {
+    plinth: 1.2,
+    wallIn: 1.5,
+    wallOut: 1.8,
+    wallTop: 10.3,
+    door: 0.3,
+    doorHeight: 1.9,
+    stairIn: 0.75,
+    stairOut: 1.5,
+    turns: 3,
+    top: 10.475,
+    dome: 1.0,
+    balcony: 2.15,
+    holeArc: 1.1,
+  };
+  const stairStart = doorAngle + 1.0,
+    pitch = (T.top - T.plinth) / T.turns;
+  const brick = new THREE.MeshToonMaterial({
+      color: '#a2603f',
+      gradientMap: toonGradient(),
+      side: THREE.DoubleSide,
+    }),
+    stone = new THREE.MeshToonMaterial({
+      color: '#c9b9a0',
+      gradientMap: toonGradient(),
+      side: THREE.DoubleSide,
+    }),
     dark = new THREE.MeshToonMaterial({ color: '#3b2a20', gradientMap: toonGradient() }),
-    roof = new THREE.MeshToonMaterial({ color: '#d8d2c4', gradientMap: toonGradient() });
-  materials.push(brick, stone, dark, roof);
+    roof = new THREE.MeshToonMaterial({ color: '#d8d2c4', gradientMap: toonGradient() }),
+    marble = new THREE.MeshToonMaterial({
+      color: '#e9e6df',
+      gradientMap: toonGradient(),
+      vertexColors: true,
+    }),
+    wood = new THREE.MeshToonMaterial({ color: '#8a5d3b', gradientMap: toonGradient() });
+  materials.push(brick, stone, dark, roof, marble, wood);
   const add = (geometry: THREE.BufferGeometry, material: THREE.Material, y: number) => {
     geometries.push(geometry);
     const mesh = new THREE.Mesh(geometry, material);
@@ -667,21 +727,267 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     tower.add(mesh);
     return mesh;
   };
-  add(new THREE.CylinderGeometry(2.6, 3.4, 1.2, 14), stone, 0.6);
-  add(new THREE.CylinderGeometry(1.6, 1.9, 9, 14), brick, 5.7);
-  add(new THREE.CylinderGeometry(2.3, 2.3, 0.35, 16), stone, 4.2);
-  add(new THREE.CylinderGeometry(2.2, 2.2, 0.35, 16), stone, 10.3);
-  for (let k = 0; k < 6; k++) {
-    const w = add(new THREE.BoxGeometry(0.42, 0.8, 0.2), dark, k % 2 ? 7.4 : 3);
-    const a = (k / 6) * Math.PI * 2;
-    w.position.x = Math.cos(a) * 1.72;
-    w.position.z = Math.sin(a) * 1.72;
-    w.rotation.y = -a + Math.PI / 2;
+  const wallR = (T.wallIn + T.wallOut) / 2;
+  add(new THREE.CylinderGeometry(2.6, 3.4, T.plinth, 20), stone, T.plinth / 2);
+  // Three steps up the plinth in front of the door.
+  [
+    [2.8, 0.95],
+    [3.2, 0.7],
+    [3.6, 0.45],
+  ].forEach(([r, top]) => {
+    const step = add(new THREE.BoxGeometry(1.4, top, 0.42), stone, top / 2);
+    step.position.x = doorDir.x * r;
+    step.position.z = doorDir.z * r;
+    step.rotation.y = doorAngle;
+  });
+  // Wall: the lower ring leaves the doorway open; the upper ring is whole.
+  add(
+    new THREE.CylinderGeometry(
+      wallR,
+      wallR,
+      T.doorHeight,
+      28,
+      1,
+      true,
+      doorAngle + T.door / wallR + 0.0,
+      Math.PI * 2 - (2 * T.door) / wallR,
+    ),
+    brick,
+    T.plinth + T.doorHeight / 2,
+  );
+  add(
+    new THREE.CylinderGeometry(wallR, wallR, T.wallTop - T.plinth - T.doorHeight, 28, 1, true),
+    brick,
+    T.plinth + T.doorHeight + (T.wallTop - T.plinth - T.doorHeight) / 2,
+  );
+  // Door frame.
+  for (const side of [-1, 1]) {
+    const post = add(
+      new THREE.BoxGeometry(0.12, T.doorHeight, 0.34),
+      dark,
+      T.plinth + T.doorHeight / 2,
+    );
+    const a = doorAngle + (side * T.door) / wallR;
+    post.position.x = Math.sin(a) * wallR;
+    post.position.z = Math.cos(a) * wallR;
+    post.rotation.y = a;
   }
-  add(new THREE.SphereGeometry(1.5, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), roof, 10.45);
-  const scope = add(new THREE.CylinderGeometry(0.14, 0.2, 1.6, 8), dark, 11.4);
+  {
+    const lintel = add(
+      new THREE.BoxGeometry(T.door * 2 + 0.24, 0.16, 0.36),
+      dark,
+      T.plinth + T.doorHeight,
+    );
+    lintel.position.x = doorDir.x * wallR;
+    lintel.position.z = doorDir.z * wallR;
+    lintel.rotation.y = doorAngle;
+  }
+  add(new THREE.CylinderGeometry(2.3, 2.3, 0.35, 20, 1, true), stone, 4.2);
+  for (let k = 0; k < 6; k++) {
+    const a = doorAngle + Math.PI / 6 + (k / 6) * Math.PI * 2;
+    const w = add(new THREE.BoxGeometry(0.42, 0.8, 0.12), dark, k % 2 ? 7.4 : 5);
+    w.position.x = Math.sin(a) * (T.wallOut + 0.01);
+    w.position.z = Math.cos(a) * (T.wallOut + 0.01);
+    w.rotation.y = a;
+  }
+  // Spiral stairs along the inside of the wall: 20 treads a turn.
+  {
+    const treads: THREE.BufferGeometry[] = [],
+      perTurn = 20,
+      count = perTurn * T.turns,
+      mid = (T.stairIn + T.stairOut) / 2;
+    for (let k = 0; k < count; k++) {
+      const a = stairStart + ((k + 0.5) / perTurn) * Math.PI * 2,
+        y = T.plinth + ((k + 1) / count) * (T.top - T.plinth);
+      const tread = new THREE.BoxGeometry(
+        T.stairOut - T.stairIn,
+        0.1,
+        ((Math.PI * 2) / perTurn) * mid * 1.08,
+      );
+      tread.translate(mid, 0, 0);
+      tread.rotateY(a - Math.PI / 2);
+      tread.translate(0, y - 0.05, 0);
+      treads.push(tread.toNonIndexed());
+    }
+    const geometry = mergeGeometries(treads)!;
+    treads.forEach((g) => g.dispose());
+    geometry.computeVertexNormals();
+    add(geometry, stone, 0);
+  }
+  // Top: floor around the dome, open where the stairs come up, with a railing.
+  {
+    const ringFloor = (inner: number, outer: number, start: number, length: number) => {
+      const ring = new THREE.RingGeometry(inner, outer, 40, 1, start, length);
+      ring.rotateX(-Math.PI / 2);
+      return ring;
+    };
+    // RingGeometry angles run from +X toward −Z once flat; convert from our (sin, cos) angles.
+    const holeEnd = Math.PI / 2 - stairStart,
+      inner = ringFloor(T.dome, T.stairOut + 0.05, holeEnd, Math.PI * 2 - T.holeArc);
+    add(inner, stone, T.top);
+    add(ringFloor(T.stairOut + 0.05, T.balcony + 0.05, 0, Math.PI * 2), stone, T.top);
+    add(
+      new THREE.CylinderGeometry(T.balcony + 0.05, T.balcony + 0.05, 0.25, 28, 1, true),
+      stone,
+      T.top - 0.12,
+    );
+    const rail = add(new THREE.TorusGeometry(T.balcony, 0.03, 5, 48), dark, T.top + 0.7);
+    rail.rotation.x = Math.PI / 2;
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2,
+        post = add(new THREE.CylinderGeometry(0.025, 0.025, 0.7, 5), dark, T.top + 0.35);
+      post.position.x = Math.sin(a) * T.balcony;
+      post.position.z = Math.cos(a) * T.balcony;
+    }
+  }
+  add(new THREE.SphereGeometry(T.dome, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), roof, T.top);
+  const scope = add(new THREE.CylinderGeometry(0.1, 0.14, 1.2, 8), dark, T.top + 1.05);
   scope.rotation.z = 0.9;
   group.add(tower);
+
+  // Marble stepping stones along the path, and white marble boulders around the tower hill.
+  const rocks: { x: number; z: number; r: number }[] = [];
+  {
+    const slabs: THREE.BufferGeometry[] = [],
+      boulders: THREE.BufferGeometry[] = [],
+      tint = (g: THREE.BufferGeometry, shade: number) => {
+        const n = g.getAttribute('position').count,
+          c = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) {
+          const v = shade * (0.94 + noise(i * 0.37, shade * 9) * 0.08);
+          c.set([v, v * 0.995, v * 0.985], i * 3);
+        }
+        g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+        return g;
+      };
+    towerPathCurve.getSpacedPoints(Math.floor(towerPathCurve.getLength() / 0.8)).forEach((p, i) => {
+      const jitter = (noise(i * 1.3, 4) - 0.5) * 0.35;
+      const tangent = towerPathCurve
+        .getTangentAt(Math.min(1, i / 60))
+        .setY(0)
+        .normalize();
+      const x = p.x + tangent.z * jitter,
+        z = p.z - tangent.x * jitter;
+      const slab = new THREE.CylinderGeometry(0.34, 0.36, 0.06, 6 + (i % 3));
+      slab.scale(1 + noise(i, 2) * 0.35, 1, 0.8 + noise(i, 3) * 0.3);
+      slab.rotateY(noise(i, 7) * 6.28);
+      slab.translate(x, height(x, z) + 0.035, z);
+      slabs.push(tint(slab.toNonIndexed(), 0.97 + noise(i, 5) * 0.06));
+    });
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2 + noise(i, 11) * 0.3,
+        r = 4.8 + noise(i * 2.1, 13) * 5.5,
+        x = towerAt.x + Math.sin(a) * r,
+        z = towerAt.z + Math.cos(a) * r;
+      if (towerPathDistance(x, z) < 1.6) continue;
+      const size = 0.4 + noise(i, 17) * 1.1;
+      const rock = new THREE.DodecahedronGeometry(size, 0);
+      rock.scale(1, 0.55 + noise(i, 19) * 0.4, 0.85);
+      rock.rotateY(noise(i, 23) * 6.28);
+      rock.translate(x, height(x, z) + size * 0.15, z);
+      boulders.push(tint(rock.toNonIndexed(), 0.86 + noise(i, 29) * 0.12));
+      rocks.push({ x, z, r: size * 0.85 });
+    }
+    for (const [parts, name] of [
+      [slabs, 'World_Marble_Path'],
+      [boulders, 'World_Marble_Rocks'],
+    ] as const) {
+      const geometry = mergeGeometries(parts)!;
+      parts.forEach((g) => g.dispose());
+      geometry.computeVertexNormals();
+      geometries.push(geometry);
+      const mesh = new THREE.Mesh(geometry, marble);
+      mesh.name = name;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+  }
+
+  // Wooden sign by the path in front of the tower.
+  const signAt = towerPathEnd
+    .clone()
+    .addScaledVector(doorDir, 1.2)
+    .addScaledVector(new THREE.Vector3(doorDir.z, 0, -doorDir.x), 1.25);
+  {
+    const sign = new THREE.Group();
+    sign.name = 'World_Tower_Sign';
+    sign.position.set(signAt.x, height(signAt.x, signAt.z), signAt.z);
+    sign.rotation.y = doorAngle;
+    const postGeometry = new THREE.BoxGeometry(0.09, 1.1, 0.09);
+    geometries.push(postGeometry);
+    for (const x of [-0.42, 0.42]) {
+      const post = new THREE.Mesh(postGeometry, wood);
+      post.position.set(x, 0.55, 0);
+      sign.add(post);
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 192;
+    const g = canvas.getContext('2d')!;
+    g.fillStyle = '#9b6a43';
+    g.fillRect(0, 0, 512, 192);
+    for (let i = 0; i < 9; i++) {
+      g.fillStyle = `rgba(60,36,20,${0.1 + (i % 3) * 0.05})`;
+      g.fillRect(0, 18 + i * 20 + (i % 2) * 4, 512, 2);
+    }
+    g.fillStyle = '#3a2416';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = 'bold 54px Georgia, serif';
+    g.fillText('CHAPTER 4', 256, 70);
+    g.font = 'bold 44px Georgia, serif';
+    g.fillText(': LOCKED', 256, 132);
+    g.strokeStyle = '#5a3820';
+    g.lineWidth = 10;
+    g.strokeRect(5, 5, 502, 182);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    textures.push(texture);
+    const boardGeometry = new THREE.BoxGeometry(1.15, 0.43, 0.05);
+    geometries.push(boardGeometry);
+    const face = new THREE.MeshToonMaterial({ map: texture, gradientMap: toonGradient() });
+    materials.push(face);
+    const board = new THREE.Mesh(boardGeometry, [wood, wood, wood, wood, face, face]);
+    board.position.y = 0.9;
+    sign.add(board);
+    group.add(sign);
+  }
+
+  /** Floors inside and on the tower (tower-relative heights) at a point, or null outside it. */
+  const towerFloors = (x: number, z: number): number[] | null => {
+    const dx = x - towerAt.x,
+      dz = z - towerAt.z,
+      r = Math.hypot(dx, dz);
+    if (r >= 3.8) return null;
+    const a = Math.atan2(dx, dz),
+      wrap = (v: number) => Math.atan2(Math.sin(v), Math.cos(v)),
+      fromDoor = wrap(a - doorAngle),
+      floors: number[] = [];
+    // Steps up the plinth in front of the door.
+    if (Math.cos(fromDoor) > 0 && Math.abs(r * Math.sin(fromDoor)) < 0.7) {
+      if (r >= 3.4) floors.push(0.45);
+      else if (r >= 3.0) floors.push(0.7);
+      else if (r >= 2.6) floors.push(0.95);
+    }
+    if (r >= 3.4) floors.push(height(x, z) - towerBase);
+    // Plinth top outside the wall, the doorway, and the ground floor inside.
+    const inWall = r > T.wallIn - 0.05 && r < T.wallOut + 0.05;
+    if (r < 2.6 && (!inWall || Math.abs(fromDoor) < (T.door - 0.08) / wallR)) floors.push(T.plinth);
+    // The staircase: three turns of a smooth ramp under the treads.
+    if (r >= T.stairIn && r <= T.wallIn - 0.06) {
+      const u0 =
+        ((((a - stairStart) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+      for (let k = 0; k < T.turns; k++) {
+        const u = u0 + k;
+        if (u <= T.turns) floors.push(T.plinth + u * pitch);
+      }
+    }
+    // The top floor around the dome (open over the last stretch of stairs).
+    const u0 = (((a - stairStart) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    const overHole = r < T.stairOut + 0.05 && u0 > Math.PI * 2 - T.holeArc;
+    if (r >= T.dome + 0.05 && r <= T.balcony - 0.1 && !overHole) floors.push(T.top);
+    return floors;
+  };
 
   // Where Luna can walk outside the café (explore mode): the land, the road, along the river
   // banks and over the footbridge; not into the water, the observatory or tree trunks.
@@ -689,8 +995,18 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   const span = bridgeFar.clone().sub(bridgeNear),
     spanLength = span.length();
   span.divideScalar(spanLength);
-  const walkHeight = (x: number, z: number): number | null => {
+  const walkHeight = (x: number, z: number, fromY?: number): number | null => {
     if (Math.hypot(x - center.x, z - center.z) > 110) return null;
+    // The tower: pick the floor Luna can step onto from where she stands (one step up or down).
+    const floors = towerFloors(x, z);
+    if (floors) {
+      const options = floors.map((f) => f + towerBase);
+      if (fromY === undefined) return options.length ? Math.max(...options) : null;
+      const reach = options.filter((y) => y <= fromY + 0.35 && y >= fromY - 0.45);
+      return reach.length ? Math.max(...reach) : null;
+    }
+    for (const rock of rocks) if (Math.hypot(rock.x - x, rock.z - z) < rock.r) return null;
+    if (Math.hypot(signAt.x - x, signAt.z - z) < 0.6) return null;
     // Footbridge deck (planks 1.5 wide, rails at ±0.7).
     const rx = x - bridgeNear.x,
       rz = z - bridgeNear.z,
@@ -706,7 +1022,6 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     if (t > 0.04 && t < 0.96 && Math.abs(side) < 0.85) return null;
     const r = riverDistance(x, z);
     if (r < 3.3) return null;
-    if (Math.hypot(x - towerAt.x, z - towerAt.z) < 3.6) return null;
     for (const trunk of trunkSpots)
       if (Math.abs(trunk.x - x) < 0.4 && Math.abs(trunk.z - z) < 0.4) return null;
     const y = height(x, z, r);
@@ -718,6 +1033,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     group,
     terrain,
     walkHeight,
+    /** The observatory (for camera collision: Luna can climb inside it). */
+    tower,
     /** Ground height under a point (for placing things on the world). */
     heightAt: height,
     dispose() {

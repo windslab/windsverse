@@ -324,9 +324,11 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     part(can, box, green, [0, 0.07, -0.01], [0.015, 0.03, 0.08]);
     can.position.set(-0.17, 0.6, 0.27);
     // Broom: stick from the hands down to bristles on the floor ahead.
-    part(broom, cylinder, wood, [0, -0.3, 0.17], [0.012, 0.7, 0.012], [0.5, 0, 0]);
-    part(broom, box, straw, [0, -0.6, 0.33], [0.2, 0.06, 0.07], [0.2, 0, 0]);
-    broom.position.set(0, 0.67, 0.12);
+    // The stick leans forward from the hands; the bristles sit on its lower end.
+    part(broom, cylinder, wood, [0, -0.3, 0.165], [0.012, 0.7, 0.012], [-0.5, 0, 0]);
+    part(broom, cylinder, wood, [0, -0.6, 0.33], [0.03, 0.04, 0.03]);
+    part(broom, box, straw, [0, -0.64, 0.35], [0.2, 0.06, 0.06], [-0.2, 0, 0]);
+    broom.position.set(0, 0.71, 0.12);
     // Cloth under the right hand.
     part(cloth, box, rag, [0, 0, 0], [0.12, 0.012, 0.09]);
     cloth.position.set(-0.13, 0.5, 0.34);
@@ -397,12 +399,40 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     dropGeometry.attributes.position.needsUpdate = true;
   }
   barista.visual.add(props);
+  // Explore mode: a bobbing arrow over the guest whose drink Luna is carrying (seen through walls).
+  const markerMaterial = new THREE.MeshBasicMaterial({
+    color: '#ff9a1f',
+    depthTest: false,
+    transparent: true,
+    opacity: 1,
+  });
+  materials.push(markerMaterial);
+  const marker = new THREE.Group();
+  {
+    const cone = new THREE.ConeGeometry(0.17, 0.32, 4);
+    cone.rotateX(Math.PI);
+    geometries.push(cone);
+    const tip = new THREE.Mesh(cone, markerMaterial);
+    const stem = new THREE.Mesh(box, markerMaterial);
+    stem.scale.set(0.09, 0.24, 0.09);
+    stem.position.y = 0.28;
+    marker.add(tip, stem);
+    marker.children.forEach((m) => (m.renderOrder = 10));
+    marker.scale.setScalar(scale);
+    marker.visible = false;
+    root.add(marker);
+  }
+  let markerKey = '';
   function standUp() {
     barista.phase = 'working';
     barista.seat = null;
   }
   /** The world around the café (explore mode): walkable height outside, and the café's site. */
-  let outdoors: { walk: (x: number, z: number) => number | null; site: THREE.Box3 } | null = null,
+  let running = false;
+  let outdoors: {
+      walk: (x: number, z: number, fromY?: number) => number | null;
+      site: THREE.Box3;
+    } | null = null,
     outside = false;
   /** Leaving the site is only possible over the sidewalk's outer (road-side) edge. */
   const curbSide = (p: THREE.Vector3) => {
@@ -412,7 +442,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
   function outdoorStep(to: THREE.Vector3) {
     if (!outdoors) return null;
     const from = barista.position.y,
-      land = outdoors.walk(to.x, to.z),
+      land = outdoors.walk(to.x, to.z, from),
       curb = paths.groundHit(new THREE.Vector3(to.x, from, to.z));
     const y = Math.max(land ?? -Infinity, curb ?? -Infinity);
     if (!Number.isFinite(y) || Math.abs(y - from) > 0.4 * scale) return null;
@@ -578,7 +608,8 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
   people.slice(1).forEach((p) => {
     p.visual.visible = p.shadow.visible = false;
   });
-  let rerouteAt = 0;
+  let rerouteAt = 0,
+    runPhase = 0;
   const direction = new THREE.Vector3(),
     feetBox = new THREE.Box3();
   function animate(actor: Person, dt: number, reduced: boolean, isBarista: boolean) {
@@ -752,7 +783,16 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         target.z,
       );
     }
-    const stride = reduced ? 0 : moving ? Math.sin(age * 7 + actor.phase.length) * 0.8 : 0;
+    // Running (explore mode): quicker, longer strides.
+    const run = isBarista && manual && running && manualMove.lengthSq() > 0.0001;
+    if (run) runPhase += dt * 11;
+    const stride = reduced
+      ? 0
+      : run
+        ? Math.sin(runPhase) * 1.25
+        : moving
+          ? Math.sin(age * 7 + actor.phase.length) * 0.8
+          : 0;
     if (isBarista && detailed)
       detailed.update(
         age,
@@ -880,7 +920,10 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       manualMove.set(x, 0, z);
     },
     /** Walk Luna to a point along the café's paths; returns false if there is no way. */
-    setOutdoors(world: { walk: (x: number, z: number) => number | null; site: THREE.Box3 }) {
+    setOutdoors(world: {
+      walk: (x: number, z: number, fromY?: number) => number | null;
+      site: THREE.Box3;
+    }) {
       outdoors = world;
     },
     /** True while Luna is out on the land around the café. */
@@ -918,6 +961,14 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       return true;
     },
     stand: () => standUp(),
+    /** Run (explore mode): Shift, or a second finger held on the screen. */
+    setRunning(on: boolean) {
+      running = on;
+    },
+    /** Arrow over a guest (key), or none. */
+    setMarker(key: string | null) {
+      markerKey = key ?? '';
+    },
     sitting: () => barista.phase === 'sitting' && !!barista.seat,
     /** Water a plant, sweep or wipe a table for a few seconds, facing `target`. */
     chore(kind: 'watering' | 'sweeping' | 'wiping', seconds: number, target?: THREE.Vector3) {
@@ -1007,7 +1058,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
           }
         }
         if (manualMove.lengthSq() > 0.0001) {
-          const speed = 1.15 * scale * Math.min(1, manualMove.length());
+          const speed = (running ? 2.3 : 1.15) * scale * Math.min(1, manualMove.length());
           manualNext
             .copy(barista.position)
             .addScaledVector(manualMove.clone().normalize(), speed * dt);
@@ -1039,6 +1090,13 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       }
       const arrived = animate(barista, dt, reduced, true);
       updateProps(dt, reduced);
+      const marked = markerKey ? people.slice(1).find((p) => p.key === markerKey) : null;
+      marker.visible = !!marked && marked.visual.visible;
+      if (marked) {
+        marker.position.copy(marked.visual.position);
+        marker.position.y += (1.6 + (reduced ? 0 : Math.sin(age * 4) * 0.08)) * scale;
+        marker.rotation.y += reduced ? 0 : dt * 2;
+      }
       const // Friends at the same table can block the last step; standing beside any of them is enough.
         atTable =
           task === 'serving' &&
