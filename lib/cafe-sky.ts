@@ -29,7 +29,9 @@ const PRESET_SUN: Record<Exclude<SkyPhase, 'live'>, [number, number]> = {
 };
 
 /** Same horizontal → world mapping as the telescope (app/sky-viewer.tsx). */
-const toWorld = (h: Astro.Vector) => new THREE.Vector3(-h.y, h.z, -h.x);
+// Turned half way round from the telescope's frame so that east lies in front of the café (the
+// road side, world −X): the sun rises in front of Winds Space and sets behind it.
+const toWorld = (h: Astro.Vector) => new THREE.Vector3(h.y, h.z, h.x);
 const fromAzAlt = (az: number, alt: number) => {
   const a = az * D,
     h = alt * D;
@@ -60,7 +62,7 @@ export type SkyState = {
 
 export function phaseOf(altitude: number, sun: THREE.Vector3): Exclude<SkyPhase, 'live'> {
   // World x points east in this frame (toWorld above), so a positive x means a morning sun.
-  const morning = sun.x > 0;
+  const morning = sun.x < 0;
   if (altitude < -10) return 'malam';
   if (altitude < 4) return morning ? 'fajar' : 'senja';
   if (altitude < 30) return morning ? 'pagi' : 'sore';
@@ -102,7 +104,7 @@ export function createCafeSky(radius = 85) {
     vertexShader:
       'attribute float size; attribute vec3 color; varying vec3 tint; uniform float scale; void main(){tint=color;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);gl_PointSize=size*scale;}',
     fragmentShader:
-      'uniform float visibility;varying vec3 tint;void main(){float d=length(gl_PointCoord-0.5)*2.0;if(d>1.0)discard;float a=exp(-d*d*4.0)*(1.0-smoothstep(.65,1.0,d));vec3 stellar=mix(vec3(1.),tint,.35);gl_FragColor=vec4(stellar,a*visibility);\n#include <colorspace_fragment>\n}',
+      'uniform float visibility;varying vec3 tint;void main(){float d=length(gl_PointCoord-0.5)*2.0;if(d>1.0)discard;float a=exp(-d*d*4.0)*(1.0-smoothstep(.65,1.0,d));vec3 stellar=mix(vec3(1.),tint,.35);gl_FragColor=vec4(stellar*1.6,min(1.0,a*visibility*1.8));\n#include <colorspace_fragment>\n}',
   });
   let starGeometry: THREE.BufferGeometry | undefined;
   const abort = new AbortController();
@@ -126,7 +128,7 @@ export function createCafeSky(radius = 85) {
           star[4] < 0.1 ? '#b7d5ff' : star[4] > 0.9 ? '#ffcb9d' : '#fff4df',
         );
         colors.push(color.r, color.g, color.b);
-        sizes.push(THREE.MathUtils.clamp(1.2 + (6 - star[3]) * 0.6, 1.3, 6));
+        sizes.push(THREE.MathUtils.clamp(1.6 + (6 - star[3]) * 0.8, 1.8, 8));
       }
       starGeometry = new THREE.BufferGeometry();
       starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -152,7 +154,7 @@ export function createCafeSky(radius = 85) {
       'varying vec3 gal;void main(){gal=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
     // Same mapping as app/sky-viewer.tsx; colours converted to linear for the toon pass.
     fragmentShader:
-      'uniform sampler2D map;uniform float visibility;varying vec3 gal;void main(){vec3 d=normalize(gal);vec2 uv=vec2(.5-atan(d.y,d.x)/6.28318530718,.5+asin(clamp(d.z,-1.0,1.0))/3.14159265359);vec3 c=texture2D(map,uv).rgb*.65;gl_FragColor=vec4(pow(c,vec3(2.2))*visibility,1.0);}',
+      'uniform sampler2D map;uniform float visibility;varying vec3 gal;void main(){vec3 d=normalize(gal);vec2 uv=vec2(.5-atan(d.y,d.x)/6.28318530718,.5+asin(clamp(d.z,-1.0,1.0))/3.14159265359);vec3 c=max(texture2D(map,uv).rgb-.06,0.)*1.5;gl_FragColor=vec4(pow(c,vec3(2.2))*visibility*1.6,1.0);}',
   });
   let milkyway: THREE.Mesh | undefined,
     milkyLoading = false,

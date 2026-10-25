@@ -439,6 +439,7 @@ export default function CafeScene({
     const trafficModels: THREE.Group[] = [],
       trafficLights: THREE.PointLight[] = [],
       activeSounds = new Set<VehicleSound>();
+    const addedTextures: THREE.Texture[] = [];
     const addedMaterials: THREE.Material[] = [],
       addedTargets: THREE.WebGLRenderTarget[] = [];
     const scene = new THREE.Scene();
@@ -540,7 +541,7 @@ export default function CafeScene({
       SKY_NIGHT = new THREE.Color('#51627f'),
       GROUND_DAY = new THREE.Color('#9b8572'),
       GROUND_NIGHT = new THREE.Color('#1d2230');
-    const camera = new THREE.PerspectiveCamera(60, 1, 0.03, 260),
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.03, 300),
       overviewTarget = new THREE.Vector3(-0.35, 1, 0.15),
       overviewCamera = overviewTarget
         .clone()
@@ -1369,6 +1370,8 @@ export default function CafeScene({
                   radius: Math.max(siteSize.x, siteSize.z) / 2 + 4,
                 },
                 { centre: w.tower.position.clone(), radius: 10 },
+                // Along the footpaths and over the bridge.
+                ...w.fireflyTrails.map((centre) => ({ centre, radius: 1.2 })),
               ],
               (x, z) => w.heightAt(x, z),
             );
@@ -1567,6 +1570,7 @@ export default function CafeScene({
                 exploreRef.current.run = on;
               },
               marker: (key) => crew.setMarker(key),
+              jump: () => crew.jump(),
               seatNear: () => crew.seatNear(),
               sit: (id) => crew.sit(id),
               stand: () => crew.stand(),
@@ -1579,6 +1583,16 @@ export default function CafeScene({
                 telescope: spotBoxes(model, /^WS_Telescope_Tripod$/)[0] ?? null,
               },
               telescope: () => viewRef.current.onTelescopeClick?.(),
+              frame: world ? world.towerInfo.frame.clone() : null,
+              hangPhoto: (url) => {
+                if (!world) return;
+                const w = world;
+                new THREE.TextureLoader().load(url, (texture) => {
+                  texture.colorSpace = THREE.SRGBColorSpace;
+                  addedTextures.push(texture);
+                  w.setFramePhoto(texture);
+                });
+              },
               photo: {
                 start: () => {
                   if (photo.on) return;
@@ -1957,7 +1971,7 @@ export default function CafeScene({
                 THREE.MathUtils.smoothstep(hour, 5.5, 6.5) *
                 (1 - THREE.MathUtils.smoothstep(hour, 10.5, 11.5)) *
                 sk.daylight;
-            critters?.update(t, delta, sk.night, morning, reduced);
+            critters?.update(t, delta, sk.night, morning, reduced, sk.daylight);
           }
           bulbs.forEach((bulb) => {
             bulb.emissive.set('#ffd6a4');
@@ -2146,24 +2160,31 @@ export default function CafeScene({
                 world?.tower.traverse((node) => {
                   if ((node as THREE.Mesh).isMesh) list.push(node);
                 });
+                // Only big things (walls, floors, roofs): chairs, tables and plants never pull the
+                // camera in.
+                const size = new THREE.Vector3();
                 cafeModel?.traverse((node) => {
                   const mesh = node as THREE.Mesh;
                   if (
                     mesh.isMesh &&
-                    !/leaf|leaves|undergrowth|cable|socket|bulb|daun|rumput|grass/i.test(
+                    !/leaf|leaves|undergrowth|cable|socket|bulb|daun|rumput|grass|kursi|meja|pot|cup/i.test(
                       mesh.name + ' ' + (mesh.parent?.name ?? ''),
-                    )
+                    ) &&
+                    new THREE.Box3().setFromObject(mesh).getSize(size).length() > 1.4
                   )
                     list.push(mesh);
                 });
               }
-              let best = { phi: followWish.phi, radius: 0.6 };
+              // Relaxed: ignore what Luna is bumping into right beside her, never come closer than
+              // 1.6, and prefer lifting/lowering the camera over zooming in.
+              probeRay.near = 0.75;
+              let best = { phi: followWish.phi, radius: 1.6 };
               for (let phi = followWish.phi; phi <= Math.max(1.42, followWish.phi); phi += 0.12) {
                 followDir.setFromSphericalCoords(1, phi, followSpherical.theta);
                 probeRay.set(controls!.target, followDir);
                 probeRay.far = followWish.radius + 0.3;
                 const hit = probeRay.intersectObjects(occluders, false)[0];
-                const clear = hit ? Math.max(0.6, hit.distance - 0.25) : followWish.radius;
+                const clear = hit ? Math.max(1.6, hit.distance - 0.25) : followWish.radius;
                 if (clear > best.radius + 0.05) best = { phi, radius: clear };
                 if (clear >= Math.min(followWish.radius, 2.2)) {
                   best = { phi, radius: Math.min(clear, followWish.radius) };
@@ -2173,12 +2194,13 @@ export default function CafeScene({
               followGoal.phi = best.phi;
               followGoal.radius = best.radius;
             }
-            const k = reduced ? 1 : 1 - Math.exp(-delta * 5),
+            // Ease in and out gently; no sudden zoom.
+            const k = reduced ? 1 : 1 - Math.exp(-delta * 2.2),
               closing = followGoal.radius < followShown.radius;
             followShown.phi += (followGoal.phi - followShown.phi) * k;
             followShown.radius +=
               (followGoal.radius - followShown.radius) *
-              (closing ? (reduced ? 1 : 1 - Math.exp(-delta * 18)) : k);
+              (closing ? (reduced ? 1 : 1 - Math.exp(-delta * 3)) : k);
             followShown.theta = followSpherical.theta;
             camera.position.copy(controls!.target).add(followOffset.setFromSpherical(followShown));
             if (inTower && world) {
@@ -2528,6 +2550,7 @@ export default function CafeScene({
       floor.geometry.dispose();
       (floor.material as THREE.Material).dispose();
       addedMaterials.forEach((m) => m.dispose());
+      addedTextures.forEach((t) => t.dispose());
       toonOutline.dispose();
       sky.dispose();
       world?.dispose();

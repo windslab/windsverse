@@ -20,7 +20,7 @@ export function createCritters(homes: Home[], groundAt: (x: number, z: number) =
   };
 
   // --- Fireflies: soft yellow-green points that drift and blink. ---------------------------
-  const FLIES = 70;
+  const FLIES = 120;
   const flyHome = Array.from({ length: FLIES }, pickSpot),
     flySeed = Float32Array.from({ length: FLIES }, () => rand() * 100);
   const flyGeometry = new THREE.BufferGeometry();
@@ -105,13 +105,100 @@ export function createCritters(homes: Home[], groundAt: (x: number, z: number) =
     };
   });
 
+  // --- Birds: now and then a small flock crosses the sky in a loose V. ---------------------
+  const birdWing = new THREE.BufferGeometry();
+  birdWing.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute([0, 0, 0.12, 0, 0, -0.12, 0.55, 0.05, -0.05], 3),
+  );
+  const birdMaterial = new THREE.MeshBasicMaterial({ color: '#3d3a40', side: THREE.DoubleSide });
+  type Bird = {
+    body: THREE.Group;
+    left: THREE.Mesh;
+    right: THREE.Mesh;
+    offset: THREE.Vector3;
+    phase: number;
+  };
+  const birds: Bird[] = Array.from({ length: 8 }, (_, i) => {
+    const body = new THREE.Group(),
+      left = new THREE.Mesh(birdWing, birdMaterial),
+      right = new THREE.Mesh(birdWing, birdMaterial);
+    right.scale.x = -1;
+    body.add(left, right);
+    body.visible = false;
+    group.add(body);
+    const row = Math.ceil(i / 2),
+      side = i === 0 ? 0 : i % 2 ? 1 : -1;
+    return {
+      body,
+      left,
+      right,
+      offset: new THREE.Vector3(side * row * 1.6, (rand() - 0.5) * 0.6, -row * 1.8),
+      phase: rand() * 6,
+    };
+  });
+  const centre = homes[0].centre;
+  const flight = {
+    active: false,
+    next: 20 + rand() * 30,
+    t: 0,
+    from: new THREE.Vector3(),
+    to: new THREE.Vector3(),
+    count: 0,
+  };
+
   const scratch = new THREE.Vector3();
   return {
     group,
     /**
      * `night` 0–1 shows fireflies; `morning` 0–1 shows butterflies. Both fade in and out softly.
      */
-    update(time: number, dt: number, night: number, morning: number, reduced: boolean) {
+    update(
+      time: number,
+      dt: number,
+      night: number,
+      morning: number,
+      reduced: boolean,
+      daylight = 1 - night,
+    ) {
+      // Birds: one flock at a time, every minute or two, only by day.
+      if (!flight.active && time > flight.next && daylight > 0.3 && !reduced) {
+        const a = rand() * Math.PI * 2,
+          height = 26 + rand() * 14;
+        flight.from.set(centre.x + Math.cos(a) * 140, height, centre.z + Math.sin(a) * 140);
+        flight.to.set(
+          centre.x - Math.cos(a + 0.4) * 140,
+          height + 4,
+          centre.z - Math.sin(a + 0.4) * 140,
+        );
+        flight.t = 0;
+        flight.count = 4 + Math.floor(rand() * 5);
+        flight.active = true;
+      }
+      if (flight.active) {
+        flight.t += dt / 30;
+        const heading = Math.atan2(flight.to.x - flight.from.x, flight.to.z - flight.from.z);
+        scratch.copy(flight.from).lerp(flight.to, flight.t);
+        birds.forEach((b, i) => {
+          b.body.visible = i < flight.count;
+          if (!b.body.visible) return;
+          b.body.position
+            .copy(b.offset)
+            .applyAxisAngle(new THREE.Vector3(0, 1, 0), heading)
+            .add(scratch);
+          b.body.position.y += Math.sin(time * 0.8 + b.phase) * 0.4;
+          b.body.rotation.y = heading;
+          b.body.scale.setScalar(1.4);
+          const flap = Math.sin(time * 9 + b.phase) * 0.7;
+          b.left.rotation.z = flap;
+          b.right.rotation.z = -flap;
+        });
+        if (flight.t >= 1) {
+          flight.active = false;
+          flight.next = time + 50 + rand() * 80;
+          birds.forEach((b) => (b.body.visible = false));
+        }
+      }
       flyMaterial.uniforms.time.value = reduced ? 0 : time;
       flyMaterial.uniforms.visibility.value = night;
       flyMaterial.uniforms.scale.value = Math.min(2, window.devicePixelRatio || 1);
@@ -161,6 +248,8 @@ export function createCritters(homes: Home[], groundAt: (x: number, z: number) =
       flyGeometry.dispose();
       flyMaterial.dispose();
       wingGeometry.dispose();
+      birdWing.dispose();
+      birdMaterial.dispose();
       wingMaterials.forEach((m) => m.dispose());
       group.removeFromParent();
     },

@@ -62,8 +62,20 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
       reduced: boolean,
       climb = 0,
       /** Walk cycle phase (radians) and whether she is running, for the bouncy gait. */
-      gait: { phase: number; run: boolean } = { phase: 0, run: false },
+      gait: { phase: number; run: boolean; air?: boolean } = { phase: 0, run: false },
     ) {
+      if (gait.air && task !== 'sitting') {
+        // Mid-hop: knees up (legs forward), arms flung up and out — a happy little jump.
+        pose(0, -0.7);
+        pose(1, -0.35);
+        pose(2, -2.3, 0, 0.5);
+        pose(3, -2.3, 0, -0.5);
+        pose(4, -0.3);
+        pose(5, -0.3);
+        pose(6, -0.1, 0, 0);
+        pose(7, -0.05, 0, 0);
+        return;
+      }
       const working = task === 'preparing' || task === 'cleaning',
         carrying = task === 'carrying' || task === 'serving',
         up = Math.max(0, climb),

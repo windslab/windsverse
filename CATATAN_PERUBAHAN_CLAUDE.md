@@ -513,3 +513,34 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   atap dengan lubang tangga di bawah ruang kecil, lilin malam dan langit lembut, sungai bercabang dari
   atas. `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6, `people.test` 13/13,
   `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
+
+## 27. Kamera santai, lompat, ruang tamu menara, danau hati, burung, matahari terbit di depan kafe (26 Okt 2026)
+
+- **Kamera** lebih santai: hanya benda besar (dinding, lantai, atap) yang bisa mendekatkan kamera —
+  kursi, meja, tanaman tidak; benda tepat di samping Luna diabaikan; jarak minimum 1,6; geraknya
+  pelan (tidak ada zoom tiba-tiba).
+- **Lompat**: Spasi (laptop) atau ketuk 2× (HP); pose lompat ceria. Tombol aksi kini **E**.
+- **Turun dari kafe** bisa di mana saja di pinggir site (ujung trotoar, sisi jalan, belakang) asal
+  tidak terhalang dinding; **anak tangga beton** baru di belakang kafe (di balik pojok baca) ke rumput.
+- **Menara**: jendela bulat besar di lantai 4 kini **menghadap kafe/jalan raya**; **tangga masuk
+  dimulai dari ujung jalan setapak marmer** di sisi depan. Tangga dinding (perpustakaan) **berhenti di
+  lantai 4**: **ruang tamu** dengan sofa, piano + kursi, gitar, cello, meja belajar (kursi, lampu,
+  buku) dan **bingkai kosong** yang bisa diisi foto Story of Winds dari mode Explore ("Pasang foto di
+  bingkai" saat berdiri di dekatnya; tersimpan di perangkat). **Tangga spiral di tengah** naik ke
+  **lantai 5 terbuka** (pagar batu + 8 pilar silinder) dan **rooftop**; ruang beratap miring dihapus.
+  Lampu buku menggantung dari bawah lantai 4.
+- **Kunang-kunang** juga di sepanjang jalan setapak ke menara, jalan ke jembatan, dan jembatan.
+- **Burung**: sesekali (tiap 1–2 menit, siang) sekawanan kecil terbang melintas berformasi V.
+- **Gunung** di belakang menara dipindah jauh (±140–210) dan dibuat jauh lebih besar; bukit karst di
+  seberang sungai juga lebih jauh & besar. Batas jalan Luna 92 dari kafe, jadi tidak tergapai.
+- **Pinggiran dunia memudar** ke warna kabut/langit (tanah, sungai, jalan, pohon) seperti semesta
+  kecil yang melayang.
+- **Bintang & Bima Sakti** lebih terang dan besar di atas langit malam yang lembut.
+- **Sungai** memanjang sampai ujung peta; cabang kecil diganti **danau besar berbentuk hati** (tepian
+  alami bergelombang) yang tersambung ke sungai lewat saluran; dari menara bentuk hatinya terbaca.
+- **Matahari terbit di depan Winds Space** (arah jalan raya) dan tenggelam di belakangnya.
+- Dicek di browser (ukuran HP): menara luar & ruang tamu; simulasi jalan dari jalan setapak → tangga
+  luar → tangga dinding → lantai 4 → tangga tengah → lantai 5 → atap; turun dari ujung utara/selatan
+  trotoar, sisi jalan, dan keluar lewat belakang; danau hati dari atas; matahari pagi di depan kafe.
+  `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6, `people.test` 13/13,
+  `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.

@@ -428,7 +428,9 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     barista.seat = null;
   }
   /** The world around the café (explore mode): walkable height outside, and the café's site. */
-  let running = false;
+  let running = false,
+    jumpY = 0,
+    jumpV = 0;
   let outdoors: {
       walk: (x: number, z: number, fromY?: number) => number | null;
       site: THREE.Box3;
@@ -439,26 +441,43 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     const l = paths.local(p);
     return l.x < -6.12 && l.z > -5.75 && l.z < 5.7;
   };
-  function outdoorStep(to: THREE.Vector3) {
+  function outdoorStep(to: THREE.Vector3, inSite = false) {
     if (!outdoors) return null;
     const from = barista.position.y,
-      land = outdoors.walk(to.x, to.z, from),
       curb = paths.groundHit(new THREE.Vector3(to.x, from, to.z));
+    // On the site only the café's own surfaces count (and never the pond bottom).
+    if (inSite) {
+      // Where the café has no surface here (gaps at the sidewalk's ends), the ground beneath.
+      const y = curb ?? outdoors.walk(to.x, to.z, from);
+      if (y === null || paths.local(new THREE.Vector3(to.x, y, to.z)).y < -0.1) return null;
+      if (Math.abs(y - from) > 0.4 * scale) return null;
+      return { point: new THREE.Vector3(to.x, y, to.z) };
+    }
+    const land = outdoors.walk(to.x, to.z, from);
     const y = Math.max(land ?? -Infinity, curb ?? -Infinity);
     if (!Number.isFinite(y) || Math.abs(y - from) > 0.4 * scale) return null;
     return { point: new THREE.Vector3(to.x, y, to.z) };
   }
   /** One free-walking step: café floors (walk graph) inside, the land outside. */
+  /** Inside the café's site (top view), and how far from its edge. */
+  const edgeOf = (p: THREE.Vector3) => {
+    const b = outdoors!.site;
+    return Math.min(p.x - b.min.x, b.max.x - p.x, p.z - b.min.z, b.max.z - p.z);
+  };
   function freeStep(to: THREE.Vector3): { point: THREE.Vector3; node?: number } | null {
-    const inSite = !!outdoors && outdoors.site.containsPoint(to);
+    const inSite = !!outdoors && edgeOf(to) > 0;
     if (!outside || inSite) {
       const step = paths.step(barista.position, to, outside ? undefined : manualNode);
       if (step) return step;
     }
     if (!outdoors) return null;
-    if (inSite && !curbSide(to)) return null;
-    if (!outside && !curbSide(barista.position) && inSite) return null;
-    return outdoorStep(to);
+    // Stepping on or off anywhere along the site's edge (sidewalk, its ends, the back step)
+    // where nothing solid is in the way; deeper inside, only the walk graph.
+    const nearEdge = (p: THREE.Vector3) => edgeOf(p) < 1.1;
+    if (inSite && !nearEdge(to) && !curbSide(to)) return null;
+    if (!outside && !nearEdge(barista.position) && !curbSide(barista.position)) return null;
+    if (paths.blocked(barista.position, to)) return null;
+    return outdoorStep(to, inSite);
   }
   /** Auto-walk route (e.g. "go to the cashier"); the stick always takes over. */
   let manualRoute: THREE.Vector3[] = [];
@@ -800,7 +819,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         moving && task === 'serving' ? 'carrying' : task,
         reduced,
         actor.climb,
-        { phase: run ? runPhase : age * 7 + actor.phase.length, run },
+        { phase: run ? runPhase : age * 7 + actor.phase.length, run, air: jumpY > 0.005 },
       );
     else {
       actor.legs.forEach((leg, i) => {
@@ -841,6 +860,8 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         bottom = Math.min(bottom, feetBox.min.y);
       }
       if (Number.isFinite(bottom)) actor.visual.position.y += floorY + 0.006 * scale - bottom;
+      // Jumping (explore mode): a little hop on top of everything else.
+      if (isBarista) actor.visual.position.y += jumpY;
       // A little bounce with every step (a hop when running).
       if (isBarista && moving && !reduced)
         actor.visual.position.y +=
@@ -968,6 +989,11 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       return true;
     },
     stand: () => standUp(),
+    /** Hop (explore mode): Space, or a double tap on a phone. */
+    jump() {
+      if (jumpY > 0.001 || barista.phase === 'sitting') return;
+      jumpV = 3.1 * scale;
+    },
     /** Run (explore mode): Shift, or a second finger held on the screen. */
     setRunning(on: boolean) {
       running = on;
@@ -1094,6 +1120,11 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         barista.waypoints = [];
         barista.waypoint = 0;
         barista.yieldTo = null;
+      }
+      if (jumpV !== 0 || jumpY > 0) {
+        jumpY += jumpV * dt;
+        jumpV -= 11 * scale * dt;
+        if (jumpY <= 0) jumpY = jumpV = 0;
       }
       const arrived = animate(barista, dt, reduced, true);
       updateProps(dt, reduced);

@@ -2,7 +2,7 @@
 // Explore mode: walk Luna around the café and run the bar for virtual guests.
 // Take the order at the cashier, give change, mix the drink at the bar (your own recipe),
 // pull espresso for coffee, then carry it to the guest's table for a star rating.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Coffee, LogOut } from 'lucide-react';
 import type { CafeVisitor } from '@/lib/cafe-activity';
@@ -40,6 +40,8 @@ export type ExploreApi = {
   setClock: (date: Date | null) => void;
   /** Run while Shift or a second finger is held. */
   setRun: (on: boolean) => void;
+  /** Hop (Space, or a double tap on a phone). */
+  jump: () => void;
   /** Arrow over the guest whose order Luna carries (null = none). */
   marker: (key: string | null) => void;
   /** A free seat within reach, then sit / stand. */
@@ -59,6 +61,9 @@ export type ExploreApi = {
     tables: Spot[];
     telescope: Spot | null;
   };
+  /** Where to stand to hang a photo in the tower's living-room frame, and hang one (image URL). */
+  frame: THREE.Vector3 | null;
+  hangPhoto: (url: string) => void;
   /** Open Windstronout through the café's telescope. */
   telescope: () => void;
   /** Story of Winds from Luna's camera. */
@@ -87,6 +92,18 @@ type Panel = 'cashier' | 'cup' | 'prep' | 'espresso' | null;
 type MenuSource = { id: string; name: string; price: number; category: string; status?: string };
 
 const NEAR = 1.15;
+const FRAME_KEY = 'explore-frame-photo';
+/** A Story of Winds photo scaled down to a small JPEG data URL (fits in local storage). */
+async function shrinkPhoto(blob: Blob) {
+  const bitmap = await createImageBitmap(blob),
+    scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height)),
+    canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return canvas.toDataURL('image/jpeg', 0.82);
+}
 const THANKS = [
   'Enak banget, makasih kak!',
   'Wah, pas banget rasanya.',
@@ -137,6 +154,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     counter = useRef(0),
     chase = useRef<string | null>(null),
     cooldown = useRef<Record<string, number>>({}),
+    lastPhoto = useRef<string | null>(null),
     keyRun = useRef(false),
     touchRun = useRef(false),
     stickHeld = useRef(false),
@@ -172,6 +190,28 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     );
   }, [customers, api]);
 
+  // Story of Winds from Luna's camera: keep the latest shot (small) for the tower's frame.
+  const photoLens = useMemo(
+    () => ({
+      ...api.photo,
+      onPhoto: (blob: Blob) => {
+        void shrinkPhoto(blob).then((url) => (lastPhoto.current = url));
+      },
+    }),
+    [api],
+  );
+  // The frame keeps the last photo hung in it (on this device).
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(FRAME_KEY);
+      if (saved) {
+        lastPhoto.current = saved;
+        api.hangPhoto(saved);
+      }
+    } catch {
+      /* Storage blocked: the frame starts empty. */
+    }
+  }, [api]);
   // Point at the guest whose drink Luna is carrying.
   useEffect(() => {
     api.marker(holding ? ticket : null);
@@ -304,7 +344,10 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         keys.current.add(key);
         applyStick();
         e.preventDefault();
-      } else if ((key === 'e' || key === ' ') && actionsRef.current[0]) {
+      } else if (key === ' ') {
+        if (!e.repeat) api.jump();
+        e.preventDefault();
+      } else if (key === 'e' && actionsRef.current[0]) {
         runRef.current(actionsRef.current[0].id);
         e.preventDefault();
       }
@@ -323,10 +366,21 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
       touchRun.current = stickHeld.current && touches.size >= 2;
       api.setRun(keyRun.current || touchRun.current);
     };
+    let lastTap = { at: 0, x: 0, y: 0 };
     const pointerDown = (e: PointerEvent) => {
       if (e.pointerType !== 'touch') return;
       touches.add(e.pointerId);
       touchUpdate();
+      // Double tap (on the scene, not on a button) → hop.
+      const now = performance.now();
+      if (
+        !(e.target as HTMLElement).closest('button, [role=dialog]') &&
+        now - lastTap.at < 320 &&
+        Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40
+      ) {
+        api.jump();
+        lastTap = { at: 0, x: 0, y: 0 };
+      } else lastTap = { at: now, x: e.clientX, y: e.clientY };
     };
     const pointerUp = (e: PointerEvent) => {
       touches.delete(e.pointerId);
@@ -382,6 +436,13 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         (p) => spotDistance(at, p.box) < 0.4 && !(cooldown.current[p.name] > Date.now()),
       );
       if (table && !holding) list.push({ id: 'wipe:' + table.name, label: 'Lap meja' });
+      if (
+        api.frame &&
+        lastPhoto.current &&
+        flat(at, api.frame) < 0.9 &&
+        Math.abs(at.y - api.frame.y) < 0.6
+      )
+        list.push({ id: 'hang', label: 'Pasang foto di bingkai' });
       if (api.sitting()) list.push({ id: 'stand', label: 'Berdiri' });
       else if (!holding) {
         const seat = api.seatNear();
@@ -473,6 +534,16 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
       reward('Lantai disapu', 2, 4);
     }
     if (verb === 'photo') setPhotoOpen(true);
+    if (verb === 'hang' && lastPhoto.current) {
+      api.hangPhoto(lastPhoto.current);
+      try {
+        localStorage.setItem(FRAME_KEY, lastPhoto.current);
+      } catch {
+        /* Too big or storage blocked: it still hangs for this visit. */
+      }
+      setNote('Foto terpasang di bingkai');
+      setTimeout(() => setNote(''), 2200);
+    }
     if (id === 'cashier') setPanel('cashier');
     if (id === 'cup' || id === 'prep') {
       if (!ticket) {
@@ -587,7 +658,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
           onOpenChange={(open) => {
             if (!open) setPhotoOpen(false);
           }}
-          scene={api.photo}
+          scene={photoLens}
         />
       )}
       {!panel &&
