@@ -21,6 +21,8 @@ import { createToonOutline, toonGradient, toonify } from '@/lib/toon';
 import { createCafeSky, SKY_PHASES, type SkyPhase } from '@/lib/cafe-sky';
 import { createCafeWorld } from '@/lib/cafe-world';
 import { createCritters } from '@/lib/cafe-critters';
+import { createWeather } from '@/lib/cafe-weather';
+import { createCafeCat } from '@/lib/cafe-cat';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 function objectByModelName(root: THREE.Object3D, name: string) {
@@ -457,6 +459,13 @@ export default function CafeScene({
     /** Zebra crossing in front of the café: where cars stop for Luna. */
     let crossing: { center: THREE.Vector3; reach: number } | undefined;
     let critters: ReturnType<typeof createCritters> | undefined;
+    let weather: ReturnType<typeof createWeather> | undefined,
+      cat: ReturnType<typeof createCafeCat> | undefined,
+      lastRoofCheck = 0;
+    /** Ambient light and exposure before the lightning flash is added on top. */
+    const lightBase = { ambient: 1.5, exposure: 1.1 };
+    const roofRay = new THREE.Raycaster(),
+      skyward = new THREE.Vector3(0, 1, 0);
     let world: ReturnType<typeof createCafeWorld> | undefined, siteBox: THREE.Box3 | undefined;
     const sunRay = new THREE.Raycaster();
     // Inside the bar box the view switches to a fixed wide "CCTV" in its upper corner.
@@ -539,6 +548,7 @@ export default function CafeScene({
       SUN_GOLD = new THREE.Color('#ffa766'),
       SKY_DAY = new THREE.Color('#fff5e5'),
       SKY_DUSK = new THREE.Color('#ffc9a8'),
+      RAIN_GREY = new THREE.Color('#9aa3ad'),
       SKY_NIGHT = new THREE.Color('#51627f'),
       GROUND_DAY = new THREE.Color('#9b8572'),
       GROUND_NIGHT = new THREE.Color('#1d2230');
@@ -775,6 +785,36 @@ export default function CafeScene({
         if (disposed) return;
         const model = gltf.scene;
         addedMaterials.push(...toonify(model));
+        // The string-light cables strung from the pole: faint and broken into dashes, so they
+        // read as soft lines instead of black wires across the sky.
+        {
+          const faint = new THREE.MeshBasicMaterial({
+            color: '#5a5048',
+            transparent: true,
+            opacity: 0.32,
+            depthWrite: false,
+          });
+          faint.onBeforeCompile = (shader) => {
+            shader.vertexShader = shader.vertexShader
+              .replace('#include <common>', '#include <common>\nvarying vec3 vCable;')
+              .replace(
+                '#include <project_vertex>',
+                '#include <project_vertex>\nvCable = (modelMatrix * vec4(transformed, 1.0)).xyz;',
+              );
+            shader.fragmentShader = shader.fragmentShader
+              .replace('#include <common>', '#include <common>\nvarying vec3 vCable;')
+              .replace(
+                'void main() {',
+                'void main() {\n  if (fract((vCable.x + vCable.z) * 4.0) > 0.55) discard;',
+              );
+          };
+          faint.customProgramCacheKey = () => 'faint-cable';
+          addedMaterials.push(faint);
+          model.traverse((node) => {
+            const mesh = node as THREE.Mesh;
+            if (mesh.isMesh && /String_Cable/i.test(mesh.name)) mesh.material = faint;
+          });
+        }
         model.updateMatrixWorld(true);
         const fitObjects = [
           'floor lantai 1',
@@ -1378,6 +1418,9 @@ export default function CafeScene({
             );
             scene.add(critters.group);
           }
+          // Rainy spells: storm clouds, rain and lightning.
+          weather = createWeather(level);
+          scene.add(weather.group);
           if (roadLayout) {
             // Zebra crossing straight out from the café's sidewalk (where explore mode steps out).
             const dir = roadLayout.direction.clone().setY(0).normalize(),
@@ -1514,7 +1557,8 @@ export default function CafeScene({
           if (disposed) return;
           prepareCafeBarWorkspace(model);
           addCafeWalkSurfaces(model);
-          people = placeCafePeople(model, cafePaths(model, navData), luna.scene);
+          const nav = cafePaths(model, navData);
+          people = placeCafePeople(model, nav, luna.scene);
           // Explore mode: beyond the sidewalk Luna walks on the surrounding world.
           if (world && siteBox) people.setOutdoors({ walk: world.walkHeight, site: siteBox });
           cafeModel = model;
@@ -1530,6 +1574,10 @@ export default function CafeScene({
               freeze: (on: boolean) => {
                 debugCamera.frozen = on;
               },
+              rain: (on: boolean | null) => weather?.force(on),
+              strike: () => weather?.strikeNow(),
+              weather: () => weather?.state,
+              cat: () => cat,
               visitors: (list: CafeVisitor[]) => {
                 exploreRef.current.visitors = list;
               },
@@ -1637,10 +1685,86 @@ export default function CafeScene({
             });
           }
           addedMaterials.push(...toonify(people.root));
+          // Luna's vest: her left half light grey, the right half as before.
+          luna.scene.traverse((node) => {
+            const mesh = node as THREE.Mesh;
+            if (!mesh.isMesh) return;
+            let vest = false;
+            for (let up: THREE.Object3D | null = mesh; up; up = up.parent)
+              if (/Luna_Body_vest/i.test(up.name)) vest = true;
+            if (!vest) return;
+            const m = (mesh.material as THREE.Material).clone();
+            m.onBeforeCompile = (shader) => {
+              shader.vertexShader = shader.vertexShader
+                .replace('#include <common>', '#include <common>\nvarying float vVestX;')
+                .replace(
+                  '#include <begin_vertex>',
+                  '#include <begin_vertex>\nvVestX = position.x;',
+                );
+              shader.fragmentShader = shader.fragmentShader
+                .replace('#include <common>', '#include <common>\nvarying float vVestX;')
+                .replace(
+                  '#include <color_fragment>',
+                  `#include <color_fragment>
+                  float vestLeft = smoothstep(-0.002, 0.004, vVestX);
+                  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.78, 0.79, 0.81) * (0.82 + 0.18 * dot(diffuseColor.rgb, vec3(0.6))), vestLeft);`,
+                );
+            };
+            m.customProgramCacheKey = () => 'luna-vest-' + mesh.name;
+            addedMaterials.push(m);
+            mesh.material = m;
+          });
           toonOutline.addHull(luna.scene);
           assetRoot!.add(people.root);
           assetRoot!.updateMatrixWorld(true);
           people.updateActivity(viewRef.current.activity);
+          // The café cat: café floors on the site (hopping onto ledges a cat could reach), the
+          // land around it; never into the pond.
+          if (world && siteBox) {
+            const w = world,
+              site = siteBox.clone(),
+              s = nav.scale,
+              probe = new THREE.Vector3();
+            const inSite = (x: number, z: number) =>
+              x > site.min.x && x < site.max.x && z > site.min.z && z < site.max.z;
+            const floorAt = (x: number, z: number, fromY: number) => {
+              let y = nav.groundHit(probe.set(x, fromY, z));
+              if (y === null) y = nav.groundHit(probe.set(x, fromY + 0.45 * s, z));
+              if (y === null || nav.local(probe.set(x, y, z)).y < -0.1) return null;
+              return y;
+            };
+            const catGround = (x: number, z: number, fromY: number) => {
+              const floor = floorAt(x, z, fromY);
+              if (inSite(x, z)) return floor ?? w.walkHeight(x, z, fromY);
+              const land = w.walkHeight(x, z, fromY);
+              const y = Math.max(land ?? -Infinity, floor ?? -Infinity);
+              return Number.isFinite(y) ? y : null;
+            };
+            const nodes = nav.nodes.filter((n) => n.p.y > -0.1);
+            const pickSpot = () => {
+              if (Math.random() < 0.55 && nodes.length)
+                return nav.world(nodes[Math.floor(Math.random() * nodes.length)].p.clone());
+              for (let i = 0; i < 20; i++) {
+                const x = THREE.MathUtils.lerp(site.min.x - 6, site.max.x + 6, Math.random()),
+                  z = THREE.MathUtils.lerp(site.min.z - 6, site.max.z + 6, Math.random());
+                // Not out on the road in front of the café.
+                if (inSite(x, z) || nav.local(probe.set(x, site.min.y, z)).x < -6.3) continue;
+                const y = w.walkHeight(x, z);
+                if (y !== null) return new THREE.Vector3(x, y, z);
+              }
+              return nav.world(nodes[0].p.clone());
+            };
+            cat = createCafeCat({
+              ground: catGround,
+              blocked: nav.blocked,
+              pickSpot,
+              start: pickSpot(),
+              scale: s,
+            });
+            addedMaterials.push(...toonify(cat.root));
+            toonOutline.addHull(cat.root);
+            scene.add(cat.root);
+          }
         } catch (error) {
           console.warn('Cafe characters unavailable', error);
         }
@@ -1872,6 +1996,11 @@ export default function CafeScene({
           }
           // Explore mode runs its own, faster day.
           const gameClock = exploreRef.current.on ? exploreRef.current.clock : null;
+          // Weather: rain, storm clouds and lightning (the sky greys with it).
+          weather?.update(camera, t, delta, sky.state.night, reduced);
+          const wx = weather?.state ?? { rain: 0, overcast: 0, flash: 0 };
+          if (weather) weather.group.visible = !(world && world.towerInfo.inside(camera.position));
+          sky.setOvercast(wx.overcast);
           sky.update(
             camera,
             gameClock ? 'live' : phaseRef.current,
@@ -1898,7 +2027,11 @@ export default function CafeScene({
           const sunUp = THREE.MathUtils.smoothstep(sk.altitude, -2, 8);
           sun.position.copy(sk.sun).multiplyScalar(20);
           sun.color.copy(sunColor.copy(SUN_DAY).lerp(SUN_GOLD, sk.warm));
-          sun.intensity = THREE.MathUtils.lerp(sun.intensity, 2.3 * sunUp, blend);
+          sun.intensity = THREE.MathUtils.lerp(
+            sun.intensity,
+            2.3 * sunUp * (1 - 0.8 * wx.overcast),
+            blend,
+          );
           // The moon takes over as the key light at night.
           moon.position.copy(sk.moon.y > 0 ? sk.moon : sk.sun.clone().negate()).multiplyScalar(20);
           moon.intensity = THREE.MathUtils.lerp(moon.intensity, 0.6 * sk.night, blend);
@@ -1907,19 +2040,26 @@ export default function CafeScene({
             blend,
           );
           if (sk.warm > 0) ambient.color.lerp(SKY_DUSK, sk.warm * 0.4);
+          if (wx.overcast > 0) ambient.color.lerp(RAIN_GREY, wx.overcast * 0.6);
           ambient.groundColor.copy(GROUND_NIGHT).lerp(GROUND_DAY, sk.daylight);
-          ambient.intensity = THREE.MathUtils.lerp(
-            ambient.intensity,
-            0.55 + 1.25 * sk.daylight - 0.25 * sk.warm,
+          lightBase.ambient = THREE.MathUtils.lerp(
+            lightBase.ambient,
+            (0.55 + 1.25 * sk.daylight - 0.25 * sk.warm) * (1 - 0.25 * wx.overcast),
             blend,
           );
+          // Lightning lights up everything for a blink.
+          ambient.intensity = lightBase.ambient + wx.flash * 1.6;
+          // Rain hazes the distance.
+          (scene.fog as THREE.Fog).near = 50 - 28 * wx.rain;
+          (scene.fog as THREE.Fog).far = 330 - 170 * wx.rain;
           fill.intensity = THREE.MathUtils.lerp(fill.intensity, 0.18 + 0.52 * sk.daylight, blend);
           warmBar.intensity = THREE.MathUtils.lerp(warmBar.intensity, 1.4 + 0.9 * lamps, blend);
-          renderer.toneMappingExposure = THREE.MathUtils.lerp(
-            renderer.toneMappingExposure,
+          lightBase.exposure = THREE.MathUtils.lerp(
+            lightBase.exposure,
             0.98 + 0.15 * sk.daylight,
             blend,
           );
+          renderer.toneMappingExposure = lightBase.exposure + wx.flash * 0.35;
           // Soft, slightly lifted Ghibli-like grade: fresh by day, golden at the edges, blue at night.
           gradeTint
             .set(1.02, 1.0, 0.96)
@@ -1965,6 +2105,29 @@ export default function CafeScene({
           }
           world?.setTowerNight(lamps);
           world?.update(t);
+          if (people) {
+            cat?.update(t, delta, reduced, people.baristaPosition());
+            // Rain with no roof over Luna's head: up goes her umbrella.
+            if (t - lastRoofCheck > 0.25) {
+              lastRoofCheck = t;
+              let open = wx.rain > 0.2;
+              if (open) {
+                roofRay.set(
+                  people
+                    .baristaPosition()
+                    .clone()
+                    .add(new THREE.Vector3(0, 1.5, 0)),
+                  skyward,
+                );
+                roofRay.far = 60;
+                const covers: THREE.Object3D[] = [];
+                if (cafeModel) covers.push(cafeModel);
+                if (world) covers.push(world.tower);
+                open = roofRay.intersectObjects(covers, true).length === 0;
+              }
+              people.setUmbrella(open);
+            }
+          }
           {
             // Morning (06–11 WITA, game clock in explore mode) brings butterflies.
             const when = gameClock ?? new Date(),
@@ -1973,7 +2136,9 @@ export default function CafeScene({
                 THREE.MathUtils.smoothstep(hour, 5.5, 6.5) *
                 (1 - THREE.MathUtils.smoothstep(hour, 10.5, 11.5)) *
                 sk.daylight;
-            critters?.update(t, delta, sk.night, morning, reduced, sk.daylight);
+            // Insects and birds take shelter from the rain.
+            const dry = 1 - wx.rain;
+            critters?.update(t, delta, sk.night * dry, morning * dry, reduced, sk.daylight * dry);
           }
           bulbs.forEach((bulb) => {
             bulb.emissive.set('#ffd6a4');
@@ -2520,6 +2685,8 @@ export default function CafeScene({
       });
       tableGlow.texture?.dispose();
       critters?.dispose();
+      weather?.dispose();
+      cat?.dispose();
       trafficModels.forEach((vehicle) => {
         vehicle.traverse((o) => {
           if ((o as THREE.Mesh).isMesh) {

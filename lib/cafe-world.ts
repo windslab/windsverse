@@ -1955,6 +1955,176 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     return road.surfaceY !== undefined && across < road.halfWidth ? Math.max(y, road.surfaceY) : y;
   };
 
+  // --- Dandelions: little clusters scattered over the meadow, swaying in the wind. ----------
+  // Each is a stem with a fluffy white seed head (some still yellow flowers); now and then a seed
+  // drifts off on the breeze.
+  const dandelionSpots: THREE.Matrix4[] = [],
+    bloomSpots: THREE.Matrix4[] = [];
+  {
+    const meadow = (x: number, z: number) =>
+      Math.hypot(x - center.x, z - center.z) < 80 &&
+      flatZone(x, z).roadGap > 1.5 &&
+      flatZone(x, z).cafe > 1.5 &&
+      pathDistance(x, z) > 1.4 &&
+      towerPathDistance(x, z) > 1.4 &&
+      riverDistance(x, z) > 5 &&
+      seaOut(x, z) < SEA - 16 &&
+      !towerFloors(x, z) &&
+      !rocks.some((r) => Math.hypot(r.x - x, r.z - z) < r.r + 0.4) &&
+      !trunkSpots.some((t) => Math.hypot(t.x - x, t.z - z) < 0.8);
+    const m = new THREE.Matrix4(),
+      q = new THREE.Quaternion(),
+      tilt = new THREE.Euler();
+    // Clusters near the café first, then further out on the meadow.
+    for (let c = 0, tries = 0; c < 34 && tries < 600; tries++) {
+      const a = Math.random() * Math.PI * 2,
+        r = (c < 14 ? 6 : 14) + Math.random() * (c < 14 ? 14 : 50),
+        cx = center.x + Math.cos(a) * r,
+        cz = center.z + Math.sin(a) * r;
+      if (!meadow(cx, cz)) continue;
+      c++;
+      const count = 6 + Math.floor(Math.random() * 10);
+      for (let i = 0; i < count; i++) {
+        const d = Math.sqrt(Math.random()) * 1.8,
+          b = Math.random() * Math.PI * 2,
+          x = cx + Math.cos(b) * d,
+          z = cz + Math.sin(b) * d;
+        if (!meadow(x, z)) continue;
+        q.setFromEuler(tilt.set((Math.random() - 0.5) * 0.25, b, (Math.random() - 0.5) * 0.25));
+        const size = 0.8 + Math.random() * 0.5;
+        m.compose(
+          new THREE.Vector3(x, height(x, z) - 0.02, z),
+          q,
+          new THREE.Vector3(size, size, size),
+        );
+        (Math.random() < 0.25 ? bloomSpots : dandelionSpots).push(m.clone());
+      }
+    }
+    // One merged geometry per kind (stem + head), coloured per vertex.
+    const coloured = (g: THREE.BufferGeometry, color: string) => {
+      const c = new THREE.Color(color),
+        n = g.attributes.position.count;
+      g.setAttribute(
+        'color',
+        new THREE.BufferAttribute(
+          new Float32Array(n * 3).map((_, i) => [c.r, c.g, c.b][i % 3]),
+          3,
+        ),
+      );
+      return g.index ? g.toNonIndexed() : g;
+    };
+    const stem = () =>
+      coloured(
+        new THREE.CylinderGeometry(0.007, 0.01, 0.34, 4, 1).translate(0, 0.17, 0),
+        '#6f9a4a',
+      );
+    const leaves = () =>
+      coloured(
+        new THREE.ConeGeometry(0.05, 0.12, 4, 1).scale(1.4, 1, 0.35).translate(0, 0.05, 0),
+        '#5f8a3e',
+      );
+    const puff = mergeGeometries([
+      stem(),
+      leaves(),
+      coloured(new THREE.IcosahedronGeometry(0.055, 1).translate(0, 0.37, 0), '#fbfaf4'),
+      coloured(new THREE.SphereGeometry(0.014, 6, 4).translate(0, 0.37, 0), '#d8d3b8'),
+    ])!;
+    const bloom = mergeGeometries([
+      stem(),
+      leaves(),
+      coloured(
+        new THREE.CylinderGeometry(0.045, 0.02, 0.03, 10, 1).translate(0, 0.35, 0),
+        '#f6c531',
+      ),
+      coloured(new THREE.SphereGeometry(0.018, 6, 4).translate(0, 0.365, 0), '#eaa51c'),
+    ])!;
+    geometries.push(puff, bloom);
+    const dandelionMaterial = new THREE.MeshToonMaterial({
+      vertexColors: true,
+      gradientMap: toonGradient(),
+    });
+    dandelionMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.windTime = windTime;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float windTime;')
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            vec3 flowerBase = instanceMatrix[3].xyz;
+          #else
+            vec3 flowerBase = vec3(0.0);
+          #endif
+          float bend = transformed.y * transformed.y * 2.2;
+          transformed.x += sin(windTime * 1.7 + flowerBase.x * 0.9 + flowerBase.z * 0.6) * 0.09 * bend;
+          transformed.z += cos(windTime * 1.3 + flowerBase.z * 0.8) * 0.05 * bend;`,
+        );
+    };
+    dandelionMaterial.customProgramCacheKey = () => 'world-dandelion-wind';
+    islandFade(dandelionMaterial);
+    materials.push(dandelionMaterial);
+    for (const [geometry, spots, name] of [
+      [puff, dandelionSpots, 'World_Dandelions'],
+      [bloom, bloomSpots, 'World_Dandelion_Blooms'],
+    ] as const) {
+      if (!spots.length) continue;
+      const flowers = new THREE.InstancedMesh(geometry, dandelionMaterial, spots.length);
+      flowers.name = name;
+      spots.forEach((spot, i) => flowers.setMatrixAt(i, spot));
+      flowers.instanceMatrix.needsUpdate = true;
+      flowers.computeBoundingSphere();
+      group.add(flowers);
+    }
+  }
+  // Seeds blowing away: each one leaves a random seed head, floats up and off, then starts again.
+  const SEEDS = 36;
+  const seedGeometry = new THREE.BufferGeometry();
+  seedGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SEEDS * 3), 3));
+  const seedMaterial = new THREE.PointsMaterial({
+    color: '#fffdf4',
+    size: 0.05,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+  });
+  geometries.push(seedGeometry);
+  materials.push(seedMaterial);
+  const seeds = new THREE.Points(seedGeometry, seedMaterial);
+  seeds.frustumCulled = false;
+  seeds.name = 'World_Dandelion_Seeds';
+  group.add(seeds);
+  const seedFrom = Array.from({ length: SEEDS }, () => new THREE.Vector3()),
+    seedLife = Float32Array.from({ length: SEEDS }, () => Math.random() * 12);
+  const seedStart = (i: number) => {
+    const spot = dandelionSpots[Math.floor(Math.random() * dandelionSpots.length)];
+    if (spot) seedFrom[i].setFromMatrixPosition(spot).add(new THREE.Vector3(0, 0.4, 0));
+  };
+  seedFrom.forEach((_, i) => seedStart(i));
+  let lastSeedTime = 0;
+  const updateSeeds = (time: number) => {
+    const dt = Math.min(0.1, Math.max(0, time - lastSeedTime));
+    lastSeedTime = time;
+    seeds.visible = dandelionSpots.length > 0;
+    if (!seeds.visible) return;
+    const p = seedGeometry.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < SEEDS; i++) {
+      seedLife[i] += dt;
+      if (seedLife[i] > 12) {
+        seedLife[i] = 0;
+        seedStart(i);
+      }
+      const t = seedLife[i],
+        f = seedFrom[i];
+      p.setXYZ(
+        i,
+        f.x + t * 0.55 + Math.sin(t * 1.3 + i) * 0.25,
+        f.y + Math.sqrt(t) * 0.9 + Math.sin(t * 2.1 + i * 2) * 0.12,
+        f.z + t * 0.25 + Math.cos(t * 1.1 + i) * 0.25,
+      );
+    }
+    p.needsUpdate = true;
+  };
+
   return {
     group,
     terrain,
@@ -1973,7 +2143,10 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     ].map((p) => new THREE.Vector3(p.x, height(p.x, p.z), p.z)),
     /** Ground height under a point (for placing things on the world). */
     heightAt: height,
-    update: updateWorld,
+    update(time: number) {
+      updateWorld(time);
+      updateSeeds(time);
+    },
     dispose() {
       geometries.forEach((g) => g.dispose());
       materials.forEach((m) => m.dispose());

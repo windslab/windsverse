@@ -47,10 +47,24 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
   model.updateWorldMatrix(true, true);
   const hipJoint = model.getObjectByName('Luna_Leg_L'),
     hip = hipJoint ? hipJoint.getWorldPosition(new THREE.Vector3()).y : height * 0.4;
+  // Hands: the centre of each hand mesh, for props to sit in Luna's grip.
+  const hands = (['R', 'L'] as const).map((side) => {
+    const mesh = model.getObjectByName(`Luna_Wrist_${side}_hand`) as THREE.Mesh | undefined;
+    if (!mesh) return null;
+    mesh.geometry.computeBoundingBox();
+    return { mesh, centre: mesh.geometry.boundingBox!.getCenter(new THREE.Vector3()) };
+  });
   return {
     root,
     feet,
     hip,
+    /** World position of Luna's right (0) or left (1) hand; false if the model has no hands. */
+    hand(side: 0 | 1, target: THREE.Vector3) {
+      const h = hands[side];
+      if (!h) return false;
+      target.copy(h.centre).applyMatrix4(h.mesh.matrixWorld);
+      return true;
+    },
     /**
      * `climb` is -1…1 (down/up stairs): higher leading step and a slight lean. Tasks: idle,
      * cashier, preparing, cleaning, carrying/serving, sitting, watering, sweeping, wiping, photo.
@@ -62,7 +76,25 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
       reduced: boolean,
       climb = 0,
       /** Walk cycle phase (radians) and whether she is running, for the bouncy gait. */
-      gait: { phase: number; run: boolean; air?: boolean } = { phase: 0, run: false },
+      gait: { phase: number; run: boolean; air?: boolean; umbrella?: boolean } = {
+        phase: 0,
+        run: false,
+      },
+    ) {
+      this.pose(age, stride, task, reduced, climb, gait);
+      // Holding an umbrella: the right hand stays up in front of the chest, gripping the handle.
+      if (gait.umbrella) {
+        pose(3, -0.95, 0.15, -0.12);
+        pose(5, -1.2);
+      }
+    },
+    pose(
+      age: number,
+      stride: number,
+      task: string,
+      reduced: boolean,
+      climb: number,
+      gait: { phase: number; run: boolean; air?: boolean },
     ) {
       if (gait.air && task !== 'sitting') {
         // Mid-hop: knees up (legs forward), arms flung up and out — a happy little jump.
