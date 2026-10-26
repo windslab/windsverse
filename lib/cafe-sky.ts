@@ -92,6 +92,14 @@ export function createCafeSky(radius = 85) {
     'gl_FragColor=vec4(color,opacity*strength);',
     'gl_FragColor=vec4(pow(max(color,vec3(0.)),vec3(2.2)),opacity*strength);',
   );
+  // Rainy weather: the whole sky turns a soft, flat grey (darker at night).
+  atmosphere.material.uniforms.overcast = { value: 0 };
+  atmosphere.material.fragmentShader =
+    'uniform float overcast;\n' +
+    atmosphere.material.fragmentShader.replace(
+      'gl_FragColor=vec4(pow(',
+      'color=mix(color,vec3(dot(color,vec3(.3,.59,.11)))*.7+vec3(.05,.055,.07),overcast*.85);gl_FragColor=vec4(pow(',
+    );
   group.add(atmosphere.mesh);
 
   // Stars sit just inside the atmosphere, which fades them by day.
@@ -191,20 +199,21 @@ export function createCafeSky(radius = 85) {
   {
     const x = moonCanvas.getContext('2d')!,
       halo = x.createRadialGradient(128, 128, 44, 128, 128, 128);
-    halo.addColorStop(0, 'rgba(255,244,214,0.32)');
-    halo.addColorStop(0.25, 'rgba(255,240,208,0.1)');
-    halo.addColorStop(0.6, 'rgba(255,236,200,0.03)');
-    halo.addColorStop(1, 'rgba(255,236,200,0)');
+    halo.addColorStop(0, 'rgba(255,222,150,0.32)');
+    halo.addColorStop(0.25, 'rgba(255,214,140,0.1)');
+    halo.addColorStop(0.6, 'rgba(255,206,130,0.03)');
+    halo.addColorStop(1, 'rgba(255,206,130,0)');
     x.fillStyle = halo;
     x.fillRect(0, 0, 256, 256);
+    // A warm, honey-yellow moon.
     const face = x.createRadialGradient(118, 116, 4, 128, 128, 48);
-    face.addColorStop(0, 'rgba(255,252,238,1)');
-    face.addColorStop(1, 'rgba(244,236,214,1)');
+    face.addColorStop(0, 'rgba(255,238,170,1)');
+    face.addColorStop(1, 'rgba(246,206,120,1)');
     x.fillStyle = face;
     x.beginPath();
     x.arc(128, 128, 46, 0, Math.PI * 2);
     x.fill();
-    x.fillStyle = 'rgba(178,172,160,0.35)';
+    x.fillStyle = 'rgba(196,160,96,0.35)';
     for (const [cx, cy, r] of [
       [112, 112, 13],
       [140, 104, 9],
@@ -313,7 +322,102 @@ export function createCafeSky(radius = 85) {
     warm: 0,
     phase: 'siang',
   };
-  let lastRotation = -Infinity;
+  let lastRotation = -Infinity,
+    overcast = 0;
+
+  // Shooting stars: now and then on a clear night a bright streak slides across the sky.
+  const TAIL = 14;
+  const meteorGeometry = new THREE.BufferGeometry();
+  meteorGeometry.setAttribute(
+    'position',
+    new THREE.BufferAttribute(new Float32Array(TAIL * 2 * 3), 3),
+  );
+  meteorGeometry.setAttribute(
+    'fade',
+    new THREE.BufferAttribute(
+      Float32Array.from({ length: TAIL * 2 }, (_, i) => 1 - Math.floor(i / 2) / (TAIL - 1)),
+      1,
+    ),
+  );
+  meteorGeometry.setIndex(
+    Array.from({ length: TAIL - 1 }, (_, i) => {
+      const a = i * 2;
+      return [a, a + 1, a + 2, a + 1, a + 3, a + 2];
+    }).flat(),
+  );
+  const meteorMaterial = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+    uniforms: { opacity: { value: 0 } },
+    vertexShader:
+      'attribute float fade; varying float vFade; void main(){vFade=fade;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+    fragmentShader:
+      'uniform float opacity; varying float vFade; void main(){gl_FragColor=vec4(mix(vec3(.75,.85,1.),vec3(1.,.98,.9),vFade)*2.4,pow(vFade,1.2)*opacity);}',
+  });
+  const meteor = new THREE.Mesh(meteorGeometry, meteorMaterial);
+  meteor.frustumCulled = false;
+  meteor.visible = false;
+  group.add(meteor);
+  const shooting = {
+    next: 6 + Math.random() * 10,
+    at: -10,
+    length: 1,
+    from: new THREE.Vector3(),
+    to: new THREE.Vector3(),
+  };
+  const meteorPoint = new THREE.Vector3(),
+    meteorAhead = new THREE.Vector3(),
+    meteorSide = new THREE.Vector3();
+  const meteorAt = (t: number, target: THREE.Vector3) =>
+    target
+      .copy(shooting.from)
+      .lerp(shooting.to, t)
+      .normalize()
+      .multiplyScalar(radius * 0.86);
+  const meteorLook = new THREE.Vector3();
+  function updateMeteor(camera: THREE.Camera, time: number, dark: number, reduced: boolean) {
+    if (!meteor.visible && time > shooting.next && dark > 0.5 && !reduced) {
+      // Start high, usually somewhere in front of the camera, and slide down at a slant.
+      camera.getWorldDirection(meteorLook);
+      const a =
+          Math.atan2(meteorLook.x, meteorLook.z) +
+          (Math.random() - 0.5) * (Math.random() < 0.7 ? 1.4 : 6),
+        turn = (Math.random() < 0.5 ? -1 : 1) * (0.35 + Math.random() * 0.4);
+      shooting.from.setFromSphericalCoords(1, 0.7 + Math.random() * 0.35, a);
+      shooting.to.setFromSphericalCoords(1, 1.1 + Math.random() * 0.25, a + turn);
+      shooting.at = time;
+      shooting.length = 0.7 + Math.random() * 0.6;
+      meteor.visible = true;
+    }
+    if (!meteor.visible) return;
+    const t = (time - shooting.at) / shooting.length;
+    if (t >= 1.25 || dark < 0.2) {
+      meteor.visible = false;
+      shooting.next = time + 7 + Math.random() * 18;
+      return;
+    }
+    meteorMaterial.uniforms.opacity.value =
+      THREE.MathUtils.smoothstep(t, 0, 0.12) *
+      (1 - THREE.MathUtils.smoothstep(t, 0.8, 1.25)) *
+      dark;
+    const p = meteorGeometry.getAttribute('position') as THREE.BufferAttribute,
+      head = Math.min(1, t);
+    for (let i = 0; i < TAIL; i++) {
+      const u = head - (i / (TAIL - 1)) * 0.28;
+      meteorAt(u, meteorPoint);
+      meteorAt(u + 0.01, meteorAhead).sub(meteorPoint);
+      // The ribbon faces the camera (at the sky's centre); it thins toward the tail.
+      meteorSide
+        .crossVectors(meteorAhead, meteorPoint)
+        .normalize()
+        .multiplyScalar(radius * 0.0035 * (1 - (i / TAIL) * 0.85));
+      p.setXYZ(i * 2, ...meteorPoint.clone().add(meteorSide).toArray());
+      p.setXYZ(i * 2 + 1, ...meteorPoint.clone().sub(meteorSide).toArray());
+    }
+    p.needsUpdate = true;
+  }
   const targetSun = new THREE.Vector3();
 
   return {
@@ -322,6 +426,11 @@ export function createCafeSky(radius = 85) {
     /** Call each frame. `dt` in seconds; presets ease the sun across the sky. */
     /** Lens flare sprites; add to the scene (they are placed in front of the camera). */
     flareGroup,
+    /** 0–1 from the weather: greys the sky and hides the sun, moon and stars behind clouds. */
+    setOvercast(value: number) {
+      overcast = value;
+      atmosphere.material.uniforms.overcast.value = value;
+    },
     update(
       camera: THREE.Camera,
       phase: SkyPhase,
@@ -398,10 +507,13 @@ export function createCafeSky(radius = 85) {
       u.cloudTime.value = reduced ? 0 : time;
       // Clouds from sunrise until the sun's disc has set.
       u.cloudVisibility.value = THREE.MathUtils.smoothstep(altitude, -6, -0.833);
-      starMaterial.uniforms.visibility.value = 1 - THREE.MathUtils.smoothstep(altitude, -14, -1);
+      const clear = 1 - overcast;
+      starMaterial.uniforms.visibility.value =
+        (1 - THREE.MathUtils.smoothstep(altitude, -14, -1)) * clear;
       // The Milky Way needs a properly dark sky.
       const galaxy = 1 - THREE.MathUtils.smoothstep(altitude, -18, -8);
-      milkyMaterial.uniforms.visibility.value = galaxy;
+      milkyMaterial.uniforms.visibility.value = galaxy * clear;
+      updateMeteor(camera, time, galaxy * clear, reduced);
       if (galaxy > 0.02 && !milkyway) loadMilkyWay();
       if (milkyway) milkyway.visible = galaxy > 0.01;
       starMaterial.uniforms.scale.value = Math.min(2, window.devicePixelRatio || 1);
@@ -411,7 +523,7 @@ export function createCafeSky(radius = 85) {
       // A big, soft sunset sun near the horizon.
       sunSprite.scale.setScalar(radius * (0.12 + 0.34 * low));
       sunMaterial.color.copy(SUN_WHITE).lerp(SUN_DUSK, low);
-      sunMaterial.opacity = THREE.MathUtils.smoothstep(altitude, -2.5, 0.5);
+      sunMaterial.opacity = THREE.MathUtils.smoothstep(altitude, -2.5, 0.5) * clear;
       sunSprite.visible = sunMaterial.opacity > 0.01;
       // Flare only while the sun is on screen and above the horizon.
       sunWorld.copy(camera.position).addScaledVector(state.sun, radius * 0.88);
@@ -422,7 +534,7 @@ export function createCafeSky(radius = 85) {
         Math.abs(sunNdc.y) < 1.1 &&
         altitude > -1 &&
         !reduced;
-      flareFade += ((sunBlocked ? 0 : 1) - flareFade) * Math.min(1, dt * 8);
+      flareFade += ((sunBlocked || overcast > 0.3 ? 0 : 1) - flareFade) * Math.min(1, dt * 8);
       const strength = onScreen
         ? THREE.MathUtils.smoothstep(altitude, -1, 3) *
           (1 - THREE.MathUtils.smoothstep(Math.hypot(sunNdc.x, sunNdc.y), 0.8, 1.15)) *
@@ -441,7 +553,8 @@ export function createCafeSky(radius = 85) {
       moonSprite.position.copy(state.moon).multiplyScalar(radius * 0.9);
       moonSprite.visible = state.moon.y > -0.02;
       moonMaterial.opacity =
-        (0.35 + 0.65 * state.night) * THREE.MathUtils.smoothstep(state.moon.y, -0.02, 0.05);
+        (0.35 + 0.65 * state.night) * THREE.MathUtils.smoothstep(state.moon.y, -0.02, 0.05) * clear;
+      moonSprite.visible = moonSprite.visible && moonMaterial.opacity > 0.01;
     },
     /** Horizon colour for fog: the atmosphere shader's colour at the horizon (given in sRGB). */
     horizon(target: THREE.Color) {
@@ -450,6 +563,12 @@ export function createCafeSky(radius = 85) {
       let c = mix([0.42, 0.42, 0.54], [0.47, 0.3, 0.19], twilight);
       c = mix(c, [0.68, 0.7, 0.59], daylight);
       if (warm > 0) c = mix(c, [0.86, 0.6, 0.42], warm * daylight * 0.5);
+      if (overcast > 0)
+        c = mix(
+          c,
+          [0.2 + 0.36 * daylight, 0.21 + 0.37 * daylight, 0.25 + 0.36 * daylight],
+          overcast * 0.8,
+        );
       return target.setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace);
     },
     dispose() {
@@ -461,6 +580,8 @@ export function createCafeSky(radius = 85) {
       milkyTexture?.dispose();
       milkyMaterial.dispose();
       starMaterial.dispose();
+      meteorGeometry.dispose();
+      meteorMaterial.dispose();
       moonTexture.dispose();
       [sunTexture, flareTexture, dotTexture].forEach((t) => t.dispose());
       sunMaterial.dispose();

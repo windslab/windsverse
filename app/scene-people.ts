@@ -29,6 +29,9 @@ const CROSS_SHIN = [-1, 1].map((side, i) =>
 );
 
 /** Lightweight stand-in people; coordinates match the existing cafe model. */
+/** Seconds for one rest–sip–rest cycle of a seated guest's drink. */
+const DRINK_CYCLE = 11;
+
 export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: THREE.Group) {
   const root = new THREE.Group();
   root.name = 'Cafe_People';
@@ -201,7 +204,8 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         torso.add(new THREE.Mesh(geometry, mat));
       }
     }
-    const drink = mesh(elbows[1], cylinder, cup, [0, -0.13, 0.055], [0.04, 0.09, 0.04]);
+    // The guest's drink: it rests on the table and is picked up now and then for a sip.
+    const drink = mesh(torso, cylinder, cup, [0.13, 0.79, 0.3], [0.04, 0.09, 0.04]);
     drink.visible = false;
     const serving = new THREE.Group();
     serving.position.set(0, 0.71, 0.3);
@@ -274,6 +278,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       queueHeading: Math.PI / 2,
       delivered: false,
       serveAge: 0,
+      drinkPhase: Math.random() * DRINK_CYCLE,
     };
   }
   const seats = findCafeSeats(cafe);
@@ -298,7 +303,16 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
   const can = new THREE.Group(),
     broom = new THREE.Group(),
     cloth = new THREE.Group(),
-    camera = new THREE.Group();
+    camera = new THREE.Group(),
+    bristles = new THREE.Group(),
+    umbrella = new THREE.Group(),
+    canopy = new THREE.Group(),
+    propUpAxis = new THREE.Vector3(0, 1, 0);
+  /** Rain outdoors: Luna opens her umbrella (set by the scene, which knows where roofs are). */
+  let umbrellaWanted = false;
+  const umbrellaOpen = () =>
+    umbrellaWanted &&
+    !['sitting', 'watering', 'sweeping', 'wiping', 'photo', 'serving'].includes(task);
   {
     const green = propMat('#5f8f6b'),
       wood = propMat('#a8784a'),
@@ -324,11 +338,13 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     part(can, box, green, [0, 0.07, -0.01], [0.015, 0.03, 0.08]);
     can.position.set(-0.17, 0.6, 0.27);
     // Broom: stick from the hands down to bristles on the floor ahead.
-    // The stick leans forward from the hands; the bristles sit on its lower end.
-    part(broom, cylinder, wood, [0, -0.3, 0.165], [0.012, 0.7, 0.012], [-0.5, 0, 0]);
-    part(broom, cylinder, wood, [0, -0.6, 0.33], [0.03, 0.04, 0.03]);
-    part(broom, box, straw, [0, -0.64, 0.35], [0.2, 0.06, 0.06], [-0.2, 0, 0]);
-    broom.position.set(0, 0.71, 0.12);
+    // The stick runs from Luna's hands (its top, at the group's origin) one unit down; each frame
+    // it is aimed at the bristles on the floor ahead and stretched to reach them.
+    part(broom, cylinder, wood, [0, -0.5, 0], [0.012, 1, 0.012]);
+    part(bristles, cylinder, wood, [0, 0.06, 0], [0.03, 0.04, 0.03]);
+    part(bristles, box, straw, [0, 0.03, 0], [0.2, 0.06, 0.07]);
+    broom.position.set(0, 0.6, 0.15);
+    broom.scale.y = 0.55;
     // Cloth under the right hand.
     part(cloth, box, rag, [0, 0, 0], [0.12, 0.012, 0.09]);
     cloth.position.set(-0.13, 0.5, 0.34);
@@ -336,7 +352,60 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     part(camera, box, black, [0, 0, 0], [0.13, 0.08, 0.05]);
     part(camera, cylinder, silver, [0, 0, 0.035], [0.025, 0.03, 0.025], [Math.PI / 2, 0, 0]);
     camera.position.set(0, 0.97, 0.17);
-    props.add(can, broom, cloth, camera);
+    // Umbrella for rainy walks: white shaft and hook handle, clear canopy over Luna's head.
+    const white = propMat('#f4f2ee');
+    part(umbrella, cylinder, white, [0, 0.5, 0], [0.012, 1, 0.012]);
+    const hook = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.009, 6, 12, Math.PI), white);
+    hook.position.set(0.035, -0.02, 0);
+    hook.rotation.z = Math.PI;
+    geometries.push(hook.geometry);
+    umbrella.add(hook);
+    const clear = new THREE.MeshBasicMaterial({
+      color: '#e6f3fa',
+      transparent: true,
+      opacity: 0.24,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const rim = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.55 });
+    materials.push(clear, rim);
+    const dome = new THREE.SphereGeometry(0.58, 20, 6, 0, Math.PI * 2, 0, 1.0),
+      edge = new THREE.TorusGeometry(0.58 * Math.sin(1.0), 0.006, 4, 32);
+    geometries.push(dome, edge);
+    const shell = new THREE.Mesh(dome, clear);
+    shell.scale.y = 0.5;
+    // The dome's tip sits on the shaft's top.
+    shell.position.y = -0.29;
+    shell.renderOrder = 2;
+    const ring = new THREE.Mesh(edge, rim);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = shell.position.y + 0.58 * Math.cos(1.0) * 0.5;
+    canopy.add(shell, ring);
+    // Ribs from the tip down to the rim.
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      for (let k = 0; k < 4; k++) {
+        const t0 = (k / 4) * 1.0,
+          t1 = ((k + 1) / 4) * 1.0,
+          p0 = new THREE.Vector3(
+            Math.sin(t0) * Math.cos(a) * 0.58,
+            shell.position.y + Math.cos(t0) * 0.29,
+            Math.sin(t0) * Math.sin(a) * 0.58,
+          ),
+          p1 = new THREE.Vector3(
+            Math.sin(t1) * Math.cos(a) * 0.58,
+            shell.position.y + Math.cos(t1) * 0.29,
+            Math.sin(t1) * Math.sin(a) * 0.58,
+          );
+        const rib = mesh(canopy, cylinder, rim, [0, 0, 0], [0.005, p0.distanceTo(p1), 0.005]);
+        rib.position.copy(p0).lerp(p1, 0.5);
+        rib.quaternion.setFromUnitVectors(propUpAxis, p1.clone().sub(p0).normalize());
+      }
+    }
+    // Resting place until it is first opened (kept above the floor).
+    umbrella.position.set(-0.12, 0.72, 0.18);
+    canopy.position.set(-0.03, 1.56, 0);
+    props.add(can, broom, bristles, cloth, camera, umbrella, canopy);
     // Luna's own group is unscaled; the stand-in barista is already at café scale.
     props.scale.setScalar(scale / barista.visual.scale.x);
     props.children.forEach((p) => (p.visible = false));
@@ -363,16 +432,57 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
   function updateProps(dt: number, reduced: boolean) {
     const kind = task;
     can.visible = kind === 'watering';
-    broom.visible = kind === 'sweeping';
+    broom.visible = bristles.visible = kind === 'sweeping';
     cloth.visible = kind === 'wiping';
     camera.visible = kind === 'photo';
+    umbrella.visible = canopy.visible = umbrellaOpen();
     const pour = kind === 'watering' && !reduced,
       dust = kind === 'sweeping' && !reduced;
     drops.visible = pour || dust;
-    if (broom.visible) broom.rotation.y = reduced ? 0 : Math.sin(age * 4) * 0.45;
-    if (cloth.visible && !reduced) {
-      cloth.position.x = -0.13 + Math.sin(age * 5) * 0.05;
-      cloth.position.z = 0.34 + Math.cos(age * 5) * 0.04;
+    // Props sit in Luna's hands (her rig reports where they are each frame).
+    const handR = propHand[0],
+      handL = propHand[1];
+    const gripped =
+      !!detailed &&
+      (barista.visual.updateWorldMatrix(true, true),
+      detailed.hand(0, handR) && detailed.hand(1, handL));
+    if (gripped) {
+      props.worldToLocal(handR);
+      props.worldToLocal(handL);
+    }
+    if (broom.visible) {
+      const swing = reduced ? 0 : Math.sin(age * 4) * 0.45;
+      // Bristles brush the floor ahead, swinging side to side.
+      bristles.position.set(Math.sin(swing) * 0.32, 0, 0.5 + Math.cos(swing) * 0.05);
+      bristles.rotation.y = swing;
+      const top = gripped ? propTop.copy(handR).lerp(handL, 0.5) : propTop.set(0, 0.6, 0.15);
+      propDir.copy(bristles.position).add(propUp).sub(top);
+      broom.position.copy(top);
+      broom.quaternion.setFromUnitVectors(propDown, propDir.clone().normalize());
+      broom.scale.set(1, propDir.length(), 1);
+    }
+    if (can.visible && gripped) can.position.copy(handR).add(propCanOffset);
+    if (cloth.visible) {
+      if (gripped) cloth.position.copy(handR).add(propClothOffset);
+      else if (!reduced) {
+        cloth.position.x = -0.13 + Math.sin(age * 5) * 0.05;
+        cloth.position.z = 0.34 + Math.cos(age * 5) * 0.04;
+      }
+    }
+    if (camera.visible && gripped)
+      camera.position.copy(handR).lerp(handL, 0.5).add(propCameraOffset);
+    if (umbrella.visible) {
+      // Shaft from the right hand up to the canopy just above her head, leaning a touch back.
+      const grip = gripped ? propTop.copy(handR) : propTop.set(-0.12, 0.72, 0.18);
+      propDir.set(-0.03, 1.56, 0.0).sub(grip);
+      umbrella.position.copy(grip);
+      umbrella.quaternion.setFromUnitVectors(propUpAxis, propDir.clone().normalize());
+      umbrella.scale.set(1, 1, 1);
+      umbrella.children[0].scale.y = propDir.length();
+      umbrella.children[0].position.y = propDir.length() / 2;
+      canopy.position.copy(grip).add(propDir);
+      canopy.quaternion.copy(umbrella.quaternion);
+      if (!reduced) canopy.rotation.y += Math.sin(age * 1.3) * 0.04;
     }
     if (!drops.visible) return;
     dropMaterial.color.set(pour ? '#9fd3ff' : '#cbbfa8');
@@ -385,15 +495,15 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         k = i * 3;
       if (pour) {
         // Out of the spout tip, arcing down to the plant.
-        dropPositions[k] = -0.17 + Math.sin(i * 7.3) * 0.015;
-        dropPositions[k + 1] = 0.55 - 2.2 * t * t - 0.2 * t;
-        dropPositions[k + 2] = 0.44 + 0.25 * t;
+        dropPositions[k] = can.position.x + Math.sin(i * 7.3) * 0.015;
+        dropPositions[k + 1] = can.position.y - 0.05 - 2.2 * t * t - 0.2 * t;
+        dropPositions[k + 2] = can.position.z + 0.17 + 0.25 * t;
       } else {
         // Little puffs rising behind the bristles.
-        const a = i * 2.4 + broom.rotation.y;
-        dropPositions[k] = Math.sin(a) * 0.12 + Math.sin(broom.rotation.y) * 0.3;
+        const a = i * 2.4 + bristles.rotation.y;
+        dropPositions[k] = Math.sin(a) * 0.12 + bristles.position.x;
         dropPositions[k + 1] = 0.03 + t * 0.18;
-        dropPositions[k + 2] = 0.45 + Math.cos(a) * 0.06 + t * 0.05;
+        dropPositions[k + 2] = bristles.position.z - 0.05 + Math.cos(a) * 0.06 + t * 0.05;
       }
     }
     dropGeometry.attributes.position.needsUpdate = true;
@@ -423,6 +533,16 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     root.add(marker);
   }
   let markerKey = '';
+  const propHand = [new THREE.Vector3(), new THREE.Vector3()],
+    propTop = new THREE.Vector3(),
+    propDir = new THREE.Vector3(),
+    propUp = new THREE.Vector3(0, 0.06, 0),
+    propDown = new THREE.Vector3(0, -1, 0),
+    propCanOffset = new THREE.Vector3(0, -0.03, 0.05),
+    propClothOffset = new THREE.Vector3(0, -0.04, 0),
+    propCameraOffset = new THREE.Vector3(0, 0.03, 0.04);
+  const drinkHand = new THREE.Vector3(),
+    drinkRest = new THREE.Vector3(0.13, 0.79, 0.3);
   function standUp() {
     barista.phase = 'working';
     barista.seat = null;
@@ -819,7 +939,12 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         moving && task === 'serving' ? 'carrying' : task,
         reduced,
         actor.climb,
-        { phase: run ? runPhase : age * 7 + actor.phase.length, run, air: jumpY > 0.005 },
+        {
+          phase: run ? runPhase : age * 7 + actor.phase.length,
+          run,
+          air: jumpY > 0.005,
+          umbrella: umbrellaOpen(),
+        },
       );
     else {
       actor.legs.forEach((leg, i) => {
@@ -871,9 +996,24 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     }
     actor.drink.visible = !isBarista && sitting && actor.delivered;
     if (actor.drink.visible) {
-      const sip = reduced ? 0 : Math.pow(Math.max(0, Math.sin(age * 0.75)), 4);
-      actor.arms[1].rotation.x = -0.45 - 0.55 * sip;
-      actor.elbows[1].rotation.x = -0.8 - 0.6 * sip;
+      // Rest, reach for the cup, lift it, tip it for a few sips, then set it back on the table.
+      const t = reduced ? 0 : (age + actor.drinkPhase) % DRINK_CYCLE,
+        step = THREE.MathUtils.smoothstep;
+      const reach = step(t, 3, 4) - step(t, 9, 9.8),
+        lift = step(t, 4.2, 5.4) - step(t, 7.8, 8.9),
+        sip = step(t, 5.4, 5.9) - step(t, 7.3, 7.8),
+        lerp = THREE.MathUtils.lerp;
+      const arm = actor.arms[1],
+        elbow = actor.elbows[1];
+      arm.rotation.x = lerp(lerp(-0.3, -0.9, reach), -0.62, lift);
+      arm.rotation.z = -0.04 - 0.38 * lift;
+      elbow.rotation.x = lerp(lerp(-0.65, -0.5, reach), -2.25, lift);
+      // Head tips back a little while sipping, with a tiny swallow bob.
+      actor.torso.rotation.x = -0.05 * sip + (reduced ? 0 : Math.sin(age * 9) * 0.006 * sip);
+      actor.visual.updateWorldMatrix(true, true);
+      const hand = actor.torso.worldToLocal(elbow.localToWorld(drinkHand.set(0, -0.15, 0.05)));
+      actor.drink.position.copy(drinkRest).lerp(hand, step(lift, 0, 0.12));
+      actor.drink.rotation.set(-0.85 * sip, 0, 0);
     }
     actor.serving.visible = isBarista && task === 'serving';
     actor.shadow.position.set(
@@ -1011,6 +1151,10 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       chore.until = age + seconds;
       if (target)
         barista.heading = Math.atan2(target.x - barista.position.x, target.z - barista.position.z);
+    },
+    /** Rain over Luna's head (no roof): she carries her umbrella. */
+    setUmbrella(on: boolean) {
+      umbrellaWanted = on;
     },
     choreActive: () => !!chore.kind && age < chore.until,
     walkTo(point: THREE.Vector3) {

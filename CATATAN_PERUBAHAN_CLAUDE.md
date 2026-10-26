@@ -572,3 +572,41 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   gunung dari kafe, piano/gitar/cello; simulasi jalan dari jalan setapak sampai atap (melangkah dari
   tangga tengah ke pijakan atap) lolos. `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6,
   `people.test` 13/13, `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
+
+## 29. Musim hujan & petir, payung Luna, kucing chibi, meteor, dandelion, perbaikan animasi (27 Okt 2026)
+
+- **Kabel lampu gantung** di area duduk kini samar dan putus-putus (tidak lagi garis gelap tegas).
+- **Bulan** berwarna kuning hangat (kawah dan cahaya sekelilingnya ikut hangat).
+- **Musim hujan** (`lib/cafe-weather.ts`): sesekali (beberapa menit kering, lalu 1,5–3 menit hujan)
+  langit menjadi **mendung kelabu** (matahari, bulan, bintang, dan meteor tertutup), awan badai gelap
+  bergulung di atas, **hujan** turun di sekitar kamera, kabut lebih tebal, serangga & burung
+  berteduh. Saat hujan deras, **petir** berkilat di dalam awan: awan menyala di titik petir, ada
+  garis kilat bercabang, dan seluruh scene terang sekejap. Hujan tidak tampak di dalam menara.
+- **Payung Luna**: jika hujan dan tidak ada atap di atas kepalanya (dicek dengan sinar ke atas
+  terhadap kafe & menara), Luna otomatis membuka **payung transparan bergagang putih** (gagang
+  berkait, rusuk putih, kanopi bening) yang dipegang tangan kanannya. Payung disimpan saat duduk,
+  menyapu, menyiram, mengelap, memotret, atau mengantar pesanan.
+- **Rompi Luna**: bagian kiri rompi abu-abu terang, bagian kanan tetap seperti semula.
+- **Alat di tangan Luna**: sapu, gembor, lap, dan kamera kini mengikuti posisi tangan Luna setiap
+  saat. Sapu dipegang dua tangan, gagangnya menyambung ke ijuk yang mengayun di lantai.
+- **Tamu minum lebih detail**: cangkir diletakkan di meja; tamu meraih cangkir, mengangkatnya ke
+  mulut, memiringkannya sambil sedikit mendongak (menyeruput), lalu meletakkannya kembali. Tiap tamu
+  punya irama sendiri.
+- **Duduk menghadap meja**: arah duduk dihitung ke sisi meja terdekat (bukan titik tengahnya), jadi
+  semua yang duduk di sepanjang meja panjang dan lesehan menghadap lurus ke meja.
+- **Kucing chibi putih-oranye** (`lib/cafe-cat.ts`): kepala besar, mata bulat berkilau, hidung pink,
+  mulut ":3", pipi merona, telinga oranye, tambalan oranye di punggung & kepala, ekor oranye berujung
+  putih. Ia berjalan ke tempat acak di kafe dan sekitarnya (tidak ke jalan raya, kolam, atau air),
+  **menjilati bulu**, **duduk santai**, **tidur meringkuk** (mata terpejam, napas pelan),
+  **bermain** (merunduk, goyang pantat, menerkam, mencakar udara), dan **melompat** naik-turun
+  pinggiran seperti kucing. Kadang menoleh ke Luna jika Luna dekat.
+- **Meteor** sesekali melintas di langit malam yang cerah (biasanya di depan kamera).
+- **Dandelion**: rumpun-rumpun bunga dandelion (kepala biji putih, sebagian masih bunga kuning)
+  tersebar di padang rumput, bergoyang tertiup angin; sesekali bijinya terbang terbawa angin.
+- Dicek di browser (ukuran HP): kabel, hujan siang & malam, langit mendung, kilat (angka kilatan),
+  payung Luna di trotoar saat hujan, sapu di tangan, tamu minum & arah duduk (meja 3 dan 5), pose
+  kucing (jalan, duduk, menjilat, tidur, main), meteor, tekstur bulan, dandelion.
+  `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6, `people.test` 13/13,
+  `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
+- Alat tes pengembangan (`?sceneStats`): `__scene.rain(true/false/null)`, `__scene.strike()`,
+  `__scene.weather()`, `__scene.cat()` (dengan `act('sleep')` dll.) — tidak aktif di website asli.

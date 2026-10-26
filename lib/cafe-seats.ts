@@ -9,6 +9,22 @@ export type CafeSeat = {
   /** Lesehan: sit cross-legged on the floor (surface is the floor itself). */
   floor?: boolean;
 };
+// Seats face the closest edge of their table (not its centre), so everyone along a long table
+// looks straight across it.
+const edgeGap = (box: THREE.Box3, x: number, z: number) =>
+  Math.hypot(Math.max(box.min.x - x, 0, x - box.max.x), Math.max(box.min.z - z, 0, z - box.max.z));
+const faceTable = (box: THREE.Box3, x: number, z: number) => {
+  const nx = THREE.MathUtils.clamp(x, box.min.x, box.max.x),
+    nz = THREE.MathUtils.clamp(z, box.min.z, box.max.z);
+  // Seat under the table top: face the table's long middle line instead.
+  if (Math.hypot(nx - x, nz - z) < 1e-4) {
+    const c = box.getCenter(new THREE.Vector3()),
+      s = box.getSize(new THREE.Vector3());
+    return s.x > s.z ? Math.atan2(0, c.z - z || 1) : Math.atan2(c.x - x || 1, 0);
+  }
+  return Math.atan2(nx - x, nz - z);
+};
+
 export const tableKey = (value: unknown) =>
   String(value ?? '')
     .toLowerCase()
@@ -99,9 +115,7 @@ export function findCafeSeats(cafe: THREE.Object3D): CafeSeat[] {
                 t.box.max.y > surface.y - 0.08 * scale && t.box.max.y < surface.y + 0.85 * scale,
             )
             .sort(
-              (u, v) =>
-                Math.hypot(u.center.x - surface.x, u.center.z - surface.z) -
-                Math.hypot(v.center.x - surface.x, v.center.z - surface.z),
+              (u, v) => edgeGap(u.box, surface.x, surface.z) - edgeGap(v.box, surface.x, surface.z),
             )[0];
           seats.push({
             id: node.uuid + ':' + seats.length,
@@ -111,7 +125,7 @@ export function findCafeSeats(cafe: THREE.Object3D): CafeSeat[] {
               thin ? cafe.localToWorld(new THREE.Vector3(0, 0.174, 0)).y : bounds.min.y,
             ),
             table: table?.key ?? '',
-            heading: table ? Math.atan2(table.center.x - surface.x, table.center.z - surface.z) : 0,
+            heading: table ? faceTable(table.box, surface.x, surface.z) : 0,
             takeaway: /take.?away/i.test(node.name),
           });
         }
@@ -139,7 +153,7 @@ export function findCafeSeats(cafe: THREE.Object3D): CafeSeat[] {
         surface: new THREE.Vector3(x, floorY, z),
         floorY,
         table: tableKey(node.name),
-        heading: Math.atan2(center.x - x, center.z - z),
+        heading: faceTable(box, x, z),
         takeaway: false,
         floor: true,
       }),
