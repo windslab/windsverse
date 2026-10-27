@@ -10,7 +10,7 @@ import { CSS3DObject, CSS3DRenderer } from 'three/addons/renderers/CSS3DRenderer
 import DriveTV, { type TVProgram } from './drive-tv';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { BookOpen, Coffee, Gamepad2, RotateCcw, Volume2, VolumeX } from 'lucide-react';
-import { createSceneAmbience, type SceneAmbience } from './scene-ambience';
+import { createCafeSound, playSfx, type Surface } from '@/lib/cafe-sound';
 import { cafePaths, type CafePathData } from '@/lib/cafe-paths';
 import { prepareCafeBarWorkspace } from '@/lib/cafe-bar-workspace';
 import { addCafeWalkSurfaces } from '@/lib/cafe-walk-surfaces';
@@ -308,14 +308,12 @@ export default function CafeScene({
   viewRef.current.cafeReturnRequest = cafeReturnRequest;
   viewRef.current.onTelescopeReady = onTelescopeReady;
   const host = useRef<HTMLDivElement>(null),
-    modeRef = useRef<'morning' | 'night'>('morning'),
     phaseRef = useRef<SkyPhase>('live'),
     audioRef = useRef<AudioContext | null>(null),
-    ambienceRef = useRef<SceneAmbience | null>(null),
+    ambienceRef = useRef<ReturnType<typeof createCafeSound> | null>(null),
     soundRef = useRef(false),
     [enteringScope, setEnteringScope] = useState(false),
     [modelReady, setModelReady] = useState(false),
-    [mode, setMode] = useState<'morning' | 'night'>('morning'),
     [skyPhase, setSkyPhase] = useState<SkyPhase>('live'),
     [livePhase, setLivePhase] = useState<Exclude<SkyPhase, 'live'>>('siang'),
     [soundEnabled, setSoundEnabled] = useState(false),
@@ -339,12 +337,12 @@ export default function CafeScene({
     setExploring(on);
     if (!on) viewRef.current.reset += 1;
   };
-  modeRef.current = mode;
+  // Explore opened before Luna had loaded: hand her the controls once she's ready.
+  useEffect(() => {
+    if (exploring && exploreApi) exploreApi.setManual(true);
+  }, [exploring, exploreApi]);
   phaseRef.current = skyPhase;
   soundRef.current = soundEnabled;
-  useEffect(() => {
-    ambienceRef.current?.setMode(mode);
-  }, [mode]);
   const toggleSound = async () => {
     if (soundEnabled) {
       ambienceRef.current?.setEnabled(false);
@@ -356,8 +354,7 @@ export default function CafeScene({
       if (!audioRef.current || audioRef.current.state === 'closed')
         audioRef.current = new AudioContext();
       await audioRef.current.resume();
-      if (!ambienceRef.current) ambienceRef.current = createSceneAmbience(audioRef.current);
-      ambienceRef.current.setMode(modeRef.current);
+      if (!ambienceRef.current) ambienceRef.current = createCafeSound(audioRef.current);
       ambienceRef.current.setEnabled(true);
       soundRef.current = true;
       setSoundEnabled(true);
@@ -459,6 +456,10 @@ export default function CafeScene({
     /** Zebra crossing in front of the café: where cars stop for Luna. */
     let crossing: { center: THREE.Vector3; reach: number } | undefined;
     let critters: ReturnType<typeof createCritters> | undefined;
+    /** Whether there's a roof over Luna and over the camera (for sounds). */
+    let lunaUnderRoof = true,
+      cameraUnderRoof = false,
+      lastEarCheck = 0;
     let weather: ReturnType<typeof createWeather> | undefined,
       cat: ReturnType<typeof createCafeCat> | undefined,
       lastRoofCheck = 0;
@@ -1559,6 +1560,47 @@ export default function CafeScene({
           addCafeWalkSurfaces(model);
           const nav = cafePaths(model, navData);
           people = placeCafePeople(model, nav, luna.scene);
+          {
+            // Footsteps: what Luna walks on decides the sound (grass, sand, wood, stone, tiles…).
+            const crew = people,
+              down = new THREE.Raycaster(),
+              below = new THREE.Vector3(0, -1, 0),
+              from = new THREE.Vector3();
+            const surfaceUnder = (p: THREE.Vector3): Surface => {
+              if (world?.towerInfo.inside(p)) return 'stone';
+              if (crew.outdoorsNow() && world) return world.surfaceAt(p.x, p.z);
+              down.set(from.copy(p).add(new THREE.Vector3(0, 0.4, 0)), below);
+              down.far = 1;
+              // The first visible floor below her feet (not leaves, chairs or pots in the way).
+              const hit = down
+                .intersectObject(model, true)
+                .find(
+                  (h) =>
+                    h.object.visible &&
+                    !/leaves|leaf|undergrowth|tree_base|kursi|meja|pot\b/i.test(h.object.name),
+                );
+              if (!hit) return world ? world.surfaceAt(p.x, p.z) : 'concrete';
+              const name = (
+                hit.object.name +
+                ' ' +
+                ((hit.object as THREE.Mesh).material as THREE.Material).name
+              ).toLowerCase();
+              // Dark timber upstairs, on the deck and wooden stairs; the café's smooth indoor
+              // floor; everything else (sidewalk, steps, plaster) is concrete.
+              if (/timber|kayu|wood|deck|plank/.test(name)) return 'wood';
+              if (/floor lantai|floor_lantai|area bar/.test(name)) return 'tile';
+              return 'concrete';
+            };
+            crew.setSoundHooks(
+              (run) => {
+                const p = crew.baristaPosition();
+                const surface = surfaceUnder(p);
+                const wet = lunaUnderRoof ? 0 : (weather?.state.rain ?? 0);
+                ambienceRef.current?.step(surface, run, wet, p);
+              },
+              () => playSfx('land'),
+            );
+          }
           // Explore mode: beyond the sidewalk Luna walks on the surrounding world.
           if (world && siteBox) people.setOutdoors({ walk: world.walkHeight, site: siteBox });
           cafeModel = model;
@@ -1578,6 +1620,7 @@ export default function CafeScene({
               strike: () => weather?.strikeNow(),
               weather: () => weather?.state,
               cat: () => cat,
+              sound: () => ambienceRef.current,
               visitors: (list: CafeVisitor[]) => {
                 exploreRef.current.visitors = list;
               },
@@ -1997,7 +2040,15 @@ export default function CafeScene({
           // Explore mode runs its own, faster day.
           const gameClock = exploreRef.current.on ? exploreRef.current.clock : null;
           // Weather: rain, storm clouds and lightning (the sky greys with it).
-          weather?.update(camera, t, delta, sky.state.night, reduced);
+          weather?.update(
+            camera,
+            t,
+            delta,
+            sky.state.night,
+            reduced,
+            sky.state.sun,
+            sky.state.daylight,
+          );
           const wx = weather?.state ?? { rain: 0, overcast: 0, flash: 0 };
           if (weather) weather.group.visible = !(world && world.towerInfo.inside(camera.position));
           sky.setOvercast(wx.overcast);
@@ -2017,7 +2068,6 @@ export default function CafeScene({
           if (sk.phase !== lastPhase) {
             lastPhase = sk.phase;
             setLivePhase(sk.phase);
-            setMode(night ? 'night' : 'morning');
           }
           sky.horizon((scene.fog as THREE.Fog).color);
           (floor.material as THREE.MeshToonMaterial).color.lerp(
@@ -2105,6 +2155,50 @@ export default function CafeScene({
           }
           world?.setTowerNight(lamps);
           world?.update(t);
+          // Sounds of the world around the camera (when sound is on).
+          if (ambienceRef.current && soundRef.current) {
+            if (t - lastEarCheck > 0.3) {
+              lastEarCheck = t;
+              roofRay.set(camera.position, skyward);
+              roofRay.far = 60;
+              const covers: THREE.Object3D[] = [];
+              if (cafeModel) covers.push(cafeModel);
+              if (world) covers.push(world.tower);
+              cameraUnderRoof =
+                (!!world && world.towerInfo.inside(camera.position)) ||
+                roofRay.intersectObjects(covers, true).length > 0;
+            }
+            const ear = controls!.target,
+              water = world?.waterNear(ear.x, ear.z) ?? { sea: Infinity, river: Infinity };
+            ambienceRef.current.update(
+              {
+                camera,
+                ear,
+                night: sk.night,
+                daylight: sk.daylight,
+                rain: wx.rain,
+                overcast: wx.overcast,
+                strikes: weather?.state.strikes ?? 0,
+                strikePoint: weather?.state.strikePoint ?? camera.position,
+                covered: cameraUnderRoof,
+                sea: water.sea,
+                river: water.river,
+                flock: critters?.flock() ?? null,
+                cat: cat ? { position: cat.position, mood: cat.mood() } : null,
+                luna: people
+                  ? {
+                      position: people.baristaPosition(),
+                      task: people.task(),
+                      umbrella: people.umbrellaUp(),
+                    }
+                  : null,
+                altitude:
+                  camera.position.y - (world?.heightAt(camera.position.x, camera.position.z) ?? 0),
+              },
+              t,
+              delta,
+            );
+          }
           if (people) {
             cat?.update(t, delta, reduced, people.baristaPosition());
             // Rain with no roof over Luna's head: up goes her umbrella.
@@ -2125,6 +2219,7 @@ export default function CafeScene({
                 if (world) covers.push(world.tower);
                 open = roofRay.intersectObjects(covers, true).length === 0;
               }
+              lunaUnderRoof = !open && wx.rain > 0.2;
               people.setUmbrella(open);
             }
           }
@@ -2673,6 +2768,9 @@ export default function CafeScene({
       ambienceRef.current = null;
       void audioRef.current?.close();
       audioRef.current = null;
+      // The audio is gone with the scene: show the sound switch as off again.
+      soundRef.current = false;
+      setSoundEnabled(false);
       mirrors.forEach(({ mesh }) => {
         mesh.dispose();
         mesh.geometry.dispose();
@@ -2792,7 +2890,12 @@ export default function CafeScene({
           </span>
         </div>
         {exploring && exploreApi && (
-          <ExploreMode api={exploreApi} onExit={() => toggleExplore(false)} />
+          <ExploreMode
+            api={exploreApi}
+            onExit={() => toggleExplore(false)}
+            sound={soundEnabled}
+            onToggleSound={() => void toggleSound()}
+          />
         )}
         {!exploring && exploreApi && (
           <button

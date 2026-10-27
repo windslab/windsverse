@@ -21,6 +21,7 @@ import {
   type MenuItem,
   type Order,
 } from '@/lib/barista-game';
+import { playSfx } from '@/lib/cafe-sound';
 import styles from './explore-mode.module.css';
 import VintageCamera from './vintage-camera';
 
@@ -131,7 +132,18 @@ const spotDistance = (at: THREE.Vector3, box: THREE.Box3) =>
       );
 const emptyDrink = (): Drink => ({ cup: null, amounts: {}, espressoQuality: 1 });
 
-export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: () => void }) {
+export default function ExploreMode({
+  api,
+  onExit,
+  sound,
+  onToggleSound,
+}: {
+  api: ExploreApi;
+  onExit: () => void;
+  /** Sound on/off (the same switch as the café view's). */
+  sound: boolean;
+  onToggleSound: () => void;
+}) {
   const [menu, setMenu] = useState<MenuItem[]>([]),
     [customers, setCustomers] = useState<Customer[]>([]),
     [panel, setPanel] = useState<Panel>(null),
@@ -345,7 +357,10 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         applyStick();
         e.preventDefault();
       } else if (key === ' ') {
-        if (!e.repeat) api.jump();
+        if (!e.repeat) {
+          api.jump();
+          playSfx('jump');
+        }
         e.preventDefault();
       } else if (key === 'e' && actionsRef.current[0]) {
         runRef.current(actionsRef.current[0].id);
@@ -379,6 +394,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40
       ) {
         api.jump();
+        playSfx('jump');
         lastTap = { at: 0, x: 0, y: 0 };
       } else lastTap = { at: now, x: e.clientX, y: e.clientY };
     };
@@ -514,7 +530,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
       }, seconds * 1000);
     if (verb === 'telescope') api.telescope();
     if (verb === 'stand') api.stand();
-    if (verb === 'sit') api.sit(arg);
+    if (verb === 'sit' && api.sit(arg)) playSfx('sit');
     if (verb === 'water' || verb === 'wipe') {
       const spot = (verb === 'water' ? api.spots.plants : api.spots.tables).find(
         (p) => p.name === arg,
@@ -563,6 +579,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
       const thanks = THANKS[Math.floor(Math.random() * THANKS.length)];
       const points = 20 + Math.round(c.order.item.price / 1000);
       api.deliver(c.key);
+      playSfx('serve');
       setCustomers((list) =>
         list.map((x) => (x.key === c.key ? { ...x, stage: 'served', servedAt: Date.now() } : x)),
       );
@@ -645,6 +662,9 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         <nav className={styles.tools} aria-label="Alat">
           <button onClick={() => run('photo')}>kamera</button>
           <button onClick={() => run('sweep')}>sapu</button>
+          <button onClick={onToggleSound} aria-pressed={sound}>
+            {sound ? 'suara: on' : 'suara: off'}
+          </button>
         </nav>
       )}
       {note && (
@@ -698,6 +718,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
                 key={c.id}
                 onClick={() => {
                   setDrink((d) => ({ ...d, cup: c.id as CupId }));
+                  playSfx('cup');
                   setPanel(null);
                 }}
               >
@@ -717,6 +738,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
           onChange={setDrink}
           onClose={() => setPanel(null)}
           onFinish={() => {
+            playSfx('stir');
             setHolding(true);
             setPanel(null);
           }}
@@ -855,7 +877,13 @@ function CashierPanel({
           ) : (
             <div className={styles.choices}>
               {DENOMINATIONS.filter((d) => d < customer.order.paid).map((d) => (
-                <button key={d} onClick={() => setTray((t) => [...t, d])}>
+                <button
+                  key={d}
+                  onClick={() => {
+                    playSfx('coin');
+                    setTray((t) => [...t, d]);
+                  }}
+                >
                   +{d >= 1000 ? d / 1000 + 'rb' : d}
                 </button>
               ))}
@@ -866,7 +894,13 @@ function CashierPanel({
               )}
             </div>
           )}
-          <button className={styles.primary} onClick={() => onDone(wrong, { given, due })}>
+          <button
+            className={styles.primary}
+            onClick={() => {
+              playSfx('register');
+              onDone(wrong, { given, due });
+            }}
+          >
             {due === 0 ? 'terima uang' : 'berikan kembalian'} →
           </button>
         </>
@@ -893,6 +927,7 @@ function PrepPanel({
 }) {
   const add = (id: string, delta: number) => {
     const ing = INGREDIENTS.find((i) => i.id === id)!;
+    if (delta > 0) playSfx('pour');
     onChange((d) => ({
       ...d,
       amounts: {
@@ -964,12 +999,21 @@ function EspressoPanel({
     pullTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(
     () => () => {
-      if (holdTimer.current) clearInterval(holdTimer.current);
-      if (pullTimer.current) clearInterval(pullTimer.current);
+      // Closing the panel mid-way: the grinder and the brew stop too.
+      if (holdTimer.current) {
+        clearInterval(holdTimer.current);
+        playSfx('grind-stop');
+      }
+      if (pullTimer.current) {
+        clearInterval(pullTimer.current);
+        playSfx('brew-stop');
+      }
     },
     [],
   );
   const startPull = () => {
+    playSfx('tamp');
+    setTimeout(() => playSfx('brew-start'), 450);
     setStep('pull');
     const started = Date.now();
     pullTimer.current = setInterval(() => {
@@ -979,6 +1023,8 @@ function EspressoPanel({
   };
   const stopPull = () => {
     if (pullTimer.current) clearInterval(pullTimer.current);
+    pullTimer.current = null;
+    playSfx('brew-stop');
     // Sweet spot in the middle of the dial (like 25–30 s on a real machine).
     const quality = Math.max(0.2, 1 - Math.abs(needle - 0.55) * 3.2);
     onShot(quality);
@@ -1010,6 +1056,7 @@ function EspressoPanel({
           <button
             className={styles.primary}
             onPointerDown={() => {
+              playSfx('grind-start');
               if (holdTimer.current) clearInterval(holdTimer.current);
               holdTimer.current = setInterval(
                 () =>
@@ -1017,6 +1064,8 @@ function EspressoPanel({
                     const next = Math.min(1, g + 0.04);
                     if (next >= 1) {
                       if (holdTimer.current) clearInterval(holdTimer.current);
+                      holdTimer.current = null;
+                      playSfx('grind-stop');
                       setStep('tamp');
                     }
                     return next;
@@ -1024,8 +1073,16 @@ function EspressoPanel({
                 30,
               );
             }}
-            onPointerUp={() => holdTimer.current && clearInterval(holdTimer.current)}
-            onPointerLeave={() => holdTimer.current && clearInterval(holdTimer.current)}
+            onPointerUp={() => {
+              playSfx('grind-stop');
+              if (holdTimer.current) clearInterval(holdTimer.current);
+              holdTimer.current = null;
+            }}
+            onPointerLeave={() => {
+              playSfx('grind-stop');
+              if (holdTimer.current) clearInterval(holdTimer.current);
+              holdTimer.current = null;
+            }}
           >
             Tahan untuk menggiling
           </button>

@@ -551,6 +551,10 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
   let running = false,
     jumpY = 0,
     jumpV = 0;
+  /** Sounds: called on each of Luna's footfalls, and when she lands from a hop. */
+  let onStep: ((run: boolean) => void) | null = null,
+    onLand: (() => void) | null = null,
+    stepSide = 0;
   let outdoors: {
       walk: (x: number, z: number, fromY?: number) => number | null;
       site: THREE.Box3;
@@ -932,6 +936,14 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         : moving
           ? Math.sin(age * 7 + actor.phase.length) * 0.8
           : 0;
+    // A footfall each time the stride swings through (both feet), for footstep sounds.
+    if (isBarista && moving && !reduced && jumpY <= 0.005) {
+      const side = Math.sign(Math.sin(run ? runPhase : age * 7 + actor.phase.length));
+      if (side !== 0 && side !== stepSide) {
+        if (stepSide !== 0) onStep?.(run);
+        stepSide = side;
+      }
+    } else if (isBarista) stepSide = 0;
     if (isBarista && detailed)
       detailed.update(
         age,
@@ -1152,6 +1164,14 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       if (target)
         barista.heading = Math.atan2(target.x - barista.position.x, target.z - barista.position.z);
     },
+    /** Sound hooks: Luna's footfalls (with whether she runs) and landing from a hop. */
+    setSoundHooks(step: ((run: boolean) => void) | null, land: (() => void) | null) {
+      onStep = step;
+      onLand = land;
+    },
+    /** What Luna is doing (idle, cashier, preparing, sweeping, …) and whether her umbrella is up. */
+    task: () => task,
+    umbrellaUp: () => umbrella.visible,
     /** Rain over Luna's head (no roof): she carries her umbrella. */
     setUmbrella(on: boolean) {
       umbrellaWanted = on;
@@ -1268,7 +1288,10 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       if (jumpV !== 0 || jumpY > 0) {
         jumpY += jumpV * dt;
         jumpV -= 11 * scale * dt;
-        if (jumpY <= 0) jumpY = jumpV = 0;
+        if (jumpY <= 0) {
+          jumpY = jumpV = 0;
+          onLand?.();
+        }
       }
       const arrived = animate(barista, dt, reduced, true);
       updateProps(dt, reduced);

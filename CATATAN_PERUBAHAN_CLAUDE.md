@@ -610,3 +610,40 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
 - Alat tes pengembangan (`?sceneStats`): `__scene.rain(true/false/null)`, `__scene.strike()`,
   `__scene.weather()`, `__scene.cat()` (dengan `act('sleep')` dll.) — tidak aktif di website asli.
+
+## 30. Hujan bertahap & pelangi, dandelion menyala, efek suara di seluruh dunia (27 Okt 2026)
+
+- **Dandelion menyala** kuning hangat di malam hari: kepala bunga berpendar dengan lingkaran cahaya
+  lembut, biji yang terbang ikut hangat. Siang hari tetap putih/kuning biasa.
+- **Hujan bertahap** (`lib/cafe-weather.ts`): cerah → **mendung** perlahan (±30–45 dtk) → **gerimis**
+  (tetes sedikit, pendek, lambat) → **makin deras** → **deras** (dengan petir) → **mereda** ke gerimis →
+  **gerimis akhir** → **berhenti** (awan menipis pelan) → **pasca hujan** dengan **pelangi lembut**
+  berwarna pastel di sisi berlawanan matahari (hanya siang dan saat matahari tidak terlalu tinggi) →
+  cerah lagi. Kadang hujannya hanya gerimis saja. `__scene.rain(true/false)` untuk tes.
+- **Efek suara** (`lib/cafe-sound.ts`, semuanya dibuat langsung oleh browser, tanpa file audio
+  baru), aktif lewat tombol suara di kafe dan tombol baru **"suara"** di mode Explore:
+  - **Langkah kaki** Luna berbeda per permukaan: rumput, beton (trotoar/tangga), lantai dalam kafe,
+    kayu (lantai 2, dek, dermaga, jembatan), pasir, aspal, kerikil (jalan setapak ke jembatan), batu
+    (jalan marmer & dalam menara, dengan sedikit gema). Lari lebih keras; saat hujan ada cipratan.
+    Mendarat dari lompatan berbunyi "buk", melompat ada desir kecil.
+  - **Bersih-bersih**: desir sapu tiap ayunan, gosokan lap, kucuran air gembor.
+  - **Membuat minuman** (Explore): koin & mesin kasir, ambil cangkir, menuang takaran, adukan sendok,
+    grinder (selama tombol ditahan), tamp, desis mesin espresso & tetesan, denting cangkir dan nada
+    kecil saat mengantar. Saat barista bekerja sendiri, mesin terdengar sesekali dari bar.
+  - **Ambience**: angin lembut (lebih kencang saat mendung dan di tempat tinggi), **gerimis** (desis
+    halus + tetes), **hujan deras** (teredam dan terdengar menimpa atap bila kamera di bawah atap),
+    tetes hujan di **payung** Luna, **petir** yang bergemuruh beberapa saat setelah kilat (makin jauh
+    makin lambat & pelan), **jangkrik** di malam hari (diam saat hujan), **kicau burung** saat kawanan
+    burung lewat, **ombak** saat dekat laut, **gemericik sungai** saat dekat sungai, **kucing**
+    mengeong menyapa saat Luna mendekat dan sesekali, serta **mendengkur** saat tidur/menjilat bulu
+    di dekat Luna.
+  - Suara datang dari arahnya (kiri/kanan) dan makin pelan jika jauh dari Luna.
+- Suara lama (angin + kicau acak + api) diganti sistem baru; kicau burung kini hanya saat burung lewat.
+- Perbaikan kecil: jika mode Explore dibuka sebelum Luna selesai dimuat, kendali kini tetap aktif
+  setelah Luna siap (sebelumnya Luna bisa tidak bisa digerakkan). Saat scene dimuat ulang, tombol
+  suara kembali "mati" agar sesuai keadaan sebenarnya.
+- Dicek di browser (ukuran HP): urutan cuaca mendung → gerimis → deras → reda → pelangi, dandelion
+  malam, tombol suara di Explore, dan level suara terukur untuk langkah kaki (lantai/trotoar/rumput),
+  meong & dengkur kucing, sapu/lap/gembor, petir, hujan, dan semua efek membuat minuman.
+  `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6, `people.test` 13/13,
+  `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.

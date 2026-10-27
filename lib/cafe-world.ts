@@ -1884,6 +1884,11 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     glow.color.setRGB(0.55 + 0.45 * night, 0.5 + 0.36 * night, 0.42 + 0.2 * night);
     glass.color.set(night > 0.5 ? '#ffcf8a' : '#cfe4ea');
     glass.opacity = night > 0.5 ? 0.45 : 0.22;
+    // Dandelion heads glow a warm yellow after dark.
+    dandelionNight.value = night;
+    seedMaterial.color.setRGB(1, 0.99 - 0.12 * night, 0.96 - 0.4 * night);
+    dandelionGlow.visible = night > 0.02;
+    (dandelionGlow.material as THREE.ShaderMaterial).uniforms.night.value = night;
     const t = performance.now() / 4000;
     bookLamps.forEach((l, i) => (l.rotation.y += Math.sin(t + i) * 0.0015));
   };
@@ -1959,7 +1964,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   // Each is a stem with a fluffy white seed head (some still yellow flowers); now and then a seed
   // drifts off on the breeze.
   const dandelionSpots: THREE.Matrix4[] = [],
-    bloomSpots: THREE.Matrix4[] = [];
+    bloomSpots: THREE.Matrix4[] = [],
+    dandelionNight = { value: 0 };
   {
     const meadow = (x: number, z: number) =>
       Math.hypot(x - center.x, z - center.z) < 80 &&
@@ -2045,6 +2051,17 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     });
     dandelionMaterial.onBeforeCompile = (shader) => {
       shader.uniforms.windTime = windTime;
+      shader.uniforms.dandelionNight = dandelionNight;
+      // Heads (the pale and yellow parts; stems are green) light up warm at night.
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float dandelionNight;')
+        .replace(
+          '#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+          float flowerHead = step(0.75, vColor.r) * dandelionNight;
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.7, 0.22), flowerHead);
+          totalEmissiveRadiance += vec3(0.95, 0.55, 0.12) * flowerHead * 0.75;`,
+        );
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nuniform float windTime;')
         .replace(
@@ -2093,6 +2110,42 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   seeds.frustumCulled = false;
   seeds.name = 'World_Dandelion_Seeds';
   group.add(seeds);
+  // A soft warm halo around every flower head at night.
+  const headTops = [...dandelionSpots, ...bloomSpots].map((m) =>
+    new THREE.Vector3(0, 0.37, 0).applyMatrix4(m),
+  );
+  const glowGeometry = new THREE.BufferGeometry().setFromPoints(headTops);
+  const dandelionGlow = new THREE.Points(
+    glowGeometry,
+    new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: { night: { value: 0 }, windTime },
+      vertexShader: `
+        uniform float windTime;
+        void main() {
+          vec3 p = position;
+          p.x += sin(windTime * 1.7 + p.x * 0.9 + p.z * 0.6) * 0.03;
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          gl_PointSize = clamp(240.0 / max(1.0, -mv.z), 3.0, 90.0);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `
+        uniform float night;
+        void main() {
+          float d = length(gl_PointCoord - 0.5) * 2.0;
+          if (d > 1.0) discard;
+          gl_FragColor = vec4(1.0, 0.74, 0.3, exp(-d * d * 3.5) * 0.6 * night);
+        }`,
+    }),
+  );
+  dandelionGlow.name = 'World_Dandelion_Glow';
+  dandelionGlow.frustumCulled = false;
+  dandelionGlow.visible = false;
+  geometries.push(glowGeometry);
+  materials.push(dandelionGlow.material as THREE.Material);
+  group.add(dandelionGlow);
   const seedFrom = Array.from({ length: SEEDS }, () => new THREE.Vector3()),
     seedLife = Float32Array.from({ length: SEEDS }, () => Math.random() * 12);
   const seedStart = (i: number) => {
@@ -2143,6 +2196,32 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     ].map((p) => new THREE.Vector3(p.x, height(p.x, p.z), p.z)),
     /** Ground height under a point (for placing things on the world). */
     heightAt: height,
+    /** What the ground is made of here (for footstep sounds). */
+    surfaceAt(x: number, z: number): 'grass' | 'asphalt' | 'gravel' | 'sand' | 'wood' | 'stone' {
+      if (towerFloors(x, z)) return 'stone';
+      {
+        const px = x - pierFrom.x,
+          pz = z - pierFrom.z,
+          out = px * away.x + pz * away.z,
+          side = Math.abs(px * -away.z + pz * away.x);
+        if (out > -0.2 && out < pierLength && side < pierHalf) return 'wood';
+      }
+      const rx = x - bridgeNear.x,
+        rz = z - bridgeNear.z,
+        t = (rx * span.x + rz * span.z) / spanLength,
+        side = rx * bridgeAlong.x + rz * bridgeAlong.z;
+      if (t > -0.03 && t < 1.03 && Math.abs(side) < 0.7) return 'wood';
+      if (flatZone(x, z).roadGap < -1.1) return 'asphalt';
+      if (seaOut(x, z) > SEA - 12) return 'sand';
+      // The marble path up to the tower; the dirt path to the bridge.
+      if (towerPathDistance(x, z) < 1.0) return 'stone';
+      if (pathDistance(x, z) < 0.8) return 'gravel';
+      return 'grass';
+    },
+    /** How far to the sea's shore (negative out at sea) and to the river/streams. */
+    waterNear(x: number, z: number) {
+      return { sea: SEA - 8 - seaOut(x, z), river: riverDistance(x, z) };
+    },
     update(time: number) {
       updateWorld(time);
       updateSeeds(time);
