@@ -225,9 +225,9 @@ export function createWeather(groundY: number) {
       varying float band;
       varying float rise;
       void main() {
-        band = (length(position.xy) - ${(RAINBOW * Math.tan((40.5 * Math.PI) / 180)).toFixed(2)}) / ${(
+        band = (length(position.xy) - ${(RAINBOW * Math.tan((38.6 * Math.PI) / 180)).toFixed(2)}) / ${(
           RAINBOW *
-          (Math.tan((42.5 * Math.PI) / 180) - Math.tan((40.5 * Math.PI) / 180))
+          (Math.tan((44.2 * Math.PI) / 180) - Math.tan((38.6 * Math.PI) / 180))
         ).toFixed(2)};
         rise = position.y;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -237,18 +237,21 @@ export function createWeather(groundY: number) {
       varying float band;
       varying float rise;
       void main() {
-        // Violet inside to red outside, pastel and soft at the edges.
+        // Violet inside to red outside, pastel, with a wide soft glow on both edges.
         float t = clamp(band, 0.0, 1.0);
         vec3 c = clamp(abs(mod(vec3(0.0, 4.0, 2.0) + (1.0 - t) * 4.6, 6.0) - 3.0) - 1.0, 0.0, 1.0);
-        c = mix(vec3(1.0), c, 0.55);
-        float a = sin(t * 3.14159) * opacity * smoothstep(-6.0, 16.0, rise);
-        gl_FragColor = vec4(c, a * 0.38);
+        c = mix(vec3(1.0), c, 0.5);
+        float edge = smoothstep(0.0, 0.32, band) * (1.0 - smoothstep(0.68, 1.0, band));
+        // Both ends melt away into the air long before they reach the ground.
+        float ends = smoothstep(4.0, 55.0, rise);
+        float a = pow(edge, 1.4) * opacity * ends;
+        gl_FragColor = vec4(c, a * 0.34);
       }`,
   });
   const rainbow = new THREE.Mesh(
     new THREE.RingGeometry(
-      RAINBOW * Math.tan((40.5 * Math.PI) / 180),
-      RAINBOW * Math.tan((42.5 * Math.PI) / 180),
+      RAINBOW * Math.tan((38.6 * Math.PI) / 180),
+      RAINBOW * Math.tan((44.2 * Math.PI) / 180),
       96,
       1,
     ),

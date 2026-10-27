@@ -24,6 +24,8 @@ import {
 import { playSfx } from '@/lib/cafe-sound';
 import styles from './explore-mode.module.css';
 import VintageCamera from './vintage-camera';
+import Digicam from './explore-digicam';
+import { Bag, Notebook, Reader, type BagItem } from './explore-bag';
 
 export type ExploreApi = {
   setManual: (on: boolean) => void;
@@ -74,7 +76,21 @@ export type ExploreApi = {
     look: (dx: number, dy: number) => void;
     facing: (facing: 'environment' | 'user') => void;
     stream: () => MediaStream | null;
+    /** Digicam: zoom 1–4×, tilt the picture (radians), hand-held or on the tripod. */
+    zoom: (zoom: number) => void;
+    roll: (radians: number) => void;
+    mount: (mount: 'hand' | 'tripod') => void;
+    /** The world's sounds, for recording a video (null while sound is off). */
+    audio: () => MediaStream | null;
   };
+  /** Luna's tripod: set it up in front of her, pack it away. */
+  tripod: { place: () => boolean; remove: () => void; placed: () => boolean; near: () => boolean };
+  /** Places to settle: piano, guitar, cello, sofa, sofaLie, pier. */
+  restSpots: { name: string; position: THREE.Vector3; heading: number; lie: boolean }[];
+  /** Settle at a rest spot (name, or name + ':read'), or 'read-here' / 'lie-here'. */
+  settle: (name: string) => boolean;
+  /** What Luna is doing while settled ('' when not). */
+  activity: () => string;
 };
 type Spot = { name: string; box: THREE.Box3 };
 
@@ -130,6 +146,15 @@ const spotDistance = (at: THREE.Vector3, box: THREE.Box3) =>
         Math.max(box.min.x - at.x, 0, at.x - box.max.x),
         Math.max(box.min.z - at.z, 0, at.z - box.max.z),
       );
+/** What Luna can do at each rest spot. */
+const REST_LABELS: Record<string, string> = {
+  piano: 'Main piano',
+  guitar: 'Main gitar',
+  cello: 'Main cello',
+  sofa: 'Duduk santai',
+  sofaLie: 'Rebahan di sofa',
+  pier: 'Duduk di ujung dermaga',
+};
 const emptyDrink = (): Drink => ({ cup: null, amounts: {}, espressoQuality: 1 });
 
 export default function ExploreMode({
@@ -147,6 +172,11 @@ export default function ExploreMode({
   const [menu, setMenu] = useState<MenuItem[]>([]),
     [customers, setCustomers] = useState<Customer[]>([]),
     [panel, setPanel] = useState<Panel>(null),
+    /** Luna's bag and what's open from it. */
+    [bagOpen, setBagOpen] = useState(false),
+    [notebookOpen, setNotebookOpen] = useState(false),
+    [readerOpen, setReaderOpen] = useState(false),
+    [digicam, setDigicam] = useState<'hand' | 'tripod' | null>(null),
     [actions, setActions] = useState<{ id: string; label: string }[]>([]),
     [ticket, setTicket] = useState<string | null>(null),
     [drink, setDrink] = useState<Drink>(emptyDrink()),
@@ -459,12 +489,33 @@ export default function ExploreMode({
         Math.abs(at.y - api.frame.y) < 0.6
       )
         list.push({ id: 'hang', label: 'Pasang foto di bingkai' });
-      if (api.sitting()) list.push({ id: 'stand', label: 'Berdiri' });
-      else if (!holding) {
+      if (api.sitting()) {
+        const doing = api.activity();
+        list.push({
+          id: 'stand',
+          label: ['piano', 'guitar', 'cello'].includes(doing)
+            ? 'Berhenti main'
+            : doing === 'lying'
+              ? 'Bangun'
+              : 'Berdiri',
+        });
+      } else if (!holding) {
+        // Instruments, the sofa and the end of the pier.
+        for (const spot of api.restSpots) {
+          if (flat(at, spot.position) > 0.85 || Math.abs(at.y - spot.position.y) > 0.8) continue;
+          const label = REST_LABELS[spot.name];
+          if (label) list.push({ id: 'settle:' + spot.name, label });
+        }
         const seat = api.seatNear();
         if (seat) list.push({ id: 'sit:' + seat.id, label: 'Duduk' });
+        if (api.tripod.near()) list.push({ id: 'tripod-pack', label: 'Ambil tripod' });
+        // Out on the land: lie back on the grass for a while.
+        if (api.outdoors() && !list.some((a) => a.id.startsWith('settle:')))
+          list.push({ id: 'settle:lie-here', label: 'Rebahan' });
       }
       list.splice(3);
+      // The book closes when Luna stops reading.
+      if (api.activity() !== 'reading') setReaderOpen(false);
       setActions((old) => (JSON.stringify(old) === JSON.stringify(list) ? old : list));
       // Heading to a guest who was still walking to their seat: follow them there.
       if (chase.current && !api.walking() && !list.some((a) => a.id === 'serve')) {
@@ -531,6 +582,12 @@ export default function ExploreMode({
     if (verb === 'telescope') api.telescope();
     if (verb === 'stand') api.stand();
     if (verb === 'sit' && api.sit(arg)) playSfx('sit');
+    if (verb === 'settle' && api.settle(arg)) playSfx('sit');
+    if (verb === 'tripod-pack') {
+      api.tripod.remove();
+      setNote('Tripod masuk tas');
+      setTimeout(() => setNote(''), 1800);
+    }
     if (verb === 'water' || verb === 'wipe') {
       const spot = (verb === 'water' ? api.spots.plants : api.spots.tables).find(
         (p) => p.name === arg,
@@ -591,6 +648,36 @@ export default function ExploreMode({
       setDrink(emptyDrink());
     }
   };
+  /** Using something from Luna's bag. */
+  const applyItem = (item: BagItem, action?: string) => {
+    setBagOpen(false);
+    if (item === 'notebook') setNotebookOpen(true);
+    if (item === 'book') {
+      // On the sofa if she's beside it, otherwise right where she is.
+      const sofa = api.restSpots.find((s) => s.name === 'sofa');
+      const at = api.luna();
+      api.settle(sofa && flat(at, sofa.position) < 1.2 ? 'sofa:read' : 'read-here');
+      setReaderOpen(true);
+    }
+    if (item === 'digicam') setDigicam('hand');
+    if (item === 'storycam') run('photo');
+    if (item === 'tripod') {
+      if (action === 'pack') {
+        api.tripod.remove();
+        setDigicam(null);
+      } else {
+        if (action === 'place') {
+          if (api.sitting()) api.stand();
+          if (!api.tripod.place()) {
+            setNote('Tidak ada tempat lapang untuk tripod di sini');
+            setTimeout(() => setNote(''), 2200);
+            return;
+          }
+        }
+        setDigicam('tripod');
+      }
+    }
+  };
   useEffect(() => {
     runRef.current = run;
   });
@@ -613,7 +700,7 @@ export default function ExploreMode({
   const ticketCustomer = customers.find((c) => c.key === ticket);
 
   return (
-    <div className={styles.hud}>
+    <div className={styles.hud} data-camera={digicam ? '' : undefined}>
       <header className={styles.top}>
         <span className={styles.score}>
           {score.points} poin · {score.served} tamu
@@ -648,7 +735,7 @@ export default function ExploreMode({
           api.setRun(keyRun.current || touchRun.current);
         }}
       />
-      {!panel && actions.length > 0 && (
+      {!panel && !digicam && actions.length > 0 && (
         <div className={styles.prompts}>
           {actions.map((a, i) => (
             <button key={a.id} className={styles.prompt} onClick={() => run(a.id)}>
@@ -658,8 +745,9 @@ export default function ExploreMode({
           ))}
         </div>
       )}
-      {!panel && (
+      {!panel && !digicam && (
         <nav className={styles.tools} aria-label="Alat">
+          <button onClick={() => setBagOpen(true)}>tas</button>
           <button onClick={() => run('photo')}>kamera</button>
           <button onClick={() => run('sweep')}>sapu</button>
           <button onClick={onToggleSound} aria-pressed={sound}>
@@ -693,6 +781,39 @@ export default function ExploreMode({
           <span>“{toast.line}”</span>
           <small>+{toast.points} poin</small>
         </div>
+      )}
+      {bagOpen && !panel && (
+        <Bag
+          tripodPlaced={api.tripod.placed()}
+          onUse={applyItem}
+          onClose={() => setBagOpen(false)}
+        />
+      )}
+      {notebookOpen && !panel && <Notebook onClose={() => setNotebookOpen(false)} />}
+      {readerOpen && !panel && (
+        <Reader
+          onClose={() => {
+            setReaderOpen(false);
+          }}
+        />
+      )}
+      {digicam && (
+        <Digicam
+          api={api}
+          mount={digicam}
+          onClose={() => setDigicam(null)}
+          onHang={(url) => {
+            lastPhoto.current = url;
+            api.hangPhoto(url);
+            try {
+              localStorage.setItem(FRAME_KEY, url);
+            } catch {
+              /* Too big or storage blocked: it still hangs for this visit. */
+            }
+            setNote('Foto terpasang di bingkai menara');
+            setTimeout(() => setNote(''), 2200);
+          }}
+        />
       )}
       {panel === 'cashier' && queueCustomer && (
         <CashierPanel

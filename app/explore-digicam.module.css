@@ -1,0 +1,181 @@
+/* Luna's digicam over the explore view: thin viewfinder, small text controls. */
+.cam {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #fbeed6;
+  font-size: 12px;
+  text-shadow: 0 1px 3px rgba(10, 6, 3, 0.75);
+}
+.cam button {
+  pointer-events: auto;
+  font: inherit;
+  color: inherit;
+  text-shadow: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.cam button:disabled {
+  opacity: 0.4;
+}
+/* Drag to aim: the right side of the screen (the lower left is for walking). */
+.aim {
+  position: absolute;
+  top: 12%;
+  right: 0;
+  bottom: 22%;
+  width: 58%;
+  pointer-events: auto;
+  touch-action: none;
+}
+/* Viewfinder corners. */
+.frame {
+  position: absolute;
+  inset: 13% 8%;
+  border-radius: 6px;
+  background:
+    linear-gradient(#fbeed6, #fbeed6) top left / 22px 1.5px no-repeat,
+    linear-gradient(#fbeed6, #fbeed6) top left / 1.5px 22px no-repeat,
+    linear-gradient(#fbeed6, #fbeed6) top right / 22px 1.5px no-repeat,
+    linear-gradient(#fbeed6, #fbeed6) top right / 1.5px 22px no-repeat,
+    linear-gradient(#fbeed6, #fbeed6) bottom left / 22px 1.5px no-repeat,
+    linear-gradient(#fbeed6, #fbeed6) bottom left / 1.5px 22px no-repeat,
+    linear-gradient(#fbeed6, #fbeed6) bottom right / 22px 1.5px no-repeat,
+    linear-gradient(#fbeed6, #fbeed6) bottom right / 1.5px 22px no-repeat;
+  opacity: 0.75;
+}
+.top {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  left: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.modes {
+  display: inline-flex;
+  gap: 4px;
+}
+.modes button {
+  padding: 2px 9px !important;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 238, 214, 0.45) !important;
+  font-weight: 600;
+}
+.modes button[aria-pressed='true'],
+.side button[aria-pressed='true'] {
+  color: #f6c06a;
+  border-color: rgba(246, 192, 106, 0.8) !important;
+}
+.status {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.rec {
+  color: #ff7a6a;
+}
+.side {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+.side button {
+  min-width: 34px;
+  padding: 3px 6px !important;
+  border-radius: 10px;
+  border: 1px solid rgba(251, 238, 214, 0.35) !important;
+  background: rgba(20, 13, 8, 0.25) !important;
+  font-size: 13px;
+}
+.side small {
+  font-variant-numeric: tabular-nums;
+}
+.count {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  font-size: 64px;
+  font-weight: 700;
+  opacity: 0.9;
+}
+.bottom {
+  position: absolute;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  width: min(320px, 70%);
+  text-align: center;
+}
+.shutter,
+.record,
+.stop {
+  width: 58px;
+  height: 58px;
+  border-radius: 50% !important;
+  border: 3px solid #fbeed6 !important;
+}
+.shutter {
+  background: rgba(251, 238, 214, 0.35) !important;
+}
+.record {
+  background: radial-gradient(circle, #ff6b5a 0 46%, transparent 48%) !important;
+}
+.stop {
+  background: linear-gradient(#ff6b5a, #ff6b5a) center / 22px 22px no-repeat !important;
+}
+.error {
+  position: absolute;
+  left: 50%;
+  top: 22%;
+  transform: translateX(-50%);
+  margin: 0;
+  color: #ffb59a;
+}
+.result {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(360px, calc(100% - 32px));
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(20, 13, 8, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: auto;
+}
+.result img,
+.result video {
+  width: 100%;
+  max-height: 52vh;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #000;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+.row button {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-size: 13px;
+}

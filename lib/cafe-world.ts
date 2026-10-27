@@ -1272,12 +1272,12 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     const parts: THREE.BufferGeometry[] = [];
     for (let k = 0; k < 28; k++) {
       const a = (k / 28) * Math.PI * 2,
-        g = new THREE.CylinderGeometry(0.05, 0.07, 0.62, 6);
-      g.translate(Math.sin(a) * (fifth - 0.02), floor5 + 0.31, Math.cos(a) * (fifth - 0.02));
+        g = new THREE.CylinderGeometry(0.05, 0.07, 0.42, 6);
+      g.translate(Math.sin(a) * (fifth - 0.02), floor5 + 0.21, Math.cos(a) * (fifth - 0.02));
       parts.push(g);
     }
     add(merge(parts), stone);
-    add(new THREE.TorusGeometry(fifth - 0.02, 0.08, 6, 48), stone, floor5 + 0.66).rotation.x =
+    add(new THREE.TorusGeometry(fifth - 0.02, 0.07, 6, 48), stone, floor5 + 0.45).rotation.x =
       Math.PI / 2;
     const pillars: THREE.BufferGeometry[] = [];
     for (let k = 0; k < 8; k++) {
@@ -1289,10 +1289,11 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     add(merge(pillars), stone);
   }
   // Roof: corbelled slab with the core stair opening, a balustrade around the edge.
-  const parapet = T.wallTopR + 0.35;
+  // A wide roof terrace that overhangs the 5th floor's pillars.
+  const parapet = T.wallTopR + 1.05;
   {
     add(
-      new THREE.CylinderGeometry(parapet + 0.12, fifth - 0.05, 0.4, 40, 1, true),
+      new THREE.CylinderGeometry(parapet + 0.12, fifth - 0.05, 0.4, 56, 1, true),
       stone,
       T.top - 0.2,
     );
@@ -1305,13 +1306,13 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       stone,
       T.top - 0.2,
     );
-    add(new THREE.TorusGeometry(parapet, 0.09, 6, 48), stone, T.top + 0.78).rotation.x =
+    add(new THREE.TorusGeometry(parapet, 0.08, 6, 64), stone, T.top + 0.52).rotation.x =
       Math.PI / 2;
     const pillars: THREE.BufferGeometry[] = [];
-    for (let k = 0; k < 32; k++) {
-      const a = (k / 32) * Math.PI * 2,
-        g = new THREE.CylinderGeometry(0.06, 0.08, 0.7, 6);
-      g.translate(Math.sin(a) * parapet, T.top + 0.38, Math.cos(a) * parapet);
+    for (let k = 0; k < 44; k++) {
+      const a = (k / 44) * Math.PI * 2,
+        g = new THREE.CylinderGeometry(0.06, 0.08, 0.48, 6);
+      g.translate(Math.sin(a) * parapet, T.top + 0.25, Math.cos(a) * parapet);
       pillars.push(g);
     }
     add(merge(pillars), stone);
@@ -1426,6 +1427,11 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       (floor4 + T.top + 0.9) / 2,
     );
   }
+  // Places for Luna to settle (tower-local seat point and the way she faces), the instruments
+  // on their stands, and fresh copies of them for her to hold while playing.
+  const playSpots: Record<string, { local: THREE.Vector3; heading: number; lie?: number }> = {};
+  const heldInstruments: Partial<Record<'guitar' | 'cello', () => THREE.Group>> = {};
+  const standingInstruments: Partial<Record<'guitar' | 'cello', THREE.Object3D>> = {};
   // Living room furniture against the wall, away from where the wall stair arrives.
   const furniture: { a: number; r: number; size: number }[] = [];
   const frameSpot = new THREE.Vector3();
@@ -1434,6 +1440,17 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     const r = room - 0.36,
       at = (a: number, depth = r) =>
         new THREE.Vector3(Math.sin(a) * depth, floor4, Math.cos(a) * depth);
+    /** Tower-local point at `lx` across / `lz` towards the room of a piece placed at angle a. */
+    const spotAt = (a: number, depth: number, lx: number, lz: number, y: number) => {
+      const t = a + Math.PI;
+      return at(a, depth).add(
+        new THREE.Vector3(
+          lx * Math.cos(t) + lz * Math.sin(t),
+          y,
+          -lx * Math.sin(t) + lz * Math.cos(t),
+        ),
+      );
+    };
     const place = (g: THREE.Group, a: number, depth = r) => {
       g.position.copy(at(a, depth));
       g.rotation.y = a + Math.PI;
@@ -1481,6 +1498,15 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
         for (const z of [-0.22, 0.22]) box(s, 0.05, 0.09, 0.05, woodDark, x, 0.045, z);
       place(s, free + 0.4);
       furniture.push({ a: free + 0.4, r, size: 0.42 });
+      const a = free + 0.4,
+        t = a + Math.PI;
+      playSpots.sofa = { local: spotAt(a, r, 0.32, 0.05, 0.39), heading: t };
+      // Lying along the sofa: feet to one arm, head on the other.
+      playSpots.sofaLie = {
+        local: spotAt(a, r, 0, 0.04, 0.39),
+        heading: Math.atan2(Math.cos(t), -Math.sin(t)),
+        lie: 1,
+      };
     }
     // Upright piano: cabinet, music desk, a real keyboard (white keys with black keys in twos and
     // threes), cheek blocks, front legs, three brass pedals, and a stool on four legs.
@@ -1515,6 +1541,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       p.add(stool);
       place(p, free + 1.2);
       furniture.push({ a: free + 1.2, r, size: 0.42 });
+      // On the stool, facing the keys.
+      playSpots.piano = { local: spotAt(free + 1.2, r, 0, 0.62, 0.51), heading: free + 1.2 };
     }
     // Guitar and cello on stands, with their real outlines: figure-of-eight bodies, a sound hole
     // or f-holes, bridge, fingerboard with frets, headstock or scroll, and strings.
@@ -1528,8 +1556,34 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       shape.bezierCurveTo(-lower, h * 0.32, -lower * 1.05, 0, 0, 0);
       return shape;
     };
-    const instrument = (cello: boolean, colour: THREE.Material, a: number) => {
+    /** A thin rod (string) from one point to another. */
+    const rod = (
+      parent: THREE.Group,
+      from: THREE.Vector3,
+      to: THREE.Vector3,
+      r: number,
+      m: THREE.Material,
+    ) => {
+      const length = from.distanceTo(to),
+        geometry = new THREE.CylinderGeometry(r, r, length, 4);
+      geometries.push(geometry);
+      const mesh = new THREE.Mesh(geometry, m);
+      mesh.position.copy(from).lerp(to, 0.5);
+      mesh.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        to.clone().sub(from).normalize(),
+      );
+      parent.add(mesh);
+      return mesh;
+    };
+    /**
+     * Guitar or cello (no stand), standing on y = 0 with its front facing +z. The fingerboard
+     * runs from the neck onto the body; every string runs from its anchor (bridge pins or the
+     * tailpiece) over the saddle/bridge and the nut to its own tuning peg.
+     */
+    const buildInstrument = (cello: boolean, colour: THREE.Material) => {
       const g = new THREE.Group(),
+        y0 = cello ? 0.12 : 0.04,
         len = cello ? 0.75 : 0.46,
         depth = cello ? 0.16 : 0.09,
         shape = bodyOutline(cello ? 0.17 : 0.13, cello ? 0.22 : 0.18, cello ? 0.12 : 0.1, len);
@@ -1541,78 +1595,182 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
         bevelSegments: 2,
         curveSegments: 18,
       });
-      body.translate(0, cello ? 0.12 : 0.04, -depth / 2);
+      body.translate(0, y0, -depth / 2);
       geometries.push(body);
       g.add(new THREE.Mesh(body, colour));
-      const front = depth / 2 + 0.014,
+      const front = depth / 2 + 0.012,
         neckLen = cello ? 0.62 : 0.5,
-        top = (cello ? 0.12 : 0.04) + len;
-      if (cello) {
-        // f-holes, bridge, endpin and scroll.
-        for (const x of [-0.07, 0.07]) {
-          box(g, 0.012, 0.13, 0.005, dark, x, 0.12 + len * 0.5, front).rotation.z =
-            x > 0 ? 0.15 : -0.15;
-        }
-        box(g, 0.12, 0.05, 0.012, woodLight, 0, 0.12 + len * 0.42, front + 0.02);
-        box(g, 0.015, 0.12, 0.015, dark, 0, 0.06, 0);
-        const scroll = new THREE.TorusGeometry(0.035, 0.014, 6, 12);
-        geometries.push(scroll);
-        const sc = new THREE.Mesh(scroll, colour);
-        sc.position.set(0, top + neckLen + 0.04, 0);
-        sc.rotation.y = Math.PI / 2;
-        g.add(sc);
-      } else {
-        // Sound hole with a rosette, bridge, headstock with tuning pegs.
-        const hole = new THREE.CircleGeometry(0.045, 20),
-          rosette = new THREE.RingGeometry(0.045, 0.058, 20);
-        geometries.push(hole, rosette);
-        const h = new THREE.Mesh(hole, dark);
-        h.position.set(0, 0.04 + len * 0.6, front);
-        const ro = new THREE.Mesh(rosette, woodDark);
-        ro.position.set(0, 0.04 + len * 0.6, front - 0.001);
-        g.add(h, ro);
-        box(g, 0.12, 0.02, 0.012, woodDark, 0, 0.04 + len * 0.22, front);
-        box(g, 0.08, 0.15, 0.025, woodDark, 0, top + neckLen + 0.07, 0);
-        for (const side of [-1, 1])
-          for (let k = 0; k < 3; k++)
-            box(g, 0.03, 0.012, 0.012, ivory, side * 0.055, top + neckLen + 0.03 + k * 0.045, 0);
-      }
-      // Neck with a dark fingerboard and frets (guitar) or a smooth board (cello).
-      box(g, cello ? 0.05 : 0.045, neckLen, 0.03, colour, 0, top + neckLen / 2 - 0.02, 0);
+        top = y0 + len,
+        nutY = top + neckLen - 0.01,
+        // The fingerboard sits proud of the cello's arched top; flush on the guitar.
+        neckFront = cello ? front + 0.017 : front - 0.004,
+        boardFront = neckFront + 0.008,
+        boardFrom = cello ? y0 + len * 0.62 : y0 + len * 0.74,
+        strings = cello ? 4 : 6,
+        stringMat = cello ? toon('#d9d2c2') : toon('#e8e2d0');
+      // Neck (into the body's shoulder) and the dark fingerboard on it.
       box(
         g,
-        cello ? 0.045 : 0.042,
-        neckLen * (cello ? 0.95 : 1),
+        cello ? 0.05 : 0.048,
+        neckLen + 0.06,
+        0.04,
+        colour,
+        0,
+        top + neckLen / 2 - 0.03,
+        neckFront - 0.02,
+      );
+      box(
+        g,
+        cello ? 0.05 : 0.046,
+        nutY - boardFrom,
         0.008,
         black(),
         0,
-        top + neckLen / 2 - (cello ? 0.12 : 0.02),
-        0.019,
+        (nutY + boardFrom) / 2,
+        boardFront - 0.004,
       );
+      // Nut at the top of the fingerboard.
+      box(g, cello ? 0.05 : 0.046, 0.008, 0.012, ivory, 0, nutY + 0.004, boardFront + 0.002);
       if (!cello)
-        for (let k = 1; k < 12; k++)
-          box(g, 0.044, 0.003, 0.003, ivory, 0, top + neckLen - 0.02 - k * (neckLen / 13), 0.024);
-      // Strings from the bridge to the head.
-      const strings = cello ? 4 : 6;
-      for (let k = 0; k < strings; k++) {
-        const x = (k - (strings - 1) / 2) * (cello ? 0.01 : 0.007),
-          y0 = cello ? 0.12 + len * 0.42 : 0.04 + len * 0.22,
-          y1 = top + neckLen - 0.03;
-        box(g, 0.0025, y1 - y0, 0.0025, ivory, x, (y0 + y1) / 2, front + (cello ? 0.03 : 0.012));
+        // Frets, closer together up the neck.
+        for (let k = 1; k <= 14; k++) {
+          const y = nutY - (nutY - (y0 + len * 0.22)) * (1 - Math.pow(2, -k / 12)) * 1.0;
+          if (y < boardFrom + 0.01) break;
+          box(g, 0.046, 0.003, 0.004, toon('#cfcac0'), 0, y, boardFront + 0.001);
+        }
+      // Head: angled guitar headstock with six machine heads, or the cello's pegbox and scroll.
+      const head = new THREE.Group();
+      head.position.set(0, nutY + 0.008, neckFront - 0.01);
+      head.rotation.x = cello ? 0.12 : 0.25;
+      g.add(head);
+      const pegs: THREE.Vector3[] = [];
+      if (cello) {
+        box(head, 0.05, 0.16, 0.05, colour, 0, 0.08, -0.01);
+        box(head, 0.03, 0.13, 0.03, dark, 0, 0.08, 0.012);
+        const scroll = new THREE.TorusGeometry(0.035, 0.014, 6, 12);
+        geometries.push(scroll);
+        const sc = new THREE.Mesh(scroll, colour);
+        sc.position.set(0, 0.2, -0.01);
+        sc.rotation.y = Math.PI / 2;
+        head.add(sc);
+        for (let k = 0; k < 4; k++) {
+          const y = 0.03 + k * 0.035,
+            side = k % 2 ? 1 : -1;
+          box(head, 0.11, 0.012, 0.012, dark, side * 0.03, y, -0.01);
+          box(head, 0.02, 0.03, 0.012, dark, side * 0.085, y, -0.01);
+          pegs.push(new THREE.Vector3(0, y, 0.01));
+        }
+      } else {
+        box(head, 0.075, 0.16, 0.018, woodDark, 0, 0.08, 0);
+        for (const side of [-1, 1])
+          for (let k = 0; k < 3; k++) {
+            const y = 0.04 + k * 0.045;
+            box(head, 0.03, 0.01, 0.01, toon('#cfcac0'), side * 0.05, y, -0.006);
+            box(head, 0.016, 0.022, 0.008, ivory, side * 0.07, y, -0.006);
+            pegs.push(new THREE.Vector3(side * 0.022, y, 0.012));
+          }
       }
+      head.updateMatrix();
+      const pegAt = (k: number) => pegs[k].clone().applyMatrix4(head.matrix);
+      const across = (k: number, spread: number) => (k - (strings - 1) / 2) * spread;
+      if (cello) {
+        // f-holes, a tall bridge, the tailpiece and the endpin.
+        for (const x of [-0.07, 0.07])
+          box(g, 0.012, 0.13, 0.005, dark, x, y0 + len * 0.5, front).rotation.z =
+            x > 0 ? 0.15 : -0.15;
+        const bridgeY = y0 + len * 0.42,
+          bridgeTop = front + 0.07;
+        box(g, 0.12, 0.012, 0.07, woodLight, 0, bridgeY, front + 0.035);
+        box(g, 0.075, 0.03, 0.03, black(), 0, y0 + len * 0.18, front + 0.012);
+        box(g, 0.05, 0.12, 0.012, black(), 0, y0 + len * 0.25, front + 0.016);
+        box(g, 0.015, 0.14, 0.015, dark, 0, 0.06, 0);
+        for (let k = 0; k < strings; k++) {
+          const tail = new THREE.Vector3(across(k, 0.011), y0 + len * 0.31, front + 0.024),
+            bridge = new THREE.Vector3(across(k, 0.017), bridgeY, bridgeTop),
+            nut = new THREE.Vector3(across(k, 0.0105), nutY + 0.006, boardFront + 0.008);
+          rod(g, tail, bridge, 0.0016, stringMat);
+          rod(g, bridge, nut, 0.0016 + k * 0.0002, stringMat);
+          rod(g, nut, pegAt(k), 0.0014, stringMat);
+        }
+      } else {
+        // Sound hole and rosette, pickguard, bridge with saddle and pins.
+        const holeY = y0 + len * 0.6,
+          hole = new THREE.CircleGeometry(0.045, 24),
+          rosette = new THREE.RingGeometry(0.045, 0.058, 24),
+          guard = new THREE.CircleGeometry(0.038, 16, 0, Math.PI);
+        geometries.push(hole, rosette, guard);
+        const h = new THREE.Mesh(hole, dark);
+        h.position.set(0, holeY, front);
+        const ro = new THREE.Mesh(rosette, woodDark);
+        ro.position.set(0, holeY, front + 0.0005);
+        const pg = new THREE.Mesh(guard, toon('#3a2a22'));
+        // Pickguard tucked below and beside the sound hole.
+        pg.position.set(0.05, holeY - 0.05, front + 0.0004);
+        pg.rotation.z = -Math.PI * 0.62;
+        g.add(h, ro, pg);
+        const bridgeY = y0 + len * 0.22;
+        box(g, 0.13, 0.026, 0.008, woodDark, 0, bridgeY - 0.008, front + 0.004);
+        box(g, 0.075, 0.004, 0.006, ivory, 0, bridgeY, front + 0.011);
+        for (let k = 0; k < strings; k++) {
+          const pin = new THREE.Vector3(across(k, 0.012), bridgeY - 0.016, front + 0.008),
+            saddle = new THREE.Vector3(across(k, 0.0115), bridgeY, front + 0.014),
+            nut = new THREE.Vector3(across(k, 0.0074), nutY + 0.006, boardFront + 0.007);
+          box(g, 0.005, 0.005, 0.006, ivory, pin.x, pin.y, pin.z);
+          rod(g, pin, saddle, 0.0011, stringMat);
+          rod(g, saddle, nut, 0.0009 + (strings - 1 - k) * 0.00018, stringMat);
+          rod(g, nut, pegAt(k), 0.0009, stringMat);
+        }
+      }
+      return g;
+    };
+    /** Instruments on their stands (hidden while Luna plays them), and a stool for playing. */
+    const standing: Record<'guitar' | 'cello', THREE.Object3D> = {} as Record<
+      'guitar' | 'cello',
+      THREE.Object3D
+    >;
+    const instrument = (cello: boolean, colour: THREE.Material, a: number) => {
+      const g = new THREE.Group();
+      g.add(buildInstrument(cello, colour));
       // A simple stand.
       box(g, 0.3, 0.025, 0.2, dark, 0, 0.012, 0.05);
       box(g, 0.025, 0.4, 0.025, dark, 0, 0.2, -0.08);
       g.rotation.x = -0.12;
       const holder = new THREE.Group();
       holder.add(g);
+      // A little round stool in front, to sit and play.
+      const stool = new THREE.Group();
+      const seatTop = new THREE.CylinderGeometry(0.17, 0.17, 0.05, 16);
+      geometries.push(seatTop);
+      const st = new THREE.Mesh(seatTop, woodDark);
+      st.position.y = 0.43;
+      stool.add(st);
+      for (let k = 0; k < 3; k++) {
+        const la = (k / 3) * Math.PI * 2;
+        box(stool, 0.03, 0.42, 0.03, woodDark, Math.sin(la) * 0.11, 0.21, Math.cos(la) * 0.11);
+      }
+      stool.position.z = 0.62;
+      holder.add(stool);
       place(holder, a, r + 0.1);
       furniture.push({ a, r: r + 0.1, size: 0.3 });
+      standing[cello ? 'cello' : 'guitar'] = g;
+      // Luna sits on the stool facing into the room.
+      playSpots[cello ? 'cello' : 'guitar'] = {
+        local: new THREE.Vector3(
+          Math.sin(a) * (r + 0.1 - 0.62),
+          floor4 + 0.455,
+          Math.cos(a) * (r + 0.1 - 0.62),
+        ),
+        heading: a + Math.PI,
+      };
     };
     const blackMaterial = toon('#1f1c1c');
     const black = () => blackMaterial;
     instrument(false, woodLight, free + 1.8);
     instrument(true, toon('#7a3a1c'), free + 2.15);
+    heldInstruments.guitar = () => buildInstrument(false, woodLight);
+    heldInstruments.cello = () => buildInstrument(true, toon('#7a3a1c'));
+    standingInstruments.guitar = standing.guitar;
+    standingInstruments.cello = standing.cello;
     // Study desk with a chair (on legs), a lamp and a few books.
     {
       const d = new THREE.Group();
@@ -1802,10 +1960,10 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     g.fillStyle = '#3a2416';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.font = 'bold 54px Georgia, serif';
-    g.fillText('CHAPTER 4', 256, 70);
-    g.font = 'bold 44px Georgia, serif';
-    g.fillText(': LOCKED', 256, 132);
+    g.font = 'bold 50px Georgia, serif';
+    g.fillText('SECRET CHAPTER', 256, 70, 470);
+    g.font = 'bold 40px Georgia, serif';
+    g.fillText(': COMING SOON', 256, 132, 470);
     g.strokeStyle = '#5a3820';
     g.lineWidth = 10;
     g.strokeRect(5, 5, 502, 182);
@@ -2196,6 +2354,35 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     ].map((p) => new THREE.Vector3(p.x, height(p.x, p.z), p.z)),
     /** Ground height under a point (for placing things on the world). */
     heightAt: height,
+    /**
+     * Places for Luna to settle (world seat point, the way she faces, lying or not): the piano
+     * stool, the guitar's and cello's stools, the sofa, and the end of the pier.
+     */
+    restSpots: (() => {
+      tower.updateMatrixWorld(true);
+      const out: Record<string, { position: THREE.Vector3; heading: number; lie: boolean }> = {};
+      for (const [name, spot] of Object.entries(playSpots))
+        out[name] = {
+          position: tower.localToWorld(spot.local.clone()),
+          heading: spot.heading,
+          lie: !!spot.lie,
+        };
+      // Sitting on the pier's end, legs over the water, looking out to sea.
+      out.pier = {
+        position: pierFrom
+          .clone()
+          .addScaledVector(away, pierLength - 0.12)
+          .setY(pierDeck),
+        heading: Math.atan2(away.x, away.z),
+        lie: false,
+      };
+      return out;
+    })(),
+    /** The guitar and cello on their stands, and a fresh one for Luna to hold. */
+    instruments: {
+      standing: standingInstruments,
+      held: (kind: 'guitar' | 'cello') => heldInstruments[kind]?.() ?? null,
+    },
     /** What the ground is made of here (for footstep sounds). */
     surfaceAt(x: number, z: number): 'grass' | 'asphalt' | 'gravel' | 'sand' | 'wood' | 'stone' {
       if (towerFloors(x, z)) return 'stone';

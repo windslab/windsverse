@@ -114,6 +114,73 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
         down = Math.max(0, -climb),
         wave = (speed: number, phase = 0) => (reduced ? 0 : Math.sin(age * speed + phase)),
         leg = (swing: number) => swing * (1 + down * 0.25) - Math.max(0, -swing) * up * 1.1;
+      // Lying down: the whole figure tips onto her back, centred on the spot.
+      const lying = task === 'lying';
+      root.rotation.x = lying ? -Math.PI / 2 : 0;
+      root.position.set(0, lying ? height * 0.11 : 0, lying ? height * 0.42 : 0);
+      if (lying) {
+        // Hands behind her head, one knee a little up, a slow breath.
+        pose(0, -0.05, 0, 0.06);
+        pose(1, -0.35, 0, -0.06);
+        pose(2, -2.85, 0, 0.45);
+        pose(3, -2.85, 0, -0.45);
+        pose(4, -1.9);
+        pose(5, -1.9);
+        pose(6, -0.12, wave(0.25) * 0.25, 0);
+        pose(7, wave(0.9) * 0.02, 0, 0);
+        return;
+      }
+      const seated = ['sitting', 'piano', 'guitar', 'cello', 'reading', 'dangling'].includes(task);
+      if (seated && task !== 'sitting') {
+        // Thighs along the seat for all of these (the cello wants her knees apart).
+        pose(0, -1.45, 0, task === 'cello' ? 0.32 : 0);
+        pose(1, -1.45, 0, task === 'cello' ? -0.32 : 0);
+        if (task === 'piano') {
+          // Both hands on the keys, fingers dancing; she sways with the music.
+          pose(2, -1.05, 0, 0.1 + wave(2.1) * 0.05);
+          pose(3, -1.05, 0, -0.1 + wave(2.6, 1) * 0.05);
+          pose(4, -0.55 + wave(7) * 0.1);
+          pose(5, -0.55 + wave(6, 1.3) * 0.1);
+          pose(6, 0.14, wave(0.9) * 0.1, wave(0.7) * 0.05);
+          pose(7, 0.06, wave(0.8) * 0.06, wave(0.6) * 0.03);
+        } else if (task === 'guitar') {
+          // Left hand along the neck, right hand strumming over the sound hole.
+          pose(2, -0.9, 0, 0.62);
+          pose(4, -0.55 + wave(1.2) * 0.06);
+          pose(3, -0.55, 0, -0.3);
+          pose(5, -1.25 + wave(9) * 0.22);
+          pose(6, 0.22, 0.18, 0.12 + wave(1.1) * 0.04);
+          pose(7, 0.06, wave(1.1) * 0.04, 0);
+        } else if (task === 'cello') {
+          // Left hand high on the neck, right arm drawing the bow back and forth.
+          const stroke = wave(1.4);
+          pose(2, -1.85, 0, 0.3);
+          pose(4, -1.15 + wave(4) * 0.04);
+          pose(3, -1.0, stroke * 0.45, -0.3);
+          pose(5, -0.75 + stroke * 0.3);
+          pose(6, 0.08, -0.3, 0.14);
+          pose(7, 0.05, wave(0.7) * 0.05, 0);
+        } else if (task === 'reading') {
+          // The book in both hands, eyes down on the page.
+          pose(2, -1.0, 0, 0.22);
+          pose(3, -1.0, 0, -0.22);
+          pose(4, -1.25);
+          pose(5, -1.25);
+          pose(6, 0.38, wave(0.3) * 0.06, 0);
+          pose(7, 0.08, 0, 0);
+        } else {
+          // Dangling: legs swinging over the edge, leaning back on her hands, looking around.
+          pose(0, -1.3 + wave(1.8) * 0.22);
+          pose(1, -1.3 + wave(1.8, Math.PI) * 0.22);
+          pose(2, 0.55, 0, 0.3);
+          pose(3, 0.55, 0, -0.3);
+          pose(4, -0.1);
+          pose(5, -0.1);
+          pose(6, -0.12, wave(0.25) * 0.45, 0);
+          pose(7, -0.08, 0, 0);
+        }
+        return;
+      }
       if (task === 'sitting') {
         // Thighs forward along the seat; hands resting on the lap.
         pose(0, -1.45);

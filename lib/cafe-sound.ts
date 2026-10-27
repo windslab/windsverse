@@ -100,6 +100,7 @@ export function createCafeSound(context: AudioContext) {
   meter.fftSize = 2048;
   limiter.connect(meter);
   const meterData = new Float32Array(meter.fftSize);
+  let tap: MediaStreamAudioDestinationNode | null = null;
   // A small echo for stone (inside the tower).
   const echoIn = context.createGain(),
     echo = context.createDelay(0.5),
@@ -337,6 +338,104 @@ export function createCafeSound(context: AudioContext) {
       });
   };
 
+  // --- Music: Luna playing the piano, guitar or cello (C – Am – F – G, gently). ---------------------
+  const CHORDS = [
+    [261.63, 329.63, 392.0],
+    [220.0, 261.63, 329.63],
+    [174.61, 220.0, 261.63],
+    [196.0, 246.94, 293.66],
+  ];
+  /** A soft piano note: two partials, a quick strike and a long fade. */
+  const pianoNote = (at: number, freq: number, gain: number, pan: number) => {
+    tone({ at, f0: freq, decay: 1.4, attack: 0.006, gain, pan, wave: 'triangle' });
+    tone({ at, f0: freq * 2, decay: 0.6, attack: 0.004, gain: gain * 0.25, pan });
+  };
+  /** A plucked string: a bright attack that mellows as it rings. */
+  const pluck = (at: number, freq: number, gain: number, pan: number) => {
+    const osc = context.createOscillator(),
+      f = context.createBiquadFilter(),
+      g = context.createGain(),
+      p = out(pan, false);
+    osc.type = 'sawtooth';
+    osc.frequency.value = freq;
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(freq * 8, at);
+    f.frequency.exponentialRampToValueAtTime(freq * 1.5, at + 0.6);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(gain, at + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 1.1);
+    osc.connect(f).connect(g).connect(p);
+    done(osc, f, g, p);
+    osc.start(at);
+    osc.stop(at + 1.15);
+  };
+  /** A bowed cello note: slow swell, warm and a little vibrato. */
+  const bowed = (at: number, freq: number, length: number, gain: number, pan: number) => {
+    const osc = context.createOscillator(),
+      vib = context.createOscillator(),
+      vibDepth = context.createGain(),
+      f = context.createBiquadFilter(),
+      g = context.createGain(),
+      p = out(pan, false);
+    osc.type = 'sawtooth';
+    osc.frequency.value = freq;
+    vib.frequency.value = 5.2;
+    vibDepth.gain.setValueAtTime(0, at);
+    vibDepth.gain.linearRampToValueAtTime(freq * 0.012, at + length * 0.5);
+    vib.connect(vibDepth).connect(osc.frequency);
+    f.type = 'lowpass';
+    f.frequency.value = 1100;
+    f.Q.value = 1.2;
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(gain, at + 0.3);
+    g.gain.setValueAtTime(gain, at + length - 0.25);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + length);
+    osc.connect(f).connect(g).connect(p);
+    done(osc, vib, vibDepth, f, g, p);
+    vib.start(at);
+    vib.stop(at + length + 0.05);
+    osc.start(at);
+    osc.stop(at + length + 0.05);
+  };
+  const music = { kind: '', at: 0, step: 0 };
+  const playMusic = (kind: string, gain: number, pan: number) => {
+    const now = context.currentTime;
+    if (kind !== music.kind) {
+      music.kind = kind;
+      music.at = now + 0.3;
+      music.step = 0;
+    }
+    if (!kind) return;
+    // Schedule a little ahead so the rhythm stays even.
+    while (music.at < now + 0.2) {
+      const at = music.at,
+        k = music.step++,
+        chord = CHORDS[Math.floor(k / 8) % 4];
+      if (kind === 'piano') {
+        // Rolling arpeggio, with the bass on the first beat of each bar.
+        const order = [0, 1, 2, 1, 0, 1, 2, 1];
+        if (k % 8 === 0) pianoNote(at, chord[0] / 2, gain * 0.07, pan);
+        pianoNote(at, chord[order[k % 8]] * (k % 8 >= 4 ? 2 : 1), gain * 0.055, pan);
+        music.at += 0.3;
+      } else if (kind === 'guitar') {
+        // Down, down-up, up-down-up: a strum of the chord on each beat.
+        const pattern = [1, 0, 1, 1, 0, 1, 1, 1];
+        if (pattern[k % 8]) {
+          const up = k % 2 === 1;
+          const notes = [chord[0] / 2, chord[1] / 2, chord[2] / 2, chord[0], chord[1], chord[2]];
+          (up ? [...notes].reverse().slice(0, 4) : notes).forEach((n, i) =>
+            pluck(at + i * 0.014, n, gain * (up ? 0.02 : 0.03), pan),
+          );
+        }
+        music.at += 0.26;
+      } else {
+        // Long notes walking down through the chords' roots and fifths.
+        if (k % 4 === 0) bowed(at, chord[(k / 4) % 2 ? 2 : 0] / 2, 1.5, gain * 0.06, pan);
+        music.at += 0.4;
+      }
+    }
+  };
+
   // --- Footsteps: each surface has its own sound. -----------------------------------------------
   const step = (surface: Surface, run: boolean, wet: number, gain: number, pan: number) => {
     const at = context.currentTime,
@@ -344,8 +443,29 @@ export function createCafeSound(context: AudioContext) {
       r = 0.9 + Math.random() * 0.2;
     switch (surface) {
       case 'grass':
-        burst({ at, freq: 2400 * r, q: 0.6, decay: 0.11, gain: 0.07 * v, pan });
-        burst({ at: at + 0.02, type: 'highpass', freq: 5200, decay: 0.07, gain: 0.03 * v, pan });
+        // Soft and full: a muffled brush of blades, a few gentle crunchy grains and a light
+        // thud underfoot (no harsh hiss).
+        burst({
+          at,
+          type: 'lowpass',
+          freq: 1500 * r,
+          freqTo: 550,
+          q: 0.7,
+          attack: 0.012,
+          decay: 0.17,
+          gain: 0.1 * v,
+          pan,
+        });
+        for (let i = 0; i < 3; i++)
+          burst({
+            at: at + 0.012 + i * (0.018 + Math.random() * 0.02),
+            freq: 1700 + Math.random() * 900,
+            q: 2.2,
+            decay: 0.028,
+            gain: 0.022 * v,
+            pan,
+          });
+        tone({ at, f0: 95 * r, f1: 60, decay: 0.07, gain: 0.05 * v, pan });
         break;
       case 'sand':
         burst({ at, type: 'lowpass', freq: 1300 * r, decay: 0.14, gain: 0.08 * v, pan });
@@ -425,6 +545,12 @@ export function createCafeSound(context: AudioContext) {
       active = on ? api : active === api ? null : active;
     },
     enabled: () => enabled,
+    /** The world's sound as a stream (for recording videos). */
+    recordTap() {
+      tap ??= context.createMediaStreamDestination();
+      limiter.connect(tap);
+      return tap.stream;
+    },
     /** Current loudness (RMS of the output), for checks. */
     level() {
       meter.getFloatTimeDomainData(meterData);
@@ -655,6 +781,14 @@ export function createCafeSound(context: AudioContext) {
         set(purrDepth.gain, 0.035 * purring, 0.5);
         purr.pan.pan.setTargetAtTime(h.pan, now, 0.2);
       } else set(purr.gain.gain, 0);
+
+      // Luna playing an instrument.
+      const playing =
+        f.luna && ['piano', 'guitar', 'cello'].includes(f.luna.task) ? f.luna.task : '';
+      if (playing && f.luna) {
+        const mh = hear(f.camera, f.luna.position, 8);
+        playMusic(playing, Math.max(0.15, mh.gain), mh.pan * 0.6);
+      } else playMusic('', 0, 0);
 
       // Luna's chores: broom swishes, cloth rubs, the watering can's stream; the barista's
       // machines while she makes drinks on her own.

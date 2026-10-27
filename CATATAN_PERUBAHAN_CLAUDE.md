@@ -647,3 +647,40 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   meong & dengkur kucing, sapu/lap/gembor, petir, hujan, dan semua efek membuat minuman.
   `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6, `people.test` 13/13,
   `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
+
+## 31. Digicam video & tripod, tas Luna, main musik, baca & rebahan, atap menara lebar (28 Okt 2026)
+
+- **Langkah di rumput** dibuat empuk dan enak didengar: desir rumput yang teredam, beberapa
+  "kresek" lembut, dan hentakan ringan (tanpa desis tinggi yang cempreng).
+- **Pelangi** lebih tebal, lebih lembut (tepinya berpendar halus), dan kedua ujungnya memudar ke
+  udara sebelum menyentuh tanah.
+- **Menara**: atap (rooftop) jauh lebih lebar seperti teras pandang; pagar lantai 5 dan pagar atap
+  dibuat lebih pendek (di bawah tinggi Luna). Papan kini bertuliskan **"SECRET CHAPTER : COMING
+  SOON"**.
+- **Gitar & cello lebih detail**: leher dan fingerboard menyambung ke badan, nut, fret dengan jarak
+  asli; setiap senar berjalan dari pin bridge/tailpiece → saddle/bridge → nut → pasaknya masing-
+  masing (head gitar miring dengan 6 tuner; pegbox cello dengan 4 pasak dan scroll), pickguard dan
+  rosette pada gitar, tailpiece dan endpin pada cello. Masing-masing punya kursi bulat kecil.
+- **Luna bisa bermain musik** (di ruang tamu menara): **piano** (duduk di kursi piano, jari menari
+  di tuts), **gitar** (dipangku, menggenjreng), **cello** (di antara lutut, menggesek dengan busur).
+  Alat musik diambil dari standnya selama dimainkan. Saat suara aktif terdengar musiknya: arpeggio
+  piano, genjrengan gitar, dan gesekan cello yang lembut (progresi C–Am–F–G).
+- **Bersantai**: duduk santai atau **rebahan di sofa**, **rebahan di rumput** di mana saja di luar
+  kafe, dan **duduk di ujung dermaga** dengan kaki menjuntai ke arah laut. Tombol "Berdiri" /
+  "Bangun" / "Berhenti main" untuk selesai.
+- **Tas Luna (inventory)** — tombol "tas" di Explore:
+  - **Buku catatan**: menulis ide atau kutipan; tersimpan di browser ini (bisa dihapus).
+  - **Buku bacaan** "Catatan dari Teras" (tulisan pendek baru, 5 halaman): Luna duduk membaca (di
+    sofa jika dekat, atau di tempatnya) sambil halaman tampil di atas layar.
+  - **Digicam**: mode **foto** dan **video**; zoom 1–4×, putar gambar (miring kiri/kanan/lurus),
+    geser layar untuk membidik, selfie; **merekam sambil Luna berjalan** (hingga 1 menit, ikut
+    merekam suara dunia bila suara aktif). Hasil bisa disimpan ke perangkat, atau foto dipasang di
+    bingkai menara.
+  - **Tripod**: dipasang di tempat lapang di depan Luna (tidak menembus dinding), lalu memotret
+    (dengan timer 3/10 detik) atau merekam Luna sendiri; bisa diambil kembali.
+  - **Kamera Story of Winds** tetap ada.
+- Dicek di browser (ukuran HP): piano, gitar, cello, rebahan di sofa, duduk di ujung dermaga,
+  membaca, buku catatan, rekaman video berjalan + zoom + putar, foto tripod dengan timer, atap
+  menara, detail gitar, dan pelangi sore. `typecheck`, `format:check`, `build` lulus;
+  `barista.test` 6/6, `people.test` 13/13, `engine.test` 21/25 seperti sebelumnya. Tidak ada aset
+  baru, `?v=` tetap.

@@ -395,3 +395,9 @@
   color: #a8e2a0;
   border-color: rgba(168, 226, 160, 0.7) !important;
 }
+/* While the digicam is up, its own controls take the top of the screen. */
+.hud[data-camera] > .top,
+.hud[data-camera] > .hint,
+.hud[data-camera] > .ticket {
+  display: none;
+}

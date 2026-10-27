@@ -305,6 +305,10 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     cloth = new THREE.Group(),
     camera = new THREE.Group(),
     bristles = new THREE.Group(),
+    book = new THREE.Group(),
+    bow = new THREE.Group(),
+    instrumentHolder = new THREE.Group(),
+    held: { instrument: THREE.Object3D | null } = { instrument: null },
     umbrella = new THREE.Group(),
     canopy = new THREE.Group(),
     propUpAxis = new THREE.Vector3(0, 1, 0);
@@ -405,7 +409,28 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     // Resting place until it is first opened (kept above the floor).
     umbrella.position.set(-0.12, 0.72, 0.18);
     canopy.position.set(-0.03, 1.56, 0);
-    props.add(can, broom, bristles, cloth, camera, umbrella, canopy);
+    // An open book (two pages on a cover) for reading.
+    const cover = propMat('#7a4a3a'),
+      paper = propMat('#f4efe2');
+    for (const side of [-1, 1]) {
+      part(book, box, cover, [side * 0.07, 0, 0], [0.14, 0.006, 0.19], [0, 0, side * -0.18]);
+      part(book, box, paper, [side * 0.066, 0.006, 0], [0.13, 0.008, 0.18], [0, 0, side * -0.18]);
+    }
+    // The cello bow: a dark stick with pale hair under it.
+    part(
+      bow,
+      cylinder,
+      propMat('#3a2418'),
+      [0.33, 0, 0],
+      [0.008, 0.66, 0.008],
+      [0, 0, Math.PI / 2],
+    );
+    part(bow, box, propMat('#efe9dc'), [0.33, -0.018, 0], [0.62, 0.004, 0.006]);
+    // Resting places until they're first used (kept above the floor).
+    book.position.set(0, 0.62, 0.25);
+    bow.position.set(-0.17, 0.6, 0.3);
+    instrumentHolder.position.set(0, 0.3, 0.3);
+    props.add(can, broom, bristles, cloth, camera, umbrella, canopy, book, bow, instrumentHolder);
     // Luna's own group is unscaled; the stand-in barista is already at café scale.
     props.scale.setScalar(scale / barista.visual.scale.x);
     props.children.forEach((p) => (p.visible = false));
@@ -436,6 +461,26 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     cloth.visible = kind === 'wiping';
     camera.visible = kind === 'photo';
     umbrella.visible = canopy.visible = umbrellaOpen();
+    book.visible = kind === 'reading';
+    bow.visible = kind === 'cello' && !!held.instrument;
+    // The instrument Luna holds (guitar across her lap, cello upright between her knees).
+    if (instrumentHolder.children[0] !== held.instrument) {
+      instrumentHolder.clear();
+      if (held.instrument) instrumentHolder.add(held.instrument);
+    }
+    instrumentHolder.visible = !!held.instrument && (kind === 'guitar' || kind === 'cello');
+    if (instrumentHolder.visible) {
+      const lap = (detailed ? detailed.hip / scale : 0.5) + 0.05;
+      if (kind === 'guitar') {
+        instrumentHolder.position.set(-0.3, lap - 0.06, 0.24);
+        instrumentHolder.rotation.set(0, 0, -1.15);
+      } else {
+        // Upright between her knees, neck leaning past her left cheek.
+        instrumentHolder.position.set(0.08, 0.02, 0.4);
+        instrumentHolder.rotation.set(-0.22, 0, -0.14);
+      }
+      instrumentHolder.scale.setScalar(0.72 / scale);
+    }
     const pour = kind === 'watering' && !reduced,
       dust = kind === 'sweeping' && !reduced;
     drops.visible = pour || dust;
@@ -471,6 +516,16 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     }
     if (camera.visible && gripped)
       camera.position.copy(handR).lerp(handL, 0.5).add(propCameraOffset);
+    if (book.visible) {
+      // Held open in both hands, tipped towards her face.
+      if (gripped) book.position.copy(handR).lerp(handL, 0.5).add(propBookOffset);
+      else book.position.set(0, 0.62, 0.25);
+      book.rotation.set(-0.9, 0, 0);
+    }
+    if (bow.visible && gripped) {
+      bow.position.copy(handR);
+      bow.rotation.set(0, 0, 0.18);
+    }
     if (umbrella.visible) {
       // Shaft from the right hand up to the canopy just above her head, leaning a touch back.
       const grip = gripped ? propTop.copy(handR) : propTop.set(-0.12, 0.72, 0.18);
@@ -540,13 +595,21 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     propDown = new THREE.Vector3(0, -1, 0),
     propCanOffset = new THREE.Vector3(0, -0.03, 0.05),
     propClothOffset = new THREE.Vector3(0, -0.04, 0),
-    propCameraOffset = new THREE.Vector3(0, 0.03, 0.04);
+    propCameraOffset = new THREE.Vector3(0, 0.03, 0.04),
+    propBookOffset = new THREE.Vector3(0, 0.02, 0.05);
   const drinkHand = new THREE.Vector3(),
     drinkRest = new THREE.Vector3(0.13, 0.79, 0.3);
   function standUp() {
     barista.phase = 'working';
     barista.seat = null;
+    activity = '';
+    held.instrument = null;
   }
+  /**
+   * What Luna does while settled somewhere (explore mode): play the piano, guitar or cello, read,
+   * lie down, or sit with her legs over the water at the end of the pier.
+   */
+  let activity = '';
   /** The world around the café (explore mode): walkable height outside, and the café's site. */
   let running = false,
     jumpY = 0,
@@ -921,7 +984,9 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         target.x,
         target.y -
           (isBarista && detailed
-            ? detailed.hip - 0.05 * scale
+            ? activity === 'lying'
+              ? 0
+              : detailed.hip - 0.05 * scale
             : (crossLegged ? 0.43 : 0.445) * scale),
         target.z,
       );
@@ -1039,7 +1104,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     if (manual) {
       task =
         barista.phase === 'sitting' && barista.seat
-          ? 'sitting'
+          ? activity || 'sitting'
           : chore.kind && age < chore.until
             ? chore.kind
             : manualTask;
@@ -1141,6 +1206,34 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       return true;
     },
     stand: () => standUp(),
+    /**
+     * Settle at a spot (explore mode): `activity` is piano, guitar, cello, reading, lying, dangling
+     * or resting. `position` is the seat (or, lying, where her body rests); `instrument` is the
+     * guitar or cello she holds.
+     */
+    settle(spot: {
+      position: THREE.Vector3;
+      heading: number;
+      activity: string;
+      instrument?: THREE.Object3D | null;
+    }) {
+      manualRoute = [];
+      chore.until = 0;
+      barista.seat = {
+        id: 'spot:' + spot.activity,
+        surface: spot.position.clone(),
+        floorY: spot.position.y,
+        table: '',
+        heading: spot.heading,
+        takeaway: false,
+      };
+      barista.headingAtSeat = spot.heading;
+      barista.phase = 'sitting';
+      activity = spot.activity;
+      held.instrument = spot.instrument ?? null;
+    },
+    /** What Luna is settled doing ('' when not). */
+    activity: () => (barista.phase === 'sitting' ? activity : ''),
     /** Hop (explore mode): Space, or a double tap on a phone. */
     jump() {
       if (jumpY > 0.001 || barista.phase === 'sitting') return;

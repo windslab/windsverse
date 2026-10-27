@@ -1,0 +1,118 @@
+/* Luna's bag, notebook and book (inside the explore HUD's panel). */
+.items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.items li {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+.icon {
+  font-size: 18px;
+  text-shadow: none;
+}
+.name {
+  display: grid;
+  font-size: 13px;
+  font-weight: 600;
+}
+.name small {
+  font-weight: 400;
+  font-size: 11px;
+  opacity: 0.7;
+}
+.actions {
+  display: inline-flex;
+  gap: 10px;
+}
+.actions button,
+.notes button {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-size: 12px;
+}
+.kinds {
+  display: inline-flex;
+  gap: 6px;
+}
+.kinds button {
+  padding: 2px 10px !important;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 238, 214, 0.45) !important;
+  font-size: 12px;
+}
+.kinds button[aria-pressed='true'] {
+  color: #f6c06a;
+  border-color: rgba(246, 192, 106, 0.8) !important;
+}
+.write {
+  width: 100%;
+  resize: vertical;
+  border-radius: 10px;
+  border: 1px solid rgba(251, 238, 214, 0.35);
+  background: rgba(255, 248, 235, 0.92);
+  color: #2b1d12;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  text-shadow: none;
+  pointer-events: auto;
+}
+.notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-height: 30vh;
+  overflow: auto;
+}
+.notes li {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(251, 238, 214, 0.15);
+}
+.notes small {
+  font-size: 10px;
+  opacity: 0.65;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.notes p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.notes button {
+  justify-self: start;
+  opacity: 0.6;
+  font-size: 11px;
+}
+.quote {
+  font-style: italic;
+}
+.quote::before {
+  content: '“';
+}
+.quote::after {
+  content: '”';
+}
+/* The book sits at the top so Luna stays visible below. */
+.reader {
+  top: max(46px, calc(env(safe-area-inset-top) + 36px));
+  bottom: auto !important;
+}
+.page {
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-line;
+}
