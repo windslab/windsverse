@@ -22,12 +22,10 @@ import {
   type Order,
 } from '@/lib/barista-game';
 import { playSfx } from '@/lib/cafe-sound';
-import type { Cursor, HouseData } from '@/lib/build-house';
 import { regionById, visitRegion } from '@/lib/windstopia-map';
 import styles from './explore-mode.module.css';
 import VintageCamera from './vintage-camera';
 import Digicam from './explore-digicam';
-import BuildMode from './explore-build';
 import { Bag, Notebook, Reader, type BagItem } from './explore-bag';
 
 export type ExploreApi = {
@@ -60,22 +58,6 @@ export type ExploreApi = {
     seconds: number,
     target?: THREE.Vector3,
   ) => void;
-  /** Free build mode on the lot beside the road. */
-  build: {
-    lot: { cols: number; rows: number };
-    near: () => boolean;
-    enter: () => void;
-    exit: () => void;
-    view: (dyaw: number, zoom: number, dx: number, dz: number) => void;
-    pick: (clientX: number, clientY: number) => { x: number; z: number } | null;
-    data: () => HouseData;
-    set: (data: HouseData) => void;
-    cursor: (c: Cursor | null) => void;
-    roof: (on: boolean) => void;
-    /** Wall height as drawn: 1 full, lower to see inside. */
-    walls: (k: number) => void;
-    spots: () => { id: string; kind: 'sit' | 'lie'; position: THREE.Vector3; heading: number }[];
-  };
   /** Out on the land beyond the sidewalk. */
   outdoors: () => boolean;
   /** Which named place of the island Luna is in (ids in lib/windstopia-map.ts). */
@@ -112,8 +94,6 @@ export type ExploreApi = {
   settle: (name: string) => boolean;
   /** What Luna is doing while settled ('' when not). */
   activity: () => string;
-  /** Sit or lie on a piece of furniture in the player's house. */
-  settleAt: (spot: { position: THREE.Vector3; heading: number; kind: 'sit' | 'lie' }) => void;
 };
 type Spot = { name: string; box: THREE.Box3 };
 
@@ -200,8 +180,6 @@ export default function ExploreMode({
     [notebookOpen, setNotebookOpen] = useState(false),
     [readerOpen, setReaderOpen] = useState(false),
     [digicam, setDigicam] = useState<'hand' | 'tripod' | null>(null),
-    /** Free build mode is open. */
-    [building, setBuilding] = useState(false),
     /** The place name shown briefly when Luna arrives somewhere (new places say so). */
     [place, setPlace] = useState<{ name: string; note: string; first: boolean } | null>(null),
     [actions, setActions] = useState<{ id: string; label: string }[]>([]),
@@ -404,7 +382,7 @@ export default function ExploreMode({
   const runRef = useRef<(id: string) => void>(() => {});
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (panel || building) return;
+      if (panel) return;
       const key = e.key.toLowerCase();
       if (key === 'shift') {
         keyRun.current = true;
@@ -475,7 +453,7 @@ export default function ExploreMode({
       api.setStick(0, 0);
       api.setRun(false);
     };
-  }, [panel, building, applyStick, api]);
+  }, [panel, applyStick, api]);
 
   // What can Luna do where she stands? (checked a few times a second)
   useEffect(() => {
@@ -529,15 +507,6 @@ export default function ExploreMode({
               : 'Berdiri',
         });
       } else if (!holding) {
-        // Chairs, sofas and beds in the player's own house.
-        for (const spot of api.build.spots()) {
-          if (flat(at, spot.position) > 0.9 || Math.abs(at.y - spot.position.y) > 0.8) continue;
-          list.push({
-            id: 'hseat:' + spot.id,
-            label: spot.kind === 'lie' ? 'Berbaring' : 'Duduk',
-          });
-          break;
-        }
         // Instruments, the sofa and the end of the pier.
         for (const spot of api.restSpots) {
           if (flat(at, spot.position) > 0.85 || Math.abs(at.y - spot.position.y) > 0.8) continue;
@@ -633,13 +602,6 @@ export default function ExploreMode({
     if (verb === 'stand') api.stand();
     if (verb === 'sit' && api.sit(arg)) playSfx('sit');
     if (verb === 'settle' && api.settle(arg)) playSfx('sit');
-    if (verb === 'hseat') {
-      const spot = api.build.spots().find((s) => s.id === arg);
-      if (spot) {
-        api.settleAt(spot);
-        playSfx('sit');
-      }
-    }
     if (verb === 'tripod-pack') {
       api.tripod.remove();
       setNote('Tripod masuk tas');
@@ -757,7 +719,7 @@ export default function ExploreMode({
   const ticketCustomer = customers.find((c) => c.key === ticket);
 
   return (
-    <div className={styles.hud} data-camera={digicam || building ? '' : undefined}>
+    <div className={styles.hud} data-camera={digicam ? '' : undefined}>
       <header className={styles.top}>
         <span className={styles.score}>
           {score.points} poin · {score.served} tamu
@@ -781,20 +743,18 @@ export default function ExploreMode({
           {holding && <em>siap diantar</em>}
         </aside>
       )}
-      {!building && (
-        <TouchStick
-          onMove={(x, y) => {
-            stick.current = { x, y };
-            applyStick();
-          }}
-          onHold={(held) => {
-            stickHeld.current = held;
-            touchRun.current = held && touchIds.current.size >= 2;
-            api.setRun(keyRun.current || touchRun.current);
-          }}
-        />
-      )}
-      {!panel && !digicam && !building && actions.length > 0 && (
+      <TouchStick
+        onMove={(x, y) => {
+          stick.current = { x, y };
+          applyStick();
+        }}
+        onHold={(held) => {
+          stickHeld.current = held;
+          touchRun.current = held && touchIds.current.size >= 2;
+          api.setRun(keyRun.current || touchRun.current);
+        }}
+      />
+      {!panel && !digicam && actions.length > 0 && (
         <div className={styles.prompts}>
           {actions.map((a, i) => (
             <button key={a.id} className={styles.prompt} onClick={() => run(a.id)}>
@@ -804,10 +764,9 @@ export default function ExploreMode({
           ))}
         </div>
       )}
-      {!panel && !digicam && !building && (
+      {!panel && !digicam && (
         <nav className={styles.tools} aria-label="Alat">
           <button onClick={() => setBagOpen(true)}>tas</button>
-          <button onClick={() => setBuilding(true)}>bangun</button>
           <button onClick={() => run('photo')}>kamera</button>
           <button onClick={() => run('sweep')}>sapu</button>
           <button onClick={onToggleSound} aria-pressed={sound}>
@@ -848,7 +807,6 @@ export default function ExploreMode({
           <small>+{toast.points} poin</small>
         </div>
       )}
-      {building && <BuildMode api={api} onExit={() => setBuilding(false)} />}
       {bagOpen && !panel && (
         <Bag
           tripodPlaced={api.tripod.placed()}

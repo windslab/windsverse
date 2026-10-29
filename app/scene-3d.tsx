@@ -11,7 +11,6 @@ import DriveTV, { type TVProgram } from './drive-tv';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { BookOpen, Coffee, Gamepad2, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import { createCafeSound, playSfx, type Surface } from '@/lib/cafe-sound';
-import type { Cursor, HouseData } from '@/lib/build-house';
 import { cafePaths, type CafePathData } from '@/lib/cafe-paths';
 import { prepareCafeBarWorkspace } from '@/lib/cafe-bar-workspace';
 import { addCafeWalkSurfaces } from '@/lib/cafe-walk-surfaces';
@@ -504,18 +503,6 @@ export default function CafeScene({
       photoDir = new THREE.Vector3(),
       photoScale = new THREE.Vector3();
     let photoSaved: { position: THREE.Vector3; target: THREE.Vector3; fov: number } | null = null;
-    /** Free build mode: a camera orbiting the lot, held while the player builds. */
-    const building = {
-      on: false,
-      yaw: 0.6,
-      dist: 24,
-      pan: new THREE.Vector3(),
-      saved: null as { position: THREE.Vector3; target: THREE.Vector3; fov: number } | null,
-    };
-    const buildRay = new THREE.Raycaster(),
-      buildPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
-      buildHit = new THREE.Vector3(),
-      buildNdc = new THREE.Vector2();
     const cctvLook = { yaw: 0, pitch: 0 },
       cctvDrag = new Map<number, { x: number; y: number }>(),
       cctvDir = new THREE.Vector3();
@@ -1780,74 +1767,6 @@ export default function CafeScene({
                 },
                 audio: () => ambienceRef.current?.recordTap() ?? null,
               },
-              build: {
-                lot: world
-                  ? { cols: world.build.lot.cols, rows: world.build.lot.rows }
-                  : { cols: 0, rows: 0 },
-                near: () => {
-                  if (!world) return false;
-                  const p = crew.baristaPosition();
-                  return world.build.near(p.x, p.z, 9);
-                },
-                enter: () => {
-                  if (!world || building.on) return;
-                  building.saved = {
-                    position: camera.position.clone(),
-                    target: controls!.target.clone(),
-                    fov: camera.fov,
-                  };
-                  building.on = true;
-                  building.pan.set(0, 0, 0);
-                  building.dist = 24;
-                  controls!.enabled = false;
-                  world.build.house.setBuilding(true);
-                  world.build.house.setRoofVisible(false);
-                },
-                exit: () => {
-                  if (!building.on) return;
-                  building.on = false;
-                  controls!.enabled = true;
-                  world?.build.house.setBuilding(false);
-                  world?.build.house.setRoofVisible(true);
-                  const saved = building.saved;
-                  if (saved) {
-                    camera.position.copy(saved.position);
-                    controls!.target.copy(saved.target);
-                    camera.fov = saved.fov;
-                    camera.updateProjectionMatrix();
-                  }
-                },
-                /** Turn (radians), zoom (factor) and slide the view (screen-right, screen-up units). */
-                view: (dyaw: number, zoom: number, dx: number, dz: number) => {
-                  building.yaw += dyaw;
-                  building.dist = THREE.MathUtils.clamp(building.dist * zoom, 7, 60);
-                  const s = building.dist * 0.05;
-                  building.pan.x += (Math.cos(building.yaw) * dx - Math.sin(building.yaw) * dz) * s;
-                  building.pan.z +=
-                    (-Math.sin(building.yaw) * dx - Math.cos(building.yaw) * dz) * s;
-                  const half = Math.max(world?.build.lot.cols ?? 0, world?.build.lot.rows ?? 0);
-                  building.pan.clampLength(0, half);
-                },
-                /** A screen point to lot coordinates (cells), or null if it misses the ground. */
-                pick: (clientX: number, clientY: number) => {
-                  if (!world || !building.on) return null;
-                  const rect = renderer!.domElement.getBoundingClientRect();
-                  buildNdc.set(
-                    ((clientX - rect.left) / rect.width) * 2 - 1,
-                    -((clientY - rect.top) / rect.height) * 2 + 1,
-                  );
-                  buildRay.setFromCamera(buildNdc, camera);
-                  buildPlane.constant = -world.build.lot.y;
-                  if (!buildRay.ray.intersectPlane(buildPlane, buildHit)) return null;
-                  return world.build.house.toLocal(buildHit.x, buildHit.z);
-                },
-                data: () => world!.build.house.data,
-                set: (data: HouseData) => world?.build.set(data),
-                cursor: (c: Cursor | null) => world?.build.house.cursor(c),
-                roof: (on: boolean) => world?.build.house.setRoofVisible(on),
-                walls: (k: number) => world?.build.house.setWallHeight(k),
-                spots: () => world?.build.house.spots() ?? [],
-              },
               tripod: {
                 place: () => {
                   // A step and a half in front of Luna, looking back at her.
@@ -1970,13 +1889,6 @@ export default function CafeScene({
                 return true;
               },
               activity: () => crew.activity(),
-              /** Sit or lie on a piece of furniture in the player's house. */
-              settleAt: (spot: { position: THREE.Vector3; heading: number; kind: 'sit' | 'lie' }) =>
-                crew.settle({
-                  position: spot.position,
-                  heading: spot.heading,
-                  activity: spot.kind === 'lie' ? 'lying' : 'sitting',
-                }),
               stations: {
                 cashier: crew.stations.cashier.clone(),
                 bar: crew.stations.bar.clone(),
@@ -2545,28 +2457,7 @@ export default function CafeScene({
           }
           people?.update(delta, reduced);
           const exploreCamera =
-            explore.on &&
-            !telescopeMode &&
-            !transition &&
-            !debugCamera.frozen &&
-            !photo.on &&
-            !building.on;
-          if (building.on && world) {
-            // Looking down on the lot at an angle, turning around it.
-            const c = world.build.lot.centre,
-              el = 0.95;
-            controls!.target.set(c.x + building.pan.x, world.build.lot.y, c.z + building.pan.z);
-            camera.position.set(
-              controls!.target.x + Math.sin(building.yaw) * Math.cos(el) * building.dist,
-              controls!.target.y + Math.sin(el) * building.dist,
-              controls!.target.z + Math.cos(building.yaw) * Math.cos(el) * building.dist,
-            );
-            if (camera.fov !== 50) {
-              camera.fov = 50;
-              camera.updateProjectionMatrix();
-            }
-            camera.lookAt(controls!.target);
-          }
+            explore.on && !telescopeMode && !transition && !debugCamera.frozen && !photo.on;
           // The instrument Luna is playing leaves its stand.
           if (world && people) {
             const playing = people.activity();
@@ -2752,13 +2643,7 @@ export default function CafeScene({
               probeRay.near = 0.75;
               probeRay.set(controls!.target, followDir);
               probeRay.far = followWish.radius + 0.3;
-              // The player's house too: its roof and walls, when the camera is outside them.
-              const hits = probeRay.intersectObjects(occluders, false);
-              if (world)
-                for (const h of probeRay.intersectObject(world.build.house.group, true))
-                  if (h.object.name === 'Roof' || h.object.name === 'Wall') hits.push(h);
-              hits.sort((a, b) => a.distance - b.distance);
-              const hit = hits[0];
+              const hit = probeRay.intersectObjects(occluders, false)[0];
               const step = t - followHold.last;
               followHold.last = t;
               if (hit && hit.distance < followWish.radius) {
