@@ -64,7 +64,8 @@ const GRASS_LOW = new THREE.Color('#5d6f3a'),
   ASPHALT = new THREE.Color('#1c1c1d'),
   ROCK = new THREE.Color('#7a877c'),
   ROCK_GREEN = new THREE.Color('#4c6639'),
-  SAND = new THREE.Color('#e3d3a8');
+  SAND = new THREE.Color('#e3d3a8'),
+  PEAK = new THREE.Color('#eceeea');
 
 export function createCafeWorld(layout: WorldLayout, windTime: { value: number }) {
   const group = new THREE.Group();
@@ -77,7 +78,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
    * The land is a little floating world: toward its rim everything melts into the fog/sky colour
    * (by distance from the island's centre, not from the camera). Wraps a material's shader.
    */
-  const ISLAND_FADE = [100, 128];
+  const ISLAND_FADE = [460, 520];
   const islandFade = (m: THREE.Material) => {
     const before = m.onBeforeCompile,
       key = m.customProgramCacheKey.bind(m);
@@ -215,9 +216,37 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     return main;
   };
   // The open sea beyond the river, in front of the café: the land slopes down to a beach.
+  // Windstopia is an island: a long beach in front (the sea past the river), the mountains
+  // behind, and a coast all the way round. `seaOut` is the distance past the shore (SEA at the
+  // waterline, growing out to sea), measured from the island's rounded-rectangle outline.
   const SEA = 56,
-    seaOut = (x: number, z: number) => (x - road.origin.x) * away.x + (z - road.origin.z) * away.z,
+    ISLAND = { halfAlong: 165, back: 215, radius: 60 },
     seaLevel = groundY - 0.55;
+  /** Along the road (0 at the café's road point) and inland from the road (negative = seaward). */
+  const uOf = (x: number, z: number) =>
+      (x - road.origin.x) * roadDir.x + (z - road.origin.z) * roadDir.z,
+    wOf = (x: number, z: number) => -((x - road.origin.x) * away.x + (z - road.origin.z) * away.z);
+  const islandMid = (SEA * -1 + ISLAND.back) / 2,
+    islandHalfDepth = (ISLAND.back + SEA) / 2;
+  const seaOut = (x: number, z: number) => {
+    const u = uOf(x, z),
+      w = wOf(x, z),
+      qx = Math.abs(u) - (ISLAND.halfAlong - ISLAND.radius),
+      qy = Math.abs(w - islandMid) - (islandHalfDepth - ISLAND.radius);
+    let d =
+      Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - ISLAND.radius;
+    // A natural, uneven coast; the front's middle stretch (the pier, the boat) stays straight.
+    const nearFront = THREE.MathUtils.smoothstep(
+      islandMid - w,
+      islandHalfDepth * 0.6,
+      islandHalfDepth * 0.85,
+    );
+    d +=
+      (noise(u * 0.03 + 11, w * 0.03 + 5) - 0.5) *
+      16 *
+      (1 - nearFront * (1 - THREE.MathUtils.smoothstep(Math.abs(u), 35, 80)));
+    return SEA + d;
+  };
 
   // A small wooden footbridge where the river passes closest to the café, with a dirt path
   // from the road down to it and on beyond.
@@ -311,6 +340,17 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     const roadGap = Math.abs(rel.dot(roadSide)) - road.halfWidth - 1.2;
     return { cafe, roadGap, flat: Math.min(Math.max(0, cafe - 3) / 7, Math.max(0, roadGap) / 4) };
   };
+  /** Extra height of the mountain range at the back of the island (0 in front of it). */
+  const mountain = (x: number, z: number) => {
+    const w = wOf(x, z),
+      band = THREE.MathUtils.smoothstep(w, 60, 112) * (1 - THREE.MathUtils.smoothstep(w, 192, 236));
+    if (band <= 0) return 0;
+    const u = uOf(x, z),
+      n1 = noise(u * 0.018 + 31, w * 0.018 + 17),
+      n2 = noise(u * 0.045 + 5, w * 0.045 + 23),
+      n3 = noise(u * 0.11, w * 0.11 + 7);
+    return band * (Math.pow(n1, 1.4) * 40 + n2 * 10 + n3 * 2.5 + 7);
+  };
   /** Terrain height (world units). */
   const height = (x: number, z: number, r = riverDistance(x, z)) => {
     const { flat } = flatZone(x, z);
@@ -325,6 +365,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     // Observatory hill.
     const tower = Math.hypot(x - towerAt.x, z - towerAt.z);
     h += 6.5 * Math.exp(-(tower * tower) / 120);
+    // The mountains behind the island: a broad massif with peaks, reaching toward the back coast.
+    h += mountain(x, z);
     // River valley.
     const carve = 1 - THREE.MathUtils.smoothstep(r, 2.2, 7);
     h = THREE.MathUtils.lerp(h, groundY - 0.9, carve);
@@ -334,11 +376,12 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   };
 
   // --- Terrain ---------------------------------------------------------------------------
-  const size = 260,
-    segments = 110;
+  const size = 460,
+    segments = 184;
+  const islandCentre = road.origin.clone().addScaledVector(away, -islandMid);
   const terrainGeometry = new THREE.PlaneGeometry(size, size, segments, segments);
   terrainGeometry.rotateX(-Math.PI / 2);
-  terrainGeometry.translate(center.x, 0, center.z);
+  terrainGeometry.translate(islandCentre.x, 0, islandCentre.z);
   const pos = terrainGeometry.attributes.position,
     colors = new Float32Array(pos.count * 3),
     color = new THREE.Color();
@@ -353,6 +396,11 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     const rise = THREE.MathUtils.clamp((y - groundY) / 6, 0, 1);
     color.copy(GRASS_LOW).lerp(GRASS_MID, THREE.MathUtils.clamp(rise * 1.6 + n * 0.4, 0, 1));
     color.lerp(GRASS_HIGH, THREE.MathUtils.smoothstep(rise, 0.45, 1));
+    // The mountains: green foothills turning to grey rock, with pale tops on the highest peaks.
+    const alt = y - groundY;
+    color.lerp(ROCK_GREEN, THREE.MathUtils.smoothstep(alt, 7, 17) * 0.75);
+    color.lerp(ROCK, THREE.MathUtils.smoothstep(alt, 17, 31));
+    color.lerp(PEAK, THREE.MathUtils.smoothstep(alt, 33, 44) * 0.85);
     // A dirt verge along the road; the grass is the same everywhere else.
     if (roadGap < 0.8) color.lerp(DIRT, 1 - THREE.MathUtils.smoothstep(roadGap, -0.4, 0.8));
     if (roadGap < -1.1) color.copy(ASPHALT);
@@ -532,16 +580,13 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   materials.push(seaMaterial);
   islandFade(seaMaterial);
   {
-    const g = new THREE.PlaneGeometry(260, 520, 1, 1);
+    // The open sea all around the island, out to the horizon.
+    const g = new THREE.PlaneGeometry(1100, 1100, 1, 1);
     g.rotateX(-Math.PI / 2);
     geometries.push(g);
     const sea = new THREE.Mesh(g, seaMaterial);
     sea.name = 'World_Sea';
-    sea.position
-      .copy(road.origin)
-      .addScaledVector(away, SEA - 6 + 130)
-      .setY(seaLevel);
-    sea.rotation.y = Math.atan2(roadDir.x, roadDir.z);
+    sea.position.set(islandCentre.x, seaLevel, islandCentre.z);
     group.add(sea);
   }
   // Pier: from the beach in front of the café straight out to sea.
@@ -642,82 +687,6 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     boat.rotation.z = Math.sin(time * 0.9) * 0.04;
     boat.rotation.x = Math.sin(time * 0.7 + 1) * 0.025;
   };
-
-  // --- Mountains -------------------------------------------------------------------------------
-  // Behind the café: straight ranges running off to the horizon. In front, beyond the river:
-  // separate karst hills. Both well away from the café, softened by the fog.
-  const karstColor = (g: THREE.BufferGeometry, top: number, bottom: number) => {
-    const p = g.attributes.position,
-      c = new Float32Array(p.count * 3);
-    for (let k = 0; k < p.count; k++) {
-      const t = THREE.MathUtils.clamp((p.getY(k) - bottom) / (top - bottom), 0, 1);
-      color.copy(ROCK_GREEN).lerp(ROCK, THREE.MathUtils.smoothstep(t, 0.3, 0.9));
-      c.set([color.r, color.g, color.b], k * 3);
-    }
-    g.setAttribute('color', new THREE.BufferAttribute(c, 3));
-  };
-  const mountainParts: THREE.BufferGeometry[] = [];
-  /**
-   * A peak's profile at distance d (0 = summit) with half width w. `sharp` near 1 gives a pointed
-   * top, around 2 a rounded one, 5+ a flat table top: mixing them reads like natural karst.
-   */
-  const peakShape = (d: number, w: number, sharp: number) =>
-    Math.exp(-Math.pow(Math.abs(d) / w, sharp));
-  const shapes = [1.1, 1.4, 2, 2.6, 4, 6];
-  {
-    // Behind the café: two straight rows parallel to the road, running off to the horizon.
-    // Far beyond the tower and out of reach: big ranges that feel big even from its roof.
-    for (const [row, distance, depth, scale] of [
-      [0, 192, 10, 1.5],
-      [1, 204, 9, 1.9],
-    ] as const) {
-      const length = 520,
-        cols = 220,
-        rows = 6;
-      const peaks = Array.from({ length: 34 }, (_, k) => ({
-        at: (k / 33 - 0.5) * length + (noise(k + row * 50, 61) - 0.5) * 12,
-        h: (5 + noise(k + row * 50, 62) * 13) * scale,
-        w: (7 + noise(k + row * 50, 63) * 16) * (1 + scale * 0.35),
-        sharp: shapes[Math.floor(noise(k + row * 50, 64) * shapes.length * 0.999)],
-      }));
-      const g = new THREE.PlaneGeometry(1, 1, cols, rows);
-      const p = g.attributes.position;
-      for (let k = 0; k < p.count; k++) {
-        const u = p.getX(k) + 0.5,
-          v = p.getY(k) + 0.5;
-        const along = (u - 0.5) * length;
-        let top = 3 + (noise(u * 14 + row, 5) - 0.4) * 4;
-        for (const peak of peaks)
-          top = Math.max(top, peak.h * peakShape(along - peak.at, peak.w, peak.sharp));
-        top += (noise(u * 60 + row, 9) - 0.5) * 0.8;
-        // Slope from the foot (front edge) up to the crest, then back down behind it.
-        const profile = Math.sin(Math.PI * Math.min(1, v)) ** 0.7;
-        const at = center
-          .clone()
-          .addScaledVector(roadDir, along)
-          .addScaledVector(roadSide, sideOfCafe * (distance + v * depth));
-        p.setXYZ(k, at.x, groundY - 2.5 + top * profile, at.z);
-      }
-      g.deleteAttribute('uv');
-      g.computeVertexNormals();
-      karstColor(g, groundY + 18 * scale, groundY);
-      mountainParts.push(g);
-    }
-  }
-  const karstGeometry = mergeGeometries(
-    mountainParts.map((g) => (g.index ? g.toNonIndexed() : g)),
-  )!;
-  mountainParts.forEach((g) => g.dispose());
-  geometries.push(karstGeometry);
-  const karstMaterial = new THREE.MeshToonMaterial({
-    vertexColors: true,
-    gradientMap: toonGradient(),
-    side: THREE.DoubleSide,
-  });
-  materials.push(karstMaterial);
-  const karst = new THREE.Mesh(karstGeometry, karstMaterial);
-  karst.name = 'World_Mountains';
-  group.add(karst);
 
   // --- Road: one hand-made road for the whole scene (the café model's own road is hidden) -----
   {
@@ -911,13 +880,22 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   const treeSpots: THREE.Matrix4[] = [],
     treeColors: THREE.Color[] = [];
   const shades = ['#4f6b33', '#5d7a3a', '#6e8a42', '#47612f'].map((c) => new THREE.Color(c));
-  for (let i = 0; treeSpots.length < 55 && i < 2000; i++) {
-    const a = noise(i * 1.7, 2) * Math.PI * 8,
-      r = 16 + noise(i * 2.3, 5) * 70;
-    const x = center.x + Math.cos(a) * r,
-      z = center.z + Math.sin(a) * r;
+  const scatter = (n: number) => {
+    const v = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+    return v - Math.floor(v);
+  };
+  for (let i = 0; treeSpots.length < 190 && i < 9000; i++) {
+    // Anywhere on the island: meadow, foothills and the lower mountain slopes (not the beach).
+    const u = (scatter(i * 1.37) - 0.5) * 2 * (ISLAND.halfAlong - 14),
+      w = -SEA + 12 + scatter(i * 2.11 + 7) * (ISLAND.back + SEA - 30);
+    const x = road.origin.x + roadDir.x * u - away.x * w,
+      z = road.origin.z + roadDir.z * u - away.z * w;
     const { flat, roadGap } = flatZone(x, z);
     if (flat < 0.9 || roadGap < 3 || riverDistance(x, z) < 5) continue;
+    if (seaOut(x, z) > SEA - 18 || height(x, z) > groundY + 17) continue;
+    // Fewer trees up the slopes.
+    if (scatter(i * 3.7) < THREE.MathUtils.smoothstep(height(x, z) - groundY, 6, 17) * 0.8)
+      continue;
     if (Math.hypot(x - towerAt.x, z - towerAt.z) < 10) continue;
     if (towerPathDistance(x, z) < 2.5) continue;
     const s = 0.8 + noise(i, 8) * 0.9;
@@ -2044,6 +2022,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     glass.opacity = night > 0.5 ? 0.45 : 0.22;
     // Dandelion heads glow a warm yellow after dark.
     dandelionNight.value = night;
+    mistUniforms.night.value = night;
     seedMaterial.color.setRGB(1, 0.99 - 0.12 * night, 0.96 - 0.4 * night);
     dandelionGlow.visible = night > 0.02;
     (dandelionGlow.material as THREE.ShaderMaterial).uniforms.night.value = night;
@@ -2074,8 +2053,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     spanLength = span.length();
   span.divideScalar(spanLength);
   const walkHeight = (x: number, z: number, fromY?: number): number | null => {
-    // The walkable land ends well before the misty rim (and the far mountains).
-    if (Math.hypot(x - center.x, z - center.z) > 92) return null;
+    // The whole island is walkable; the open sea beyond is not.
+    if (seaOut(x, z) > SEA + 24) return null;
     // The tower: pick the floor Luna can step onto from where she stands (one step up or down).
     // Rocks are solid everywhere (they never sit on the steps).
     for (const rock of rocks) if (Math.hypot(rock.x - x, rock.z - z) < rock.r) return null;
@@ -2114,6 +2093,12 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     for (const trunk of trunkSpots)
       if (Math.abs(trunk.x - x) < 0.4 && Math.abs(trunk.z - z) < 0.4) return null;
     const y = height(x, z, r);
+    // Sheer rock faces on the high peaks stay out of reach.
+    if (y > groundY + 14) {
+      const dx = height(x + 1.2, z) - height(x - 1.2, z),
+        dz = height(x, z + 1.2) - height(x, z - 1.2);
+      if (Math.hypot(dx, dz) / 2.4 > 1.15) return null;
+    }
     const across = Math.abs((x - road.origin.x) * roadSide.x + (z - road.origin.z) * roadSide.z);
     return road.surfaceY !== undefined && across < road.halfWidth ? Math.max(y, road.surfaceY) : y;
   };
@@ -2126,7 +2111,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     dandelionNight = { value: 0 };
   {
     const meadow = (x: number, z: number) =>
-      Math.hypot(x - center.x, z - center.z) < 80 &&
+      Math.hypot(x - center.x, z - center.z) < 130 &&
+      height(x, z) < groundY + 8 &&
       flatZone(x, z).roadGap > 1.5 &&
       flatZone(x, z).cafe > 1.5 &&
       pathDistance(x, z) > 1.4 &&
@@ -2140,9 +2126,9 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       q = new THREE.Quaternion(),
       tilt = new THREE.Euler();
     // Clusters near the café first, then further out on the meadow.
-    for (let c = 0, tries = 0; c < 34 && tries < 600; tries++) {
+    for (let c = 0, tries = 0; c < 56 && tries < 1200; tries++) {
       const a = Math.random() * Math.PI * 2,
-        r = (c < 14 ? 6 : 14) + Math.random() * (c < 14 ? 14 : 50),
+        r = (c < 14 ? 6 : 14) + Math.random() * (c < 14 ? 14 : 110),
         cx = center.x + Math.cos(a) * r,
         cz = center.z + Math.sin(a) * r;
       if (!meadow(cx, cz)) continue;
@@ -2250,6 +2236,83 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       flowers.computeBoundingSphere();
       group.add(flowers);
     }
+  }
+  // --- Ground-floor mist: a thin, slow-drifting haze hugging the café's lowest floor, so walking
+  // there feels like walking on clouds. Only the lowest floor: the layers stop knee-high, and the
+  // upper floor (and the raised bar) sit above them.
+  const mistUniforms = {
+    time: windTime,
+    night: { value: 0 },
+    bounds: {
+      value: new THREE.Vector4(bounds.min.x, bounds.min.z, bounds.max.x, bounds.max.z),
+    },
+  };
+  const mistLayers: THREE.Mesh[] = [];
+  {
+    const reach = 10,
+      mistSize = bounds.getSize(new THREE.Vector3());
+    const g = new THREE.PlaneGeometry(mistSize.x + reach * 2, mistSize.z + reach * 2, 1, 1);
+    g.rotateX(-Math.PI / 2);
+    geometries.push(g);
+    // Lowest floor of the café stands about 0.2 above the ground the world is built on.
+    const base = groundY + 0.23;
+    [0.0, 0.08, 0.17, 0.27, 0.38, 0.5].forEach((lift, k) => {
+      const m = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        uniforms: { ...mistUniforms, layer: { value: k }, level: { value: base + lift } },
+        vertexShader: `
+          varying vec2 vXZ;
+          varying float vGraze;
+          void main() {
+            vec4 w = modelMatrix * vec4(position, 1.0);
+            vXZ = w.xz;
+            // Mist reads thicker looking across it than looking straight down through it.
+            vGraze = 1.0 - abs(normalize(w.xyz - cameraPosition).y);
+            gl_Position = projectionMatrix * viewMatrix * w;
+          }`,
+        fragmentShader: `
+          uniform float time, night, layer, level;
+          uniform vec4 bounds;
+          varying vec2 vXZ;
+          varying float vGraze;
+          float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+          float noise(vec2 p) {
+            vec2 i = floor(p), f = fract(p);
+            f = f * f * (3.0 - 2.0 * f);
+            return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+                       mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+          }
+          void main() {
+            vec2 drift = vec2(time * (0.05 + layer * 0.018), time * (0.03 - layer * 0.012));
+            vec2 p = vXZ * 0.27 + drift + layer * 17.0;
+            float n = noise(p) * 0.55 + noise(p * 2.1 - drift * 1.6) * 0.3 + noise(p * 4.3) * 0.15;
+            float density = smoothstep(0.28, 0.72, n);
+            // Soft where it meets the edge of the café's grounds.
+            vec2 out2 = vec2(max(max(bounds.x - vXZ.x, 0.0), vXZ.x - bounds.z),
+                             max(max(bounds.y - vXZ.y, 0.0), vXZ.y - bounds.w));
+            float edge = 1.0 - smoothstep(0.0, 9.0, length(out2));
+            // Thin out where the camera is right inside the layer, so it never slices the view.
+            float inside = smoothstep(0.05, 0.55, abs(cameraPosition.y - level));
+            float a = density * edge * inside * (0.045 + 0.12 * vGraze * vGraze) * (1.0 - layer * 0.1);
+            // White by day, a cool lilac at night.
+            vec3 colour = mix(vec3(0.97, 0.98, 1.0), vec3(0.56, 0.58, 0.78), night);
+            gl_FragColor = vec4(colour, a * (1.0 - 0.35 * night));
+          }`,
+      });
+      materials.push(m);
+      const layer = new THREE.Mesh(g, m);
+      layer.name = 'World_Mist_' + k;
+      layer.position.set(
+        (bounds.min.x + bounds.max.x) / 2,
+        base + lift,
+        (bounds.min.z + bounds.max.z) / 2,
+      );
+      layer.renderOrder = 3;
+      layer.frustumCulled = false;
+      mistLayers.push(layer);
+      group.add(layer);
+    });
   }
   // Seeds blowing away: each one leaves a random seed head, floats up and off, then starts again.
   const SEEDS = 36;
@@ -2382,6 +2445,40 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     instruments: {
       standing: standingInstruments,
       held: (kind: 'guitar' | 'cello') => heldInstruments[kind]?.() ?? null,
+    },
+    /**
+     * Which part of the island a point is in (for the open-world map): ids are listed in
+     * lib/windstopia-map.ts.
+     */
+    regionAt(x: number, z: number, y?: number): string {
+      if (Math.hypot(x - towerAt.x, z - towerAt.z) < 11) return 'menara';
+      const px = x - pierFrom.x,
+        pz = z - pierFrom.z,
+        out = px * away.x + pz * away.z,
+        side = Math.abs(px * -away.z + pz * away.x);
+      if (out > -3 && out < pierLength + 4 && side < pierHalf + 3) return 'dermaga';
+      const dx = Math.max(bounds.min.x - x, 0, x - bounds.max.x),
+        dz = Math.max(bounds.min.z - z, 0, z - bounds.max.z);
+      if (Math.hypot(dx, dz) < 1.5) return 'kafe';
+      if (insideLake(x, z) || Math.hypot(x - lakeCentre.x, z - lakeCentre.z) < 11) return 'danau';
+      const gap = flatZone(x, z).roadGap;
+      if (gap < 1.2) return 'jalan';
+      if (riverDistance(x, z) < 6) return 'sungai';
+      const w = wOf(x, z),
+        u = uOf(x, z);
+      if (seaOut(x, z) > SEA - 14)
+        return w < islandMid - 20
+          ? 'pantai-depan'
+          : w > islandMid + 20
+            ? 'pantai-belakang'
+            : u < 0
+              ? 'pantai-kiri'
+              : 'pantai-kanan';
+      const alt = (y ?? height(x, z)) - groundY;
+      if (alt > 22) return 'puncak';
+      if (w > 110 || alt > 10) return 'pegunungan';
+      if (w > 75) return 'kaki-gunung';
+      return 'padang';
     },
     /** What the ground is made of here (for footstep sounds). */
     surfaceAt(x: number, z: number): 'grass' | 'asphalt' | 'gravel' | 'sand' | 'wood' | 'stone' {

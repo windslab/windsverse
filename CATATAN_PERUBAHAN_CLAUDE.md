@@ -684,3 +684,29 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   menara, detail gitar, dan pelangi sore. `typecheck`, `format:check`, `build` lulus;
   `barista.test` 6/6, `people.test` 13/13, `engine.test` 21/25 seperti sebelumnya. Tidak ada aset
   baru, `?v=` tetap.
+
+## 32. Windstopia: pulau terbuka, pegunungan di belakang, pantai di depan, kabut lantai kafe (29 Okt 2026)
+
+- **Kabut tipis di lantai paling bawah kafe**: enam lapis kabut setinggi mata kaki sampai lutut
+  menyelimuti lantai 1 dan halaman kafe, bergeser pelan, memudar halus di tepi area kafe. Dari atas
+  tampak tipis; dari samping terasa lebih tebal (seperti berjalan di atas awan). Malam hari
+  berwarna lilac lembut. Lantai 2 dan area bar yang lebih tinggi tidak terkena.
+- **Dunia menjadi pulau** (`lib/cafe-world.ts`): garis pantai di semua sisi (persegi membulat yang
+  tidak rata; bagian depan tetap lurus untuk dermaga dan perahu), **laut luas** di sekeliling sampai
+  cakrawala, pantai pasir di setiap sisi, sungai bermuara ke laut di kiri dan kanan.
+  Jalan tetap melintang dan berakhir di dekat pantai. Wilayah yang bisa dijalani Luna kini seluruh
+  pulau (dulu hanya radius 92 dari kafe); laut dalam tetap tidak bisa dimasuki.
+- **Pegunungan di belakang**: massif dengan puncak-puncak (setinggi ±50), kaki bukit hijau, lereng
+  hijau berbatu, abu-abu di atas dan puncak pucat. Bisa didaki; dinding terjal di puncak
+  tidak bisa dipanjat. Deretan gunung jauh lama (di luar jangkauan) dihapus.
+- **Hutan dan bunga** tersebar di seluruh pulau (190 pohon, makin jarang di lereng; dandelion
+  hingga 56 rumpun).
+- **Sistem open world**: `lib/windstopia-map.ts` memuat tempat-tempat bernama; dunia melaporkan
+  Luna berada di tempat mana (`regionAt`); saat tiba, nama tempat muncul sebentar di layar dan
+  kunjungan pertama dicatat (simpanan browser). Dasar untuk menaruh cerita dan petunjuk nanti.
+- Lore: `LORE_WINDSTOPIA.md` ditambah bagian "Peta pulau".
+- Dicek di browser: pulau dari atas (pantai depan, dermaga, muara sungai, laut), pegunungan dari
+  kafe dan dari lereng, Luna berlari dari kafe sampai puncak (nama tempat berganti: Jalan Pulau →
+  Padang Rumput → Kaki Pegunungan → Pegunungan → Puncak), kabut lantai bawah (siang, dari dekat),
+  performa tetap 60 fps. `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6,
+  `people.test` 13/13, `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.

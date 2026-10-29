@@ -22,6 +22,7 @@ import {
   type Order,
 } from '@/lib/barista-game';
 import { playSfx } from '@/lib/cafe-sound';
+import { regionById, visitRegion } from '@/lib/windstopia-map';
 import styles from './explore-mode.module.css';
 import VintageCamera from './vintage-camera';
 import Digicam from './explore-digicam';
@@ -59,6 +60,8 @@ export type ExploreApi = {
   ) => void;
   /** Out on the land beyond the sidewalk. */
   outdoors: () => boolean;
+  /** Which named place of the island Luna is in (ids in lib/windstopia-map.ts). */
+  region: () => string;
   spots: {
     plants: Spot[];
     tables: Spot[];
@@ -177,6 +180,8 @@ export default function ExploreMode({
     [notebookOpen, setNotebookOpen] = useState(false),
     [readerOpen, setReaderOpen] = useState(false),
     [digicam, setDigicam] = useState<'hand' | 'tripod' | null>(null),
+    /** The place name shown briefly when Luna arrives somewhere (new places say so). */
+    [place, setPlace] = useState<{ name: string; note: string; first: boolean } | null>(null),
     [actions, setActions] = useState<{ id: string; label: string }[]>([]),
     [ticket, setTicket] = useState<string | null>(null),
     [drink, setDrink] = useState<Drink>(emptyDrink()),
@@ -196,6 +201,8 @@ export default function ExploreMode({
     counter = useRef(0),
     chase = useRef<string | null>(null),
     cooldown = useRef<Record<string, number>>({}),
+    regionRef = useRef(''),
+    placeTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     lastPhoto = useRef<string | null>(null),
     keyRun = useRef(false),
     touchRun = useRef(false),
@@ -514,6 +521,18 @@ export default function ExploreMode({
           list.push({ id: 'settle:lie-here', label: 'Rebahan' });
       }
       list.splice(3);
+      // Open world: name each place when Luna arrives, and note the first visit.
+      const here = api.region();
+      if (here !== regionRef.current) {
+        regionRef.current = here;
+        const region = regionById(here);
+        if (region) {
+          const first = visitRegion(here);
+          setPlace({ name: region.name, note: first ? region.note : '', first });
+          if (placeTimer.current) clearTimeout(placeTimer.current);
+          placeTimer.current = setTimeout(() => setPlace(null), first ? 4200 : 2200);
+        }
+      }
       // The book closes when Luna stops reading.
       if (api.activity() !== 'reading') setReaderOpen(false);
       setActions((old) => (JSON.stringify(old) === JSON.stringify(list) ? old : list));
@@ -754,6 +773,12 @@ export default function ExploreMode({
             {sound ? 'suara: on' : 'suara: off'}
           </button>
         </nav>
+      )}
+      {place && !digicam && (
+        <p className={styles.place} key={place.name} role="status">
+          <b>{place.name}</b>
+          {place.note && <small>{place.note}</small>}
+        </p>
       )}
       {note && (
         <p className={styles.note} role="status">

@@ -401,3 +401,38 @@
 .hud[data-camera] > .ticket {
   display: none;
 }
+/* The name of a place, shown briefly on arrival. */
+.place {
+  position: absolute;
+  left: 50%;
+  top: 14%;
+  transform: translateX(-50%);
+  margin: 0;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  text-align: center;
+  pointer-events: none;
+  animation: place-in 0.5s ease-out both;
+}
+.place b {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.place small {
+  font-size: 11px;
+  opacity: 0.8;
+}
+@keyframes place-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .place {
+    animation: none;
+  }
+}

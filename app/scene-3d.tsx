@@ -1694,6 +1694,10 @@ export default function CafeScene({
               sitting: () => crew.sitting(),
               chore: (kind, seconds, target) => crew.chore(kind, seconds, target),
               outdoors: () => crew.outdoorsNow(),
+              region: () => {
+                const p = crew.baristaPosition();
+                return world ? world.regionAt(p.x, p.z, p.y) : 'kafe';
+              },
               spots: {
                 plants: spotBoxes(model, /^WS_Garden_\d+_(Pot|Leaves)|Planter_\d+_Pot|Raised_Pot/),
                 tables: spotBoxes(model, /^meja/),
