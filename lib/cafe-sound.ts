@@ -59,8 +59,6 @@ export type SoundFrame = {
   /** Bird flock position, if one is flying. */
   flock: THREE.Vector3 | null;
   cat: { position: THREE.Vector3; mood: string } | null;
-  /** The village's cows (bells and mooing when near). */
-  cows: THREE.Vector3[] | null;
   luna: { position: THREE.Vector3; task: string; umbrella: boolean } | null;
   /** Height of the camera above the ground nearby (windier up high). */
   altitude: number;
@@ -321,42 +319,6 @@ export function createCafeSound(context: AudioContext) {
     osc.start(at);
     osc.stop(at + length + 0.05);
   };
-  /** A cow bell: a short brassy clank that rings on. */
-  const bell = (gain: number, pan: number) => {
-    const base = 760 + Math.random() * 280,
-      at = context.currentTime;
-    tone({ at, f0: base, decay: 1.1, attack: 0.002, gain, pan, wave: 'triangle' });
-    tone({ at, f0: base * 1.51, decay: 0.8, attack: 0.002, gain: gain * 0.7, pan });
-    tone({ at, f0: base * 2.3, decay: 0.35, attack: 0.002, gain: gain * 0.35, pan });
-    burst({ at, freq: 2600, q: 2, decay: 0.05, gain: gain * 0.5, pan });
-  };
-  /** A low, drawn-out moo. */
-  const moo = (gain: number, pan: number) => {
-    const at = context.currentTime,
-      length = 1.3 + Math.random() * 0.5,
-      base = 82 + Math.random() * 14;
-    const osc = context.createOscillator(),
-      f = context.createBiquadFilter(),
-      g = context.createGain(),
-      p = out(pan, false);
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(base * 1.15, at);
-    osc.frequency.linearRampToValueAtTime(base, at + length * 0.3);
-    osc.frequency.linearRampToValueAtTime(base * 0.8, at + length);
-    f.type = 'bandpass';
-    f.Q.value = 3;
-    f.frequency.setValueAtTime(260, at);
-    f.frequency.linearRampToValueAtTime(430, at + length * 0.5);
-    f.frequency.linearRampToValueAtTime(300, at + length);
-    g.gain.setValueAtTime(0.0001, at);
-    g.gain.exponentialRampToValueAtTime(gain, at + 0.25);
-    g.gain.setValueAtTime(gain, at + length * 0.65);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + length);
-    osc.connect(f).connect(g).connect(p);
-    done(osc, f, g, p);
-    osc.start(at);
-    osc.stop(at + length + 0.05);
-  };
   const thunder = (gain: number, delay: number, close: boolean) => {
     const at = context.currentTime + delay,
       length = 2.5 + Math.random() * 2.5;
@@ -554,8 +516,6 @@ export function createCafeSound(context: AudioContext) {
     dripAt = 0,
     patterAt = 0,
     meowAt = 0,
-    bellAt = 0,
-    mooAt = 0,
     lastMood = '',
     catWasNear = false,
     choreAt = 0,
@@ -821,29 +781,6 @@ export function createCafeSound(context: AudioContext) {
         set(purrDepth.gain, 0.035 * purring, 0.5);
         purr.pan.pan.setTargetAtTime(h.pan, now, 0.2);
       } else set(purr.gain.gain, 0);
-
-      // Cows on the mountain meadow: bells as they graze, and a moo now and then when near.
-      if (f.cows && f.cows.length) {
-        let near = Infinity,
-          nearest: THREE.Vector3 | null = null;
-        for (const c of f.cows) {
-          const d = c.distanceTo(f.ear);
-          if (d < near) {
-            near = d;
-            nearest = c;
-          }
-        }
-        if (nearest && near < 30 && time > bellAt) {
-          bellAt = time + 1.4 + Math.random() * 3.4;
-          const h = hear(f.camera, nearest, 10);
-          bell(0.045 * Math.max(0.15, h.gain), h.pan);
-        }
-        if (nearest && near < 14 && time > mooAt) {
-          mooAt = time + 12 + Math.random() * 18;
-          const h = hear(f.camera, nearest, 8);
-          moo(0.1 * Math.max(0.2, h.gain), h.pan);
-        }
-      }
 
       // Luna playing an instrument.
       const playing =

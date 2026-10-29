@@ -2326,12 +2326,6 @@ export default function CafeScene({
           }
           world?.setTowerNight(lamps);
           world?.update(t);
-          world?.folk.update(
-            t,
-            exploreRef.current.on && people ? people.baristaPosition() : null,
-            camera.position,
-            reduced,
-          );
           // Sounds of the world around the camera (when sound is on).
           if (ambienceRef.current && soundRef.current) {
             if (t - lastEarCheck > 0.3) {
@@ -2362,7 +2356,6 @@ export default function CafeScene({
                 river: water.river,
                 flock: critters?.flock() ?? null,
                 cat: cat ? { position: cat.position, mood: cat.mood() } : null,
-                cows: world ? world.folk.cows() : null,
                 luna: people
                   ? {
                       position: people.baristaPosition(),

@@ -711,31 +711,15 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   performa tetap 60 fps. `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6,
   `people.test` 13/13, `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
 
-## 33. Desa gaya pegunungan Swiss: rumah, sawah, kebun, jalan setapak, warga; kabut pindah ke kaki gunung (29 Okt 2026)
+## 33. Kembali ke versi sebelum desa; kabut di kaki gunung, gunung lebih jauh dari menara (30 Okt 2026)
 
-- **Kabut**: dihapus dari kafe; kini tiga lapis kabut tipis menempel di lereng sepanjang **kaki
-  gunung** (mengikuti bentuk tanah, bergeser pelan, lilac di malam hari), jadi gunung seperti muncul
-  dari lautan awan.
-- **Rumah warga** (`lib/windstopia-village.ts`), gaya **chalet Swiss**: dinding kayu dengan alur papan,
-  atap pelana lebar (ujung atap menghadap depan), balkon di atas pintu, jendela berdaun jendela
-  hijau/merah/biru dengan kotak bunga, cerobong batu, tumpukan kayu bakar, serambi batu, dan pagar
-  kayu mengitari halaman. Jendela menyala hangat di malam hari. Enam rumah, satu di tiap area:
-  Rumah Lereng (pegunungan), Rumah Tepi Sungai, Rumah Tepi Danau, Rumah Pantai, Rumah Kebun, dan Rumah
-  Sawah. Tanah diratakan di bawahnya; tidak bisa dimasuki/ditembus.
-- **Persawahan** bertingkat (3 tingkat × 4 petak, naik menjauhi jalan) dengan barisan padi dan tahap
-  tumbuh berbeda (muda sampai menguning); pematang di antaranya bisa dilewati, petak tidak. **Perkebunan**:
-  barisan semak, sembilan pohon buah berbuah merah, lorong di tengah, dan pagar kayu.
-- **Jalan setapak tanah** yang berliku (9 jalur) menghubungkan setiap rumah ke jalan raya dan
-  satu sama lain; yang di seberang sungai lewat jembatan ke rumah danau, rumah pantai, dan dermaga.
-  Dibuat menempel pada permukaan tanah, tepinya lunak, bunyi langkah kerikil.
-- **Warga sementara** (`lib/windstopia-folk.ts`, daftar `FOLK` untuk diisi identitas nanti): 3 petani
-  sawah (menanam padi, mencangkul), 2 petani kebun (memetik, menyiangi), 2 nelayan (di dermaga dan di
-  pantai), penjaga danau (duduk di bangku), penggembala dengan **4 sapi berlonceng** (sapi
-  merumput dan berjalan), 2 anak berlarian, dan 1 warga menyapu. Mereka melambai saat Luna dekat.
-  Bangku di tiap rumah dan di tepi danau. Suara: lonceng sapi dan lenguhan sapi saat Luna dekat.
-- **Tempat bernama baru**: Persawahan, Perkebunan, dan enam rumah warga (`lib/windstopia-map.ts`).
-- Padang alpin lebih hijau sampai tinggi; batu abu-abu dan puncak pucat dimulai lebih tinggi.
-- Dicek di browser: kabut di kaki gunung, tiap jenis rumah dari dekat, jalan setapak dari atas, sawah
-  bertingkat, petani, sapi, jalan tidak tertembus rumah/petak, bunyi langkah di jalan setapak,
-  tanda tempat. `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6, `people.test` 13/13,
-  `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
+- Atas permintaan pemilik proyek, **desa gaya Swiss dibatalkan** (rumah chalet, sawah, kebun, jalan
+  setapak berliku, warga dan sapi sementara): kode dikembalikan ke keadaan sebelum perubahan itu
+  (`git revert` dari commit b156909; riwayatnya tetap ada di git bila nanti ingin dipakai lagi).
+- **Kabut** dihapus dari kafe dan kini hanya **tiga lapis kabut tipis di kaki gunung**, mengikuti
+  bentuk tanah dan bergeser pelan.
+- **Gunung dimundurkan**: pulau diperpanjang ke belakang (pantai belakang di ±280 dari jalan) dan
+  deretan gunung baru mulai menanjak jauh di belakang menara. Di sekitar menara tanahnya tetap
+  landai (tinggi 0–3), jadi hanya menara yang menjulang di area itu; gunung baru terlihat di kejauhan
+  (mulai ±150 dari menara).
+- Nama tempat (Kaki Pegunungan, Pegunungan) disesuaikan ke jarak baru.
