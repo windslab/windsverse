@@ -21,6 +21,7 @@ export const REGIONS: Region[] = [
   { id: 'pantai-kiri', name: 'Pantai Barat', note: 'Ujung pulau yang sepi.' },
   { id: 'pantai-kanan', name: 'Pantai Timur', note: 'Ujung pulau yang sepi.' },
   { id: 'pantai-belakang', name: 'Pantai Belakang', note: 'Pantai tersembunyi di balik gunung.' },
+  { id: 'lahan', name: 'Lahan Bangun', note: 'Lahan kosong untuk membangun rumahmu sendiri.' },
   { id: 'kaki-gunung', name: 'Kaki Pegunungan', note: 'Tanah mulai menanjak.' },
   { id: 'pegunungan', name: 'Pegunungan', note: 'Lereng-lereng hijau dan berbatu.' },
   { id: 'puncak', name: 'Puncak', note: 'Dari sini seluruh pulau terlihat.' },

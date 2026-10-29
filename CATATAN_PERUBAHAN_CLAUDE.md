@@ -723,3 +723,36 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   landai (tinggi 0–3), jadi hanya menara yang menjulang di area itu; gunung baru terlihat di kejauhan
   (mulai ±150 dari menara).
 - Nama tempat (Kaki Pegunungan, Pegunungan) disesuaikan ke jarak baru.
+
+## 34. Sungai lama hilang & Mode Bangun bebas (30 Okt 2026)
+
+- **Garis/kolam "sungai lama" dihapus**: air laut tadinya menembus di cekungan tanah di tengah pulau
+  (tampak seperti kolam dan garis air di dekat menara). Cekungan itu kini ditinggikan, sehingga laut
+  hanya terlihat di pantai; air di dalam pulau tinggal sungai (bentuk baru yang bermuara ke laut) dan
+  Danau Hati.
+- **Mode Bangun** (tombol **bangun** di Explore), seperti The Sims / Paralives, di **Lahan Bangun**
+  (16 × 12 petak, rata, di sisi timur kafe dekat jalan; ada patok sudut dan papan):
+  - Kamera melihat lahan dari atas, bisa diputar, di-zoom, dan digeser (tombol di layar, atau W/A/S/D,
+    Q/E, roda mouse). Tarik di tanah untuk membangun.
+  - **Alat**: Ruang (tarik ruangan persegi: dinding + lantai), Dinding (lurus), Lantai (cat lantai),
+    Pintu, Jendela, Lengkung (ketuk dinding), Perabot, Pilih (pilih/pindah perabot), Cat (ganti bahan
+    dinding), Atap, Hapus. Ada 10 bahan dinding, 9 lantai (termasuk ubin catur), 3 bentuk atap
+    (pelana, datar, tanpa) dengan 6 warna, dan 15 perabot (kasur, sofa, meja makan, kursi, lemari, rak
+    buku, lampu berdiri, tanaman, karpet, dapur, bak mandi, TV, meja kerja, perapian, bangku taman),
+    masing-masing 6 warna dan bisa diputar.
+  - **Urungkan/ulangi** (juga Ctrl+Z), tombol **dinding penuh/rendah** untuk melihat ke dalam, tombol
+    **atap** tampil/sembunyi, dan **kosongkan** lahan.
+  - Rumah **tersimpan otomatis** di browser dan muncul lagi saat dibuka.
+- **Rumah bisa dimasuki Luna**: dinding, jendela, dan perabot menghalangi; pintu dan lengkung bisa
+  dilewati; lantai mengangkat Luna sedikit; bunyi langkah mengikuti jenis lantai. Luna bisa **duduk**
+  di sofa/kursi/bangku dan **berbaring** di kasur (tombol aksi muncul saat dekat).
+  Atap dan dinding rumah ikut dihitung saat kamera mendekat.
+- Nama tempat baru: **Lahan Bangun**.
+- Kode: `lib/build-house.ts` (data, pembangun 3D, tabrakan, penyunting), `app/explore-build.tsx`
+  (antarmuka), integrasi di `lib/cafe-world.ts` dan `app/scene-3d.tsx`. Tes: `tests/build-house.test.ts`
+  (4 tes).
+- Dicek di browser (ukuran HP): membuka mode bangun, membuat ruangan, pintu, jendela, perabot, atap,
+  dinding rendah, keluar dan melihat rumah dari luar, kemampuan tersimpan setelah muat ulang,
+  tabrakan (dinding/pintu/lantai/perabot). `typecheck`, `format:check`, `build` lulus; `barista.test`
+  6/6, `people.test` 13/13, `build-house.test` 4/4, `engine.test` 21/25 seperti sebelumnya. Tidak ada
+  aset baru, `?v=` tetap.

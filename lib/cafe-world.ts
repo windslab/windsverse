@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toonGradient } from './toon';
+import { createHouseBuilder, loadHouse, saveHouse, type HouseData } from './build-house';
 
 /** Small deterministic value noise so the world looks the same on every visit. */
 function makeNoise(seed = 7) {
@@ -353,7 +354,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     return band * (Math.pow(n1, 1.4) * 40 + n2 * 10 + n3 * 2.5 + 7);
   };
   /** Terrain height (world units). */
-  const height = (x: number, z: number, r = riverDistance(x, z)) => {
+  const baseHeight = (x: number, z: number, r = riverDistance(x, z)) => {
     const { flat } = flatZone(x, z);
     const dist = Math.hypot(x - center.x, z - center.z);
     const hills =
@@ -368,12 +369,43 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     h += 6.5 * Math.exp(-(tower * tower) / 120);
     // The mountains behind the island: a broad massif with peaks, reaching toward the back coast.
     h += mountain(x, z);
+    // Dips in the meadow never fall below the water: the sea only shows at the coast, and the only
+    // water inland is the river and the lake.
+    const dryTop = groundY + 0.15;
+    if (h < dryTop) h = dryTop + (h - dryTop) * 0.12;
     // River valley.
     const carve = 1 - THREE.MathUtils.smoothstep(r, 2.2, 7);
     h = THREE.MathUtils.lerp(h, groundY - 0.9, carve);
     // Down to the beach and under the sea.
     const shore = THREE.MathUtils.smoothstep(seaOut(x, z), SEA - 6, SEA + 8);
     return THREE.MathUtils.lerp(h, groundY - 2.8, shore);
+  };
+
+  // The building lot (free build mode): a level plot beside the road, east of the café, where the
+  // player builds a house. Its axes: x runs along the road, z inland (a right-handed pair).
+  const LOT = { along: 50, inland: 20, cols: 16, rows: 12 };
+  const lotZ = away.clone().multiplyScalar(-1).setY(0).normalize(),
+    lotX = new THREE.Vector3(lotZ.z, 0, -lotZ.x);
+  const lotCentre = road.origin
+    .clone()
+    .addScaledVector(roadDir, LOT.along)
+    .addScaledVector(away, -LOT.inland)
+    .setY(0);
+  const lotOrigin = lotCentre
+    .clone()
+    .addScaledVector(lotX, -LOT.cols / 2)
+    .addScaledVector(lotZ, -LOT.rows / 2);
+  const lotY = baseHeight(lotCentre.x, lotCentre.z);
+  /** Distance outside the lot's rectangle (0 inside it). */
+  const lotOutside = (x: number, z: number) => {
+    const lx = (x - lotOrigin.x) * lotX.x + (z - lotOrigin.z) * lotX.z,
+      lz = (x - lotOrigin.x) * lotZ.x + (z - lotOrigin.z) * lotZ.z;
+    return Math.hypot(Math.max(-lx, 0, lx - LOT.cols), Math.max(-lz, 0, lz - LOT.rows));
+  };
+  const height = (x: number, z: number, r = riverDistance(x, z)) => {
+    const h = baseHeight(x, z, r),
+      d = lotOutside(x, z);
+    return d < 7 ? THREE.MathUtils.lerp(h, lotY, 1 - THREE.MathUtils.smoothstep(d, 0, 7)) : h;
   };
 
   // --- Terrain ---------------------------------------------------------------------------
@@ -894,6 +926,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     const { flat, roadGap } = flatZone(x, z);
     if (flat < 0.9 || roadGap < 3 || riverDistance(x, z) < 5) continue;
     if (seaOut(x, z) > SEA - 18 || height(x, z) > groundY + 17) continue;
+    if (lotOutside(x, z) < 6) continue;
     // Fewer trees up the slopes.
     if (scatter(i * 3.7) < THREE.MathUtils.smoothstep(height(x, z) - groundY, 6, 17) * 0.8)
       continue;
@@ -2056,6 +2089,12 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   const walkHeight = (x: number, z: number, fromY?: number): number | null => {
     // The whole island is walkable; the open sea beyond is not.
     if (seaOut(x, z) > SEA + 24) return null;
+    // Walls and furniture of the player's house; floors lift her a hand's breadth.
+    if (lotOutside(x, z) < 2) {
+      if (house.collide(x, z)) return null;
+      const floor = house.floorAt(x, z);
+      if (floor !== null) return floor;
+    }
     // The tower: pick the floor Luna can step onto from where she stands (one step up or down).
     // Rocks are solid everywhere (they never sit on the steps).
     for (const rock of rocks) if (Math.hypot(rock.x - x, rock.z - z) < rock.r) return null;
@@ -2113,6 +2152,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   {
     const meadow = (x: number, z: number) =>
       Math.hypot(x - center.x, z - center.z) < 130 &&
+      lotOutside(x, z) > 4 &&
       height(x, z) < groundY + 8 &&
       flatZone(x, z).roadGap > 1.5 &&
       flatZone(x, z).cafe > 1.5 &&
@@ -2238,6 +2278,19 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       group.add(flowers);
     }
   }
+  // The player's house (free build mode) on its lot: remembered between visits.
+  const house = createHouseBuilder({
+    origin: lotOrigin,
+    xAxis: lotX,
+    zAxis: lotZ,
+    cols: LOT.cols,
+    rows: LOT.rows,
+    y: lotY,
+  });
+  house.setData(loadHouse(LOT.cols, LOT.rows));
+  group.add(house.group);
+  let saveTimer = 0;
+
   // --- Mountain-foot mist: thin, slow-drifting haze lying along the foot of the mountains, hugging
   // the slopes in a few layers, so the mountains rise out of a sea of clouds. Gone from the café.
   const mistUniforms = { time: windTime, night: { value: 0 } };
@@ -2471,6 +2524,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
      */
     regionAt(x: number, z: number, y?: number): string {
       if (Math.hypot(x - towerAt.x, z - towerAt.z) < 11) return 'menara';
+      if (lotOutside(x, z) < 1.5) return 'lahan';
       const px = x - pierFrom.x,
         pz = z - pierFrom.z,
         out = px * away.x + pz * away.z,
@@ -2499,9 +2553,33 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       if (w > 130) return 'kaki-gunung';
       return 'padang';
     },
+    /** The player's house and its lot (free build mode). */
+    build: {
+      house,
+      lot: { centre: lotCentre.clone(), cols: LOT.cols, rows: LOT.rows, y: lotY },
+      /** Replace the house and remember it. */
+      set(data: HouseData) {
+        house.setData(data);
+        window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(() => saveHouse(data), 400);
+      },
+      near(x: number, z: number, within = 9) {
+        return lotOutside(x, z) < within;
+      },
+    },
     /** What the ground is made of here (for footstep sounds). */
-    surfaceAt(x: number, z: number): 'grass' | 'asphalt' | 'gravel' | 'sand' | 'wood' | 'stone' {
+    surfaceAt(
+      x: number,
+      z: number,
+    ): 'grass' | 'asphalt' | 'gravel' | 'sand' | 'wood' | 'stone' | 'tile' {
       if (towerFloors(x, z)) return 'stone';
+      if (lotOutside(x, z) < 1 && house.floorAt(x, z) !== null) {
+        const f =
+          house.data.floors[
+            `${Math.floor(house.toLocal(x, z).x)},${Math.floor(house.toLocal(x, z).z)}`
+          ];
+        return f === 2 || f === 3 || f === 4 ? 'tile' : f === 7 || f === 8 ? 'stone' : 'wood';
+      }
       {
         const px = x - pierFrom.x,
           pz = z - pierFrom.z,
