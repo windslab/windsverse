@@ -63,7 +63,21 @@ browser): Kafe Winds, Jalan Pulau, Padang Rumput, Sungai, Danau Hati, Menara Mer
 Pantai Depan/Barat/Timur/Belakang, Kaki Pegunungan, Pegunungan, dan Puncak. Daftar ini ada di
 `lib/windstopia-map.ts`; cerita, tokoh, dan petunjuk nanti ditempatkan di tempat-tempat ini.
 
-Belum ada di dunia: desa penduduk, ladang dan kebun, sekolah alam, dan rumah-rumah warga.
+### Desa (sementara)
+
+Suasananya seperti perumahan warga di pegunungan Swiss: rumah kayu bergaya chalet (atap pelana,
+balkon, kotak bunga, pagar kayu), jalan setapak tanah yang berliku, padang hijau, dan kabut tipis di
+kaki gunung. Ada **enam rumah warga**, satu di tiap area: **Rumah Lereng** (pegunungan), **Rumah
+Tepi Sungai**, **Rumah Tepi Danau**, **Rumah Pantai**, **Rumah Kebun**, dan **Rumah Sawah**; semuanya
+tersambung oleh jalan setapak ke jalan raya (dan ke satu sama lain). Ada **Persawahan** bertingkat di
+timur kafe dan **Perkebunan** (semak dan pohon buah) di baratnya.
+
+Penghuni sementara (`FOLK` di `lib/windstopia-folk.ts`; nama, cerita, dan peran akan diganti dengan
+tokoh sebenarnya): petani sawah (3), petani kebun (2), nelayan (2: satu di dermaga, satu di pantai),
+penjaga danau (1), penggembala dengan 4 sapi berlonceng (1), anak-anak (2), dan satu warga yang
+menyapu di depan rumah. Semuanya punya kegiatan sendiri dan melambai kepada Luna saat ia mendekat.
+
+Belum ada di dunia: sekolah alam, identitas nyata para warga, dan bagian dalam rumah-rumah.
 
 ## Yang sudah ada di dunia dan cocok dengan lore ini
 

@@ -5,6 +5,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toonGradient } from './toon';
+import { buildVillage, planVillage } from './windstopia-village';
+import { createFolk } from './windstopia-folk';
 
 /** Small deterministic value noise so the world looks the same on every visit. */
 function makeNoise(seed = 7) {
@@ -351,8 +353,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       n3 = noise(u * 0.11, w * 0.11 + 7);
     return band * (Math.pow(n1, 1.4) * 40 + n2 * 10 + n3 * 2.5 + 7);
   };
-  /** Terrain height (world units). */
-  const height = (x: number, z: number, r = riverDistance(x, z)) => {
+  /** Terrain height (world units) before the village levels the ground for its houses and fields. */
+  const baseHeight = (x: number, z: number, r = riverDistance(x, z)) => {
     const { flat } = flatZone(x, z);
     const dist = Math.hypot(x - center.x, z - center.z);
     const hills =
@@ -374,14 +376,63 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     const shore = THREE.MathUtils.smoothstep(seaOut(x, z), SEA - 6, SEA + 8);
     return THREE.MathUtils.lerp(h, groundY - 2.8, shore);
   };
+  // The village: chalets, paddies, a plantation and winding footpaths, planned before the ground is
+  // built so the ground can be levelled under them.
+  const villageContext = {
+    origin: road.origin,
+    roadDir,
+    away,
+    groundY,
+    seaLevel,
+    SEA,
+    baseHeight: (x: number, z: number) => baseHeight(x, z),
+    seaOut,
+    riverDistance,
+    insideLake,
+    noise,
+    cafe: bounds,
+    towerAt,
+    roadHalfWidth: road.halfWidth,
+    farBank: pathEnd.clone(),
+    pierBase: road.origin
+      .clone()
+      .addScaledVector(roadDir, 14)
+      .addScaledVector(away, SEA - 3),
+  };
+  const village = planVillage(villageContext);
+  const height = (x: number, z: number, r = riverDistance(x, z)) =>
+    village.pad(x, z, baseHeight(x, z, r));
 
   // --- Terrain ---------------------------------------------------------------------------
   const size = 460,
-    segments = 184;
+    segments = 160;
   const islandCentre = road.origin.clone().addScaledVector(away, -islandMid);
   const terrainGeometry = new THREE.PlaneGeometry(size, size, segments, segments);
   terrainGeometry.rotateX(-Math.PI / 2);
   terrainGeometry.translate(islandCentre.x, 0, islandCentre.z);
+  const terrainHeights = new Float32Array((segments + 1) * (segments + 1));
+  /**
+   * Height of the terrain *mesh* at a point (its triangles, not the smooth height function), so
+   * things laid flat on the ground — footpaths — never sink between the mesh's vertices.
+   */
+  const terrainY = (x: number, z: number) => {
+    const cell = size / segments,
+      fx = (x - islandCentre.x + size / 2) / cell,
+      fz = (z - islandCentre.z + size / 2) / cell,
+      ix = THREE.MathUtils.clamp(Math.floor(fx), 0, segments - 1),
+      iz = THREE.MathUtils.clamp(Math.floor(fz), 0, segments - 1),
+      tx = THREE.MathUtils.clamp(fx - ix, 0, 1),
+      tz = THREE.MathUtils.clamp(fz - iz, 0, 1),
+      at = (i: number, j: number) => terrainHeights[j * (segments + 1) + i];
+    const ha = at(ix, iz),
+      hb = at(ix, iz + 1),
+      hc = at(ix + 1, iz + 1),
+      hd = at(ix + 1, iz);
+    // The mesh's diagonal runs from (ix, iz + 1) to (ix + 1, iz).
+    return tx + tz <= 1
+      ? ha + tx * (hd - ha) + tz * (hb - ha)
+      : hc + (1 - tx) * (hb - hc) + (1 - tz) * (hd - hc);
+  };
   const pos = terrainGeometry.attributes.position,
     colors = new Float32Array(pos.count * 3),
     color = new THREE.Color();
@@ -391,6 +442,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       r = riverDistance(x, z),
       y = height(x, z, r);
     pos.setY(i, y);
+    terrainHeights[i] = y;
     const { roadGap } = flatZone(x, z);
     const n = noise(x * 0.15, z * 0.15, 2);
     const rise = THREE.MathUtils.clamp((y - groundY) / 6, 0, 1);
@@ -398,9 +450,11 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     color.lerp(GRASS_HIGH, THREE.MathUtils.smoothstep(rise, 0.45, 1));
     // The mountains: green foothills turning to grey rock, with pale tops on the highest peaks.
     const alt = y - groundY;
-    color.lerp(ROCK_GREEN, THREE.MathUtils.smoothstep(alt, 7, 17) * 0.75);
-    color.lerp(ROCK, THREE.MathUtils.smoothstep(alt, 17, 31));
-    color.lerp(PEAK, THREE.MathUtils.smoothstep(alt, 33, 44) * 0.85);
+    // Alpine meadows stay green well up the slopes, then grey rock, then pale peaks.
+    color.lerp(ROCK_GREEN, THREE.MathUtils.smoothstep(alt, 10, 26) * 0.55);
+    color.lerp(ROCK, THREE.MathUtils.smoothstep(alt, 29, 41));
+    color.lerp(PEAK, THREE.MathUtils.smoothstep(alt, 41, 52) * 0.85);
+    village.tint(x, z, color);
     // A dirt verge along the road; the grass is the same everywhere else.
     if (roadGap < 0.8) color.lerp(DIRT, 1 - THREE.MathUtils.smoothstep(roadGap, -0.4, 0.8));
     if (roadGap < -1.1) color.copy(ASPHALT);
@@ -893,6 +947,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     const { flat, roadGap } = flatZone(x, z);
     if (flat < 0.9 || roadGap < 3 || riverDistance(x, z) < 5) continue;
     if (seaOut(x, z) > SEA - 18 || height(x, z) > groundY + 17) continue;
+    if (village.occupied(x, z, 2.5)) continue;
     // Fewer trees up the slopes.
     if (scatter(i * 3.7) < THREE.MathUtils.smoothstep(height(x, z) - groundY, 6, 17) * 0.8)
       continue;
@@ -2015,6 +2070,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     p.y < towerBase + floor5 - 0.2;
   /** Night glow 0–1 for the tower's lanterns, round window, book lamps and inside lights. */
   const setTowerNight = (night: number) => {
+    villageBuilt.setNight(night);
     towerLights.forEach((l) => (l.intensity = 3.2 * night));
     doorLight.intensity = 2.2 * night;
     glow.color.setRGB(0.55 + 0.45 * night, 0.5 + 0.36 * night, 0.42 + 0.2 * night);
@@ -2055,6 +2111,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   const walkHeight = (x: number, z: number, fromY?: number): number | null => {
     // The whole island is walkable; the open sea beyond is not.
     if (seaOut(x, z) > SEA + 24) return null;
+    // Chalets and the inside of the rice paddies (the bunds and paths between them are fine).
+    if (village.blocked(x, z)) return null;
     // The tower: pick the floor Luna can step onto from where she stands (one step up or down).
     // Rocks are solid everywhere (they never sit on the steps).
     for (const rock of rocks) if (Math.hypot(rock.x - x, rock.z - z) < rock.r) return null;
@@ -2112,6 +2170,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   {
     const meadow = (x: number, z: number) =>
       Math.hypot(x - center.x, z - center.z) < 130 &&
+      !village.occupied(x, z, 1) &&
       height(x, z) < groundY + 8 &&
       flatZone(x, z).roadGap > 1.5 &&
       flatZone(x, z).cafe > 1.5 &&
@@ -2176,7 +2235,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     const puff = mergeGeometries([
       stem(),
       leaves(),
-      coloured(new THREE.IcosahedronGeometry(0.055, 1).translate(0, 0.37, 0), '#fbfaf4'),
+      coloured(new THREE.IcosahedronGeometry(0.055, 0).translate(0, 0.37, 0), '#fbfaf4'),
       coloured(new THREE.SphereGeometry(0.014, 6, 4).translate(0, 0.37, 0), '#d8d3b8'),
     ])!;
     const bloom = mergeGeometries([
@@ -2237,45 +2296,93 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       group.add(flowers);
     }
   }
-  // --- Ground-floor mist: a thin, slow-drifting haze hugging the café's lowest floor, so walking
-  // there feels like walking on clouds. Only the lowest floor: the layers stop knee-high, and the
-  // upper floor (and the raised bar) sit above them.
-  const mistUniforms = {
-    time: windTime,
-    night: { value: 0 },
-    bounds: {
-      value: new THREE.Vector4(bounds.min.x, bounds.min.z, bounds.max.x, bounds.max.z),
+  // The chalets, paddies, plantation and footpaths themselves.
+  const villageBuilt = buildVillage(village, villageContext, height, terrainY);
+  group.add(villageBuilt.group);
+  // Its people and cows.
+  const folk = createFolk({
+    plan: village,
+    height,
+    pier: {
+      base: villageContext.pierBase.clone(),
+      dir: away.clone(),
+      length: 20,
+      deckY: groundY + 0.12,
     },
-  };
-  const mistLayers: THREE.Mesh[] = [];
+    seaOut,
+    SEA,
+    away,
+  });
+  group.add(folk.group);
+
+  // --- Mountain-foot mist: thin, slow-drifting haze lying along the foot of the mountains, hugging
+  // the slopes in a few layers, so the mountains rise out of a sea of clouds. Gone from the café.
+  const mistUniforms = { time: windTime, night: { value: 0 } };
   {
-    const reach = 10,
-      mistSize = bounds.getSize(new THREE.Vector3());
-    const g = new THREE.PlaneGeometry(mistSize.x + reach * 2, mistSize.z + reach * 2, 1, 1);
-    g.rotateX(-Math.PI / 2);
-    geometries.push(g);
-    // Lowest floor of the café stands about 0.2 above the ground the world is built on.
-    const base = groundY + 0.23;
-    [0.0, 0.08, 0.17, 0.27, 0.38, 0.5].forEach((lift, k) => {
+    const STEP = 4,
+      uMin = -ISLAND.halfAlong + 8,
+      uMax = ISLAND.halfAlong - 8,
+      wMin = 50,
+      wMax = 128,
+      cols = Math.round((uMax - uMin) / STEP),
+      rows = Math.round((wMax - wMin) / STEP);
+    const heights = new Float32Array((cols + 1) * (rows + 1)),
+      band = new Float32Array((cols + 1) * (rows + 1));
+    const flat = new Float32Array((cols + 1) * (rows + 1) * 3);
+    for (let j = 0; j <= rows; j++)
+      for (let i = 0; i <= cols; i++) {
+        const u = uMin + i * STEP,
+          w = wMin + j * STEP,
+          x = road.origin.x + roadDir.x * u - away.x * w,
+          z = road.origin.z + roadDir.z * u - away.z * w,
+          k = j * (cols + 1) + i;
+        heights[k] = Math.max(height(x, z), seaLevel + 0.4);
+        // Thickest at the foot (around w = 88), thinning toward the meadow and the slopes, and
+        // gone at the island's side coasts.
+        band[k] =
+          (1 - THREE.MathUtils.smoothstep(Math.abs(w - 90), 12, 38)) *
+          (1 - THREE.MathUtils.smoothstep(seaOut(x, z), SEA - 26, SEA - 8));
+        flat.set([x, 0, z], k * 3);
+      }
+    const indices: number[] = [];
+    for (let j = 0; j < rows; j++)
+      for (let i = 0; i < cols; i++) {
+        const a = j * (cols + 1) + i,
+          b = a + 1,
+          c = a + cols + 1,
+          d = c + 1;
+        indices.push(a, c, b, b, c, d);
+      }
+    [0.55, 1.5, 2.6].forEach((lift, layer) => {
+      const g = new THREE.BufferGeometry();
+      const pos = new Float32Array(flat.length);
+      for (let k = 0; k < heights.length; k++)
+        pos.set([flat[k * 3], heights[k] + lift, flat[k * 3 + 2]], k * 3);
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      g.setAttribute('band', new THREE.BufferAttribute(band, 1));
+      g.setIndex(indices);
+      geometries.push(g);
       const m = new THREE.ShaderMaterial({
         transparent: true,
         depthWrite: false,
-        uniforms: { ...mistUniforms, layer: { value: k }, level: { value: base + lift } },
+        uniforms: { ...mistUniforms, layer: { value: layer } },
         vertexShader: `
+          attribute float band;
           varying vec2 vXZ;
-          varying float vGraze;
+          varying float vBand, vGraze, vY;
           void main() {
             vec4 w = modelMatrix * vec4(position, 1.0);
             vXZ = w.xz;
+            vY = w.y;
+            vBand = band;
             // Mist reads thicker looking across it than looking straight down through it.
             vGraze = 1.0 - abs(normalize(w.xyz - cameraPosition).y);
             gl_Position = projectionMatrix * viewMatrix * w;
           }`,
         fragmentShader: `
-          uniform float time, night, layer, level;
-          uniform vec4 bounds;
+          uniform float time, night, layer;
           varying vec2 vXZ;
-          varying float vGraze;
+          varying float vBand, vGraze, vY;
           float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
           float noise(vec2 p) {
             vec2 i = floor(p), f = fract(p);
@@ -2284,34 +2391,23 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
                        mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
           }
           void main() {
-            vec2 drift = vec2(time * (0.05 + layer * 0.018), time * (0.03 - layer * 0.012));
-            vec2 p = vXZ * 0.27 + drift + layer * 17.0;
-            float n = noise(p) * 0.55 + noise(p * 2.1 - drift * 1.6) * 0.3 + noise(p * 4.3) * 0.15;
-            float density = smoothstep(0.28, 0.72, n);
-            // Soft where it meets the edge of the café's grounds.
-            vec2 out2 = vec2(max(max(bounds.x - vXZ.x, 0.0), vXZ.x - bounds.z),
-                             max(max(bounds.y - vXZ.y, 0.0), vXZ.y - bounds.w));
-            float edge = 1.0 - smoothstep(0.0, 9.0, length(out2));
+            vec2 drift = vec2(time * (0.07 + layer * 0.02), time * (0.035 - layer * 0.01));
+            vec2 p = vXZ * 0.045 + drift * 0.18 + layer * 13.0;
+            float n = noise(p) * 0.55 + noise(p * 2.3 - drift * 0.3) * 0.3 + noise(p * 5.1) * 0.15;
+            float density = smoothstep(0.3, 0.74, n);
             // Thin out where the camera is right inside the layer, so it never slices the view.
-            float inside = smoothstep(0.05, 0.55, abs(cameraPosition.y - level));
-            float a = density * edge * inside * (0.045 + 0.12 * vGraze * vGraze) * (1.0 - layer * 0.1);
-            // White by day, a cool lilac at night.
+            float inside = smoothstep(0.1, 1.2, abs(cameraPosition.y - vY));
+            float a = density * vBand * inside * (0.05 + 0.2 * vGraze * vGraze) * (1.0 - layer * 0.12);
             vec3 colour = mix(vec3(0.97, 0.98, 1.0), vec3(0.56, 0.58, 0.78), night);
             gl_FragColor = vec4(colour, a * (1.0 - 0.35 * night));
           }`,
       });
       materials.push(m);
-      const layer = new THREE.Mesh(g, m);
-      layer.name = 'World_Mist_' + k;
-      layer.position.set(
-        (bounds.min.x + bounds.max.x) / 2,
-        base + lift,
-        (bounds.min.z + bounds.max.z) / 2,
-      );
-      layer.renderOrder = 3;
-      layer.frustumCulled = false;
-      mistLayers.push(layer);
-      group.add(layer);
+      const layerMesh = new THREE.Mesh(g, m);
+      layerMesh.name = 'World_Mist_' + layer;
+      layerMesh.renderOrder = 3;
+      layerMesh.frustumCulled = false;
+      group.add(layerMesh);
     });
   }
   // Seeds blowing away: each one leaves a random seed head, floats up and off, then starts again.
@@ -2417,6 +2513,10 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     ].map((p) => new THREE.Vector3(p.x, height(p.x, p.z), p.z)),
     /** Ground height under a point (for placing things on the world). */
     heightAt: height,
+    /** The village plan: houses (placeholder names), paddy plots, footpaths. */
+    village,
+    /** Villagers and cows (placeholders): update each frame with Luna's and the camera's position. */
+    folk,
     /**
      * Places for Luna to settle (world seat point, the way she faces, lying or not): the piano
      * stool, the guitar's and cello's stools, the sofa, and the end of the pier.
@@ -2464,6 +2564,9 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       const gap = flatZone(x, z).roadGap;
       if (gap < 1.2) return 'jalan';
       if (riverDistance(x, z) < 6) return 'sungai';
+      for (const h of village.houses) if (Math.hypot(h.x - x, h.z - z) < 11) return 'rumah-' + h.id;
+      if (village.inPatch(x, z, 'sawah')) return 'sawah';
+      if (village.inPatch(x, z, 'kebun')) return 'kebun';
       const w = wOf(x, z),
         u = uOf(x, z);
       if (seaOut(x, z) > SEA - 14)
@@ -2499,7 +2602,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       if (seaOut(x, z) > SEA - 12) return 'sand';
       // The marble path up to the tower; the dirt path to the bridge.
       if (towerPathDistance(x, z) < 1.0) return 'stone';
-      if (pathDistance(x, z) < 0.8) return 'gravel';
+      if (pathDistance(x, z) < 0.8 || village.pathDistance(x, z) < 1.3) return 'gravel';
       return 'grass';
     },
     /** How far to the sea's shore (negative out at sea) and to the river/streams. */
@@ -2514,6 +2617,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       geometries.forEach((g) => g.dispose());
       materials.forEach((m) => m.dispose());
       textures.forEach((t) => t.dispose());
+      villageBuilt.dispose();
+      folk.dispose();
       trunks.dispose();
       canopies.dispose();
       group.removeFromParent();
