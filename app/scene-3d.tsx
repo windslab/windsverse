@@ -10,7 +10,7 @@ import { CSS3DObject, CSS3DRenderer } from 'three/addons/renderers/CSS3DRenderer
 import DriveTV, { type TVProgram } from './drive-tv';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { BookOpen, Coffee, Gamepad2, RotateCcw, Volume2, VolumeX } from 'lucide-react';
-import { createSceneAmbience, type SceneAmbience } from './scene-ambience';
+import { createCafeSound, playSfx, type Surface } from '@/lib/cafe-sound';
 import { cafePaths, type CafePathData } from '@/lib/cafe-paths';
 import { prepareCafeBarWorkspace } from '@/lib/cafe-bar-workspace';
 import { addCafeWalkSurfaces } from '@/lib/cafe-walk-surfaces';
@@ -308,14 +308,12 @@ export default function CafeScene({
   viewRef.current.cafeReturnRequest = cafeReturnRequest;
   viewRef.current.onTelescopeReady = onTelescopeReady;
   const host = useRef<HTMLDivElement>(null),
-    modeRef = useRef<'morning' | 'night'>('morning'),
     phaseRef = useRef<SkyPhase>('live'),
     audioRef = useRef<AudioContext | null>(null),
-    ambienceRef = useRef<SceneAmbience | null>(null),
+    ambienceRef = useRef<ReturnType<typeof createCafeSound> | null>(null),
     soundRef = useRef(false),
     [enteringScope, setEnteringScope] = useState(false),
     [modelReady, setModelReady] = useState(false),
-    [mode, setMode] = useState<'morning' | 'night'>('morning'),
     [skyPhase, setSkyPhase] = useState<SkyPhase>('live'),
     [livePhase, setLivePhase] = useState<Exclude<SkyPhase, 'live'>>('siang'),
     [soundEnabled, setSoundEnabled] = useState(false),
@@ -339,12 +337,12 @@ export default function CafeScene({
     setExploring(on);
     if (!on) viewRef.current.reset += 1;
   };
-  modeRef.current = mode;
+  // Explore opened before Luna had loaded: hand her the controls once she's ready.
+  useEffect(() => {
+    if (exploring && exploreApi) exploreApi.setManual(true);
+  }, [exploring, exploreApi]);
   phaseRef.current = skyPhase;
   soundRef.current = soundEnabled;
-  useEffect(() => {
-    ambienceRef.current?.setMode(mode);
-  }, [mode]);
   const toggleSound = async () => {
     if (soundEnabled) {
       ambienceRef.current?.setEnabled(false);
@@ -356,8 +354,7 @@ export default function CafeScene({
       if (!audioRef.current || audioRef.current.state === 'closed')
         audioRef.current = new AudioContext();
       await audioRef.current.resume();
-      if (!ambienceRef.current) ambienceRef.current = createSceneAmbience(audioRef.current);
-      ambienceRef.current.setMode(modeRef.current);
+      if (!ambienceRef.current) ambienceRef.current = createCafeSound(audioRef.current);
       ambienceRef.current.setEnabled(true);
       soundRef.current = true;
       setSoundEnabled(true);
@@ -459,9 +456,22 @@ export default function CafeScene({
     /** Zebra crossing in front of the café: where cars stop for Luna. */
     let crossing: { center: THREE.Vector3; reach: number } | undefined;
     let critters: ReturnType<typeof createCritters> | undefined;
+    /** Whether there's a roof over Luna and over the camera (for sounds). */
+    let lunaUnderRoof = true,
+      cameraUnderRoof = false,
+      lastEarCheck = 0;
     let weather: ReturnType<typeof createWeather> | undefined,
       cat: ReturnType<typeof createCafeCat> | undefined,
       lastRoofCheck = 0;
+    /** The guitar and cello Luna holds while playing (made once, then reused). */
+    const heldCache: Partial<Record<'guitar' | 'cello', THREE.Object3D>> = {};
+    const heldInstrument = (kind: 'guitar' | 'cello') => {
+      if (!heldCache[kind] && world) {
+        const made = world.instruments.held(kind);
+        if (made) heldCache[kind] = made;
+      }
+      return heldCache[kind] ?? null;
+    };
     /** Ambient light and exposure before the lightning flash is added on top. */
     const lightBase = { ambient: 1.5, exposure: 1.1 };
     const roofRay = new THREE.Raycaster(),
@@ -473,7 +483,23 @@ export default function CafeScene({
       inCctv = false,
       cafeModel: THREE.Object3D | undefined;
     // Explore-mode photo camera (Story of Winds from Luna's hands).
-    const photo = { on: false, facing: 'environment' as 'environment' | 'user', yaw: 0, pitch: 0 },
+    const photo = {
+        on: false,
+        facing: 'environment' as 'environment' | 'user',
+        yaw: 0,
+        pitch: 0,
+        /** Digicam extras: zoom (1–4×), tilt of the picture, and hand-held or on the tripod. */
+        zoom: 1,
+        roll: 0,
+        mount: 'hand' as 'hand' | 'tripod',
+      },
+      /** Luna's tripod, once she has set it up: where its head is and which way it looks. */
+      tripod = {
+        placed: false,
+        head: new THREE.Vector3(),
+        heading: 0,
+        model: null as THREE.Group | null,
+      },
       photoDir = new THREE.Vector3(),
       photoScale = new THREE.Vector3();
     let photoSaved: { position: THREE.Vector3; target: THREE.Vector3; fov: number } | null = null;
@@ -1559,6 +1585,47 @@ export default function CafeScene({
           addCafeWalkSurfaces(model);
           const nav = cafePaths(model, navData);
           people = placeCafePeople(model, nav, luna.scene);
+          {
+            // Footsteps: what Luna walks on decides the sound (grass, sand, wood, stone, tiles…).
+            const crew = people,
+              down = new THREE.Raycaster(),
+              below = new THREE.Vector3(0, -1, 0),
+              from = new THREE.Vector3();
+            const surfaceUnder = (p: THREE.Vector3): Surface => {
+              if (world?.towerInfo.inside(p)) return 'stone';
+              if (crew.outdoorsNow() && world) return world.surfaceAt(p.x, p.z);
+              down.set(from.copy(p).add(new THREE.Vector3(0, 0.4, 0)), below);
+              down.far = 1;
+              // The first visible floor below her feet (not leaves, chairs or pots in the way).
+              const hit = down
+                .intersectObject(model, true)
+                .find(
+                  (h) =>
+                    h.object.visible &&
+                    !/leaves|leaf|undergrowth|tree_base|kursi|meja|pot\b/i.test(h.object.name),
+                );
+              if (!hit) return world ? world.surfaceAt(p.x, p.z) : 'concrete';
+              const name = (
+                hit.object.name +
+                ' ' +
+                ((hit.object as THREE.Mesh).material as THREE.Material).name
+              ).toLowerCase();
+              // Dark timber upstairs, on the deck and wooden stairs; the café's smooth indoor
+              // floor; everything else (sidewalk, steps, plaster) is concrete.
+              if (/timber|kayu|wood|deck|plank/.test(name)) return 'wood';
+              if (/floor lantai|floor_lantai|area bar/.test(name)) return 'tile';
+              return 'concrete';
+            };
+            crew.setSoundHooks(
+              (run) => {
+                const p = crew.baristaPosition();
+                const surface = surfaceUnder(p);
+                const wet = lunaUnderRoof ? 0 : (weather?.state.rain ?? 0);
+                ambienceRef.current?.step(surface, run, wet, p);
+              },
+              () => playSfx('land'),
+            );
+          }
           // Explore mode: beyond the sidewalk Luna walks on the surrounding world.
           if (world && siteBox) people.setOutdoors({ walk: world.walkHeight, site: siteBox });
           cafeModel = model;
@@ -1578,6 +1645,7 @@ export default function CafeScene({
               strike: () => weather?.strikeNow(),
               weather: () => weather?.state,
               cat: () => cat,
+              sound: () => ambienceRef.current,
               visitors: (list: CafeVisitor[]) => {
                 exploreRef.current.visitors = list;
               },
@@ -1626,6 +1694,10 @@ export default function CafeScene({
               sitting: () => crew.sitting(),
               chore: (kind, seconds, target) => crew.chore(kind, seconds, target),
               outdoors: () => crew.outdoorsNow(),
+              region: () => {
+                const p = crew.baristaPosition();
+                return world ? world.regionAt(p.x, p.z, p.y) : 'kafe';
+              },
               spots: {
                 plants: spotBoxes(model, /^WS_Garden_\d+_(Pot|Leaves)|Planter_\d+_Pot|Raised_Pot/),
                 tables: spotBoxes(model, /^meja/),
@@ -1650,7 +1722,15 @@ export default function CafeScene({
                     target: controls!.target.clone(),
                     fov: camera.fov,
                   };
-                  Object.assign(photo, { on: true, facing: 'environment', yaw: 0, pitch: 0 });
+                  Object.assign(photo, {
+                    on: true,
+                    facing: 'environment',
+                    yaw: 0,
+                    pitch: 0,
+                    zoom: 1,
+                    roll: 0,
+                    mount: 'hand',
+                  });
                 },
                 stop: () => {
                   photo.on = false;
@@ -1674,7 +1754,141 @@ export default function CafeScene({
                   'captureStream' in renderer!.domElement
                     ? renderer!.domElement.captureStream(30)
                     : null,
+                zoom: (z) => {
+                  photo.zoom = THREE.MathUtils.clamp(z, 1, 4);
+                },
+                roll: (r) => {
+                  photo.roll = r;
+                },
+                mount: (m) => {
+                  photo.mount = m === 'tripod' && tripod.placed ? 'tripod' : 'hand';
+                  photo.yaw = 0;
+                  photo.pitch = m === 'tripod' ? -0.08 : 0;
+                },
+                audio: () => ambienceRef.current?.recordTap() ?? null,
               },
+              tripod: {
+                place: () => {
+                  // A step and a half in front of Luna, looking back at her.
+                  const p = crew.baristaPosition(),
+                    h = crew.baristaHeading(),
+                    s = cafeModel?.getWorldScale(photoScale).x ?? 1;
+                  // Find open floor in front (or a little to the side), nothing in between.
+                  let foot: THREE.Vector3 | null = null,
+                    facing = h;
+                  search: for (const turn of [0, 0.5, -0.5, 1, -1, Math.PI])
+                    for (const reach of [1.7, 1.35, 1.05]) {
+                      const a = h + turn,
+                        at = p
+                          .clone()
+                          .add(
+                            new THREE.Vector3(Math.sin(a), 0, Math.cos(a)).multiplyScalar(
+                              reach * s,
+                            ),
+                          );
+                      if (nav.blocked(p, at)) continue;
+                      const y = crew.outdoorsNow()
+                        ? world?.walkHeight(at.x, at.z, p.y)
+                        : nav.groundHit(at.clone().setY(p.y));
+                      if (y === null || y === undefined || Math.abs(y - p.y) > 0.3 * s) continue;
+                      foot = at.setY(y);
+                      facing = a;
+                      break search;
+                    }
+                  if (!foot) return false;
+                  if (!tripod.model) {
+                    const t = new THREE.Group(),
+                      metal = new THREE.MeshStandardMaterial({ color: '#2d2d30', roughness: 0.5 }),
+                      body = new THREE.MeshStandardMaterial({ color: '#c9c3b5', roughness: 0.6 }),
+                      lensMat = new THREE.MeshStandardMaterial({
+                        color: '#1a1a1c',
+                        roughness: 0.3,
+                      });
+                    for (let k = 0; k < 3; k++) {
+                      const leg = new THREE.Mesh(
+                          new THREE.CylinderGeometry(0.012, 0.015, 1.0, 6),
+                          metal,
+                        ),
+                        a = (k / 3) * Math.PI * 2;
+                      leg.position.set(Math.sin(a) * 0.17, 0.48, Math.cos(a) * 0.17);
+                      leg.rotation.set(Math.cos(a) * 0.36, 0, -Math.sin(a) * 0.36);
+                      t.add(leg);
+                    }
+                    const column = new THREE.Mesh(
+                      new THREE.CylinderGeometry(0.018, 0.018, 0.18, 8),
+                      metal,
+                    );
+                    column.position.y = 0.98;
+                    const cam = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.08, 0.05), body);
+                    cam.position.y = 1.1;
+                    const lens = new THREE.Mesh(
+                      new THREE.CylinderGeometry(0.026, 0.026, 0.05, 12),
+                      lensMat,
+                    );
+                    lens.rotation.x = Math.PI / 2;
+                    lens.position.set(0, 1.1, 0.045);
+                    t.add(column, cam, lens);
+                    addedMaterials.push(...toonify(t));
+                    toonOutline.addHull(t);
+                    scene.add(t);
+                    tripod.model = t;
+                  }
+                  tripod.model.visible = true;
+                  tripod.model.position.copy(foot);
+                  tripod.model.scale.setScalar(s);
+                  tripod.model.rotation.y = facing + Math.PI;
+                  tripod.heading = facing + Math.PI;
+                  tripod.head.copy(foot).add(new THREE.Vector3(0, 1.1 * s, 0));
+                  tripod.placed = true;
+                  return true;
+                },
+                remove: () => {
+                  tripod.placed = false;
+                  if (tripod.model) tripod.model.visible = false;
+                  if (photo.mount === 'tripod') photo.mount = 'hand';
+                },
+                placed: () => tripod.placed,
+                near: () => {
+                  if (!tripod.model || !tripod.placed) return false;
+                  const p = crew.baristaPosition();
+                  return (
+                    Math.hypot(p.x - tripod.model.position.x, p.z - tripod.model.position.z) < 0.9
+                  );
+                },
+              },
+              restSpots: world
+                ? Object.entries(world.restSpots).map(([name, spot]) => ({ name, ...spot }))
+                : [],
+              settle: (name) => {
+                const here = crew.baristaPosition().clone();
+                if (name === 'read-here' || name === 'lie-here') {
+                  crew.settle({
+                    position: here,
+                    heading: crew.baristaHeading(),
+                    activity: name === 'read-here' ? 'reading' : 'lying',
+                  });
+                  return true;
+                }
+                const spot = world?.restSpots[name.replace(/:read$/, '')];
+                if (!spot) return false;
+                const kind = name === 'guitar' || name === 'cello' ? name : null;
+                crew.settle({
+                  position: spot.position,
+                  heading: spot.heading,
+                  activity: name.endsWith(':read')
+                    ? 'reading'
+                    : spot.lie
+                      ? 'lying'
+                      : name === 'piano' || kind
+                        ? name
+                        : name === 'pier'
+                          ? 'dangling'
+                          : 'resting',
+                  instrument: kind ? heldInstrument(kind) : null,
+                });
+                return true;
+              },
+              activity: () => crew.activity(),
               stations: {
                 cashier: crew.stations.cashier.clone(),
                 bar: crew.stations.bar.clone(),
@@ -1997,7 +2211,15 @@ export default function CafeScene({
           // Explore mode runs its own, faster day.
           const gameClock = exploreRef.current.on ? exploreRef.current.clock : null;
           // Weather: rain, storm clouds and lightning (the sky greys with it).
-          weather?.update(camera, t, delta, sky.state.night, reduced);
+          weather?.update(
+            camera,
+            t,
+            delta,
+            sky.state.night,
+            reduced,
+            sky.state.sun,
+            sky.state.daylight,
+          );
           const wx = weather?.state ?? { rain: 0, overcast: 0, flash: 0 };
           if (weather) weather.group.visible = !(world && world.towerInfo.inside(camera.position));
           sky.setOvercast(wx.overcast);
@@ -2017,7 +2239,6 @@ export default function CafeScene({
           if (sk.phase !== lastPhase) {
             lastPhase = sk.phase;
             setLivePhase(sk.phase);
-            setMode(night ? 'night' : 'morning');
           }
           sky.horizon((scene.fog as THREE.Fog).color);
           (floor.material as THREE.MeshToonMaterial).color.lerp(
@@ -2105,6 +2326,50 @@ export default function CafeScene({
           }
           world?.setTowerNight(lamps);
           world?.update(t);
+          // Sounds of the world around the camera (when sound is on).
+          if (ambienceRef.current && soundRef.current) {
+            if (t - lastEarCheck > 0.3) {
+              lastEarCheck = t;
+              roofRay.set(camera.position, skyward);
+              roofRay.far = 60;
+              const covers: THREE.Object3D[] = [];
+              if (cafeModel) covers.push(cafeModel);
+              if (world) covers.push(world.tower);
+              cameraUnderRoof =
+                (!!world && world.towerInfo.inside(camera.position)) ||
+                roofRay.intersectObjects(covers, true).length > 0;
+            }
+            const ear = controls!.target,
+              water = world?.waterNear(ear.x, ear.z) ?? { sea: Infinity, river: Infinity };
+            ambienceRef.current.update(
+              {
+                camera,
+                ear,
+                night: sk.night,
+                daylight: sk.daylight,
+                rain: wx.rain,
+                overcast: wx.overcast,
+                strikes: weather?.state.strikes ?? 0,
+                strikePoint: weather?.state.strikePoint ?? camera.position,
+                covered: cameraUnderRoof,
+                sea: water.sea,
+                river: water.river,
+                flock: critters?.flock() ?? null,
+                cat: cat ? { position: cat.position, mood: cat.mood() } : null,
+                luna: people
+                  ? {
+                      position: people.baristaPosition(),
+                      task: people.task(),
+                      umbrella: people.umbrellaUp(),
+                    }
+                  : null,
+                altitude:
+                  camera.position.y - (world?.heightAt(camera.position.x, camera.position.z) ?? 0),
+              },
+              t,
+              delta,
+            );
+          }
           if (people) {
             cat?.update(t, delta, reduced, people.baristaPosition());
             // Rain with no roof over Luna's head: up goes her umbrella.
@@ -2125,6 +2390,7 @@ export default function CafeScene({
                 if (world) covers.push(world.tower);
                 open = roofRay.intersectObjects(covers, true).length === 0;
               }
+              lunaUnderRoof = !open && wx.rain > 0.2;
               people.setUmbrella(open);
             }
           }
@@ -2192,7 +2458,34 @@ export default function CafeScene({
           people?.update(delta, reduced);
           const exploreCamera =
             explore.on && !telescopeMode && !transition && !debugCamera.frozen && !photo.on;
-          if (explore.on && photo.on && people) {
+          // The instrument Luna is playing leaves its stand.
+          if (world && people) {
+            const playing = people.activity();
+            for (const kind of ['guitar', 'cello'] as const) {
+              const standingOne = world.instruments.standing[kind];
+              if (standingOne) standingOne.visible = playing !== kind;
+            }
+          }
+          if (explore.on && photo.on && people && photo.mount === 'tripod' && tripod.placed) {
+            // The camera on its tripod, looking where it was set up (turnable and zoomable).
+            photoDir.setFromSphericalCoords(
+              1,
+              Math.PI / 2 - photo.pitch,
+              tripod.heading + photo.yaw,
+            );
+            // Just in front of its lens (not inside the little camera body).
+            camera.position
+              .copy(tripod.head)
+              .addScaledVector(photoDir, 0.12 * (cafeModel?.getWorldScale(photoScale).x ?? 1));
+            controls!.target.copy(camera.position).add(photoDir);
+            const fov = 58 / photo.zoom;
+            if (camera.fov !== fov) {
+              camera.fov = fov;
+              camera.updateProjectionMatrix();
+            }
+            camera.lookAt(controls!.target);
+            camera.rotateZ(photo.roll);
+          } else if (explore.on && photo.on && people) {
             // Story of Winds in explore mode: the view through Luna's pocket camera, or a selfie
             // held at arm's length in front of her.
             const heading = people.baristaHeading() + photo.yaw,
@@ -2207,11 +2500,13 @@ export default function CafeScene({
               camera.position.copy(eye).addScaledVector(photoDir, 1.35);
               controls!.target.copy(eye).addScaledVector(UP, -0.12);
             }
-            if (camera.fov !== 58) {
-              camera.fov = 58;
+            const fov = 58 / photo.zoom;
+            if (camera.fov !== fov) {
+              camera.fov = fov;
               camera.updateProjectionMatrix();
             }
             camera.lookAt(controls!.target);
+            camera.rotateZ(photo.roll);
           }
           if (exploreCamera && people && assetRoot) {
             // Bar box (model units): staff floor between the counter and the back wall.
@@ -2673,6 +2968,9 @@ export default function CafeScene({
       ambienceRef.current = null;
       void audioRef.current?.close();
       audioRef.current = null;
+      // The audio is gone with the scene: show the sound switch as off again.
+      soundRef.current = false;
+      setSoundEnabled(false);
       mirrors.forEach(({ mesh }) => {
         mesh.dispose();
         mesh.geometry.dispose();
@@ -2792,7 +3090,12 @@ export default function CafeScene({
           </span>
         </div>
         {exploring && exploreApi && (
-          <ExploreMode api={exploreApi} onExit={() => toggleExplore(false)} />
+          <ExploreMode
+            api={exploreApi}
+            onExit={() => toggleExplore(false)}
+            sound={soundEnabled}
+            onToggleSound={() => void toggleSound()}
+          />
         )}
         {!exploring && exploreApi && (
           <button

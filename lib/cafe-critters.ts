@@ -150,6 +150,8 @@ export function createCritters(homes: Home[], groundAt: (x: number, z: number) =
   const scratch = new THREE.Vector3();
   return {
     group,
+    /** Where the bird flock is right now (null when none is flying). */
+    flock: () => (flight.active ? scratch : null),
     /**
      * `night` 0–1 shows fireflies; `morning` 0–1 shows butterflies. Both fade in and out softly.
      */

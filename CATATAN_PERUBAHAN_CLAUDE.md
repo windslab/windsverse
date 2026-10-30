@@ -610,3 +610,142 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
 - Alat tes pengembangan (`?sceneStats`): `__scene.rain(true/false/null)`, `__scene.strike()`,
   `__scene.weather()`, `__scene.cat()` (dengan `act('sleep')` dll.) — tidak aktif di website asli.
+
+## 30. Hujan bertahap & pelangi, dandelion menyala, efek suara di seluruh dunia (27 Okt 2026)
+
+- **Dandelion menyala** kuning hangat di malam hari: kepala bunga berpendar dengan lingkaran cahaya
+  lembut, biji yang terbang ikut hangat. Siang hari tetap putih/kuning biasa.
+- **Hujan bertahap** (`lib/cafe-weather.ts`): cerah → **mendung** perlahan (±30–45 dtk) → **gerimis**
+  (tetes sedikit, pendek, lambat) → **makin deras** → **deras** (dengan petir) → **mereda** ke gerimis →
+  **gerimis akhir** → **berhenti** (awan menipis pelan) → **pasca hujan** dengan **pelangi lembut**
+  berwarna pastel di sisi berlawanan matahari (hanya siang dan saat matahari tidak terlalu tinggi) →
+  cerah lagi. Kadang hujannya hanya gerimis saja. `__scene.rain(true/false)` untuk tes.
+- **Efek suara** (`lib/cafe-sound.ts`, semuanya dibuat langsung oleh browser, tanpa file audio
+  baru), aktif lewat tombol suara di kafe dan tombol baru **"suara"** di mode Explore:
+  - **Langkah kaki** Luna berbeda per permukaan: rumput, beton (trotoar/tangga), lantai dalam kafe,
+    kayu (lantai 2, dek, dermaga, jembatan), pasir, aspal, kerikil (jalan setapak ke jembatan), batu
+    (jalan marmer & dalam menara, dengan sedikit gema). Lari lebih keras; saat hujan ada cipratan.
+    Mendarat dari lompatan berbunyi "buk", melompat ada desir kecil.
+  - **Bersih-bersih**: desir sapu tiap ayunan, gosokan lap, kucuran air gembor.
+  - **Membuat minuman** (Explore): koin & mesin kasir, ambil cangkir, menuang takaran, adukan sendok,
+    grinder (selama tombol ditahan), tamp, desis mesin espresso & tetesan, denting cangkir dan nada
+    kecil saat mengantar. Saat barista bekerja sendiri, mesin terdengar sesekali dari bar.
+  - **Ambience**: angin lembut (lebih kencang saat mendung dan di tempat tinggi), **gerimis** (desis
+    halus + tetes), **hujan deras** (teredam dan terdengar menimpa atap bila kamera di bawah atap),
+    tetes hujan di **payung** Luna, **petir** yang bergemuruh beberapa saat setelah kilat (makin jauh
+    makin lambat & pelan), **jangkrik** di malam hari (diam saat hujan), **kicau burung** saat kawanan
+    burung lewat, **ombak** saat dekat laut, **gemericik sungai** saat dekat sungai, **kucing**
+    mengeong menyapa saat Luna mendekat dan sesekali, serta **mendengkur** saat tidur/menjilat bulu
+    di dekat Luna.
+  - Suara datang dari arahnya (kiri/kanan) dan makin pelan jika jauh dari Luna.
+- Suara lama (angin + kicau acak + api) diganti sistem baru; kicau burung kini hanya saat burung lewat.
+- Perbaikan kecil: jika mode Explore dibuka sebelum Luna selesai dimuat, kendali kini tetap aktif
+  setelah Luna siap (sebelumnya Luna bisa tidak bisa digerakkan). Saat scene dimuat ulang, tombol
+  suara kembali "mati" agar sesuai keadaan sebenarnya.
+- Dicek di browser (ukuran HP): urutan cuaca mendung → gerimis → deras → reda → pelangi, dandelion
+  malam, tombol suara di Explore, dan level suara terukur untuk langkah kaki (lantai/trotoar/rumput),
+  meong & dengkur kucing, sapu/lap/gembor, petir, hujan, dan semua efek membuat minuman.
+  `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6, `people.test` 13/13,
+  `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
+
+## 31. Digicam video & tripod, tas Luna, main musik, baca & rebahan, atap menara lebar (28 Okt 2026)
+
+- **Langkah di rumput** dibuat empuk dan enak didengar: desir rumput yang teredam, beberapa
+  "kresek" lembut, dan hentakan ringan (tanpa desis tinggi yang cempreng).
+- **Pelangi** lebih tebal, lebih lembut (tepinya berpendar halus), dan kedua ujungnya memudar ke
+  udara sebelum menyentuh tanah.
+- **Menara**: atap (rooftop) jauh lebih lebar seperti teras pandang; pagar lantai 5 dan pagar atap
+  dibuat lebih pendek (di bawah tinggi Luna). Papan kini bertuliskan **"SECRET CHAPTER : COMING
+  SOON"**.
+- **Gitar & cello lebih detail**: leher dan fingerboard menyambung ke badan, nut, fret dengan jarak
+  asli; setiap senar berjalan dari pin bridge/tailpiece → saddle/bridge → nut → pasaknya masing-
+  masing (head gitar miring dengan 6 tuner; pegbox cello dengan 4 pasak dan scroll), pickguard dan
+  rosette pada gitar, tailpiece dan endpin pada cello. Masing-masing punya kursi bulat kecil.
+- **Luna bisa bermain musik** (di ruang tamu menara): **piano** (duduk di kursi piano, jari menari
+  di tuts), **gitar** (dipangku, menggenjreng), **cello** (di antara lutut, menggesek dengan busur).
+  Alat musik diambil dari standnya selama dimainkan. Saat suara aktif terdengar musiknya: arpeggio
+  piano, genjrengan gitar, dan gesekan cello yang lembut (progresi C–Am–F–G).
+- **Bersantai**: duduk santai atau **rebahan di sofa**, **rebahan di rumput** di mana saja di luar
+  kafe, dan **duduk di ujung dermaga** dengan kaki menjuntai ke arah laut. Tombol "Berdiri" /
+  "Bangun" / "Berhenti main" untuk selesai.
+- **Tas Luna (inventory)** — tombol "tas" di Explore:
+  - **Buku catatan**: menulis ide atau kutipan; tersimpan di browser ini (bisa dihapus).
+  - **Buku bacaan** "Catatan dari Teras" (tulisan pendek baru, 5 halaman): Luna duduk membaca (di
+    sofa jika dekat, atau di tempatnya) sambil halaman tampil di atas layar.
+  - **Digicam**: mode **foto** dan **video**; zoom 1–4×, putar gambar (miring kiri/kanan/lurus),
+    geser layar untuk membidik, selfie; **merekam sambil Luna berjalan** (hingga 1 menit, ikut
+    merekam suara dunia bila suara aktif). Hasil bisa disimpan ke perangkat, atau foto dipasang di
+    bingkai menara.
+  - **Tripod**: dipasang di tempat lapang di depan Luna (tidak menembus dinding), lalu memotret
+    (dengan timer 3/10 detik) atau merekam Luna sendiri; bisa diambil kembali.
+  - **Kamera Story of Winds** tetap ada.
+- Dicek di browser (ukuran HP): piano, gitar, cello, rebahan di sofa, duduk di ujung dermaga,
+  membaca, buku catatan, rekaman video berjalan + zoom + putar, foto tripod dengan timer, atap
+  menara, detail gitar, dan pelangi sore. `typecheck`, `format:check`, `build` lulus;
+  `barista.test` 6/6, `people.test` 13/13, `engine.test` 21/25 seperti sebelumnya. Tidak ada aset
+  baru, `?v=` tetap.
+
+## 32. Windstopia: pulau terbuka, pegunungan di belakang, pantai di depan, kabut lantai kafe (29 Okt 2026)
+
+- **Kabut tipis di lantai paling bawah kafe**: enam lapis kabut setinggi mata kaki sampai lutut
+  menyelimuti lantai 1 dan halaman kafe, bergeser pelan, memudar halus di tepi area kafe. Dari atas
+  tampak tipis; dari samping terasa lebih tebal (seperti berjalan di atas awan). Malam hari
+  berwarna lilac lembut. Lantai 2 dan area bar yang lebih tinggi tidak terkena.
+- **Dunia menjadi pulau** (`lib/cafe-world.ts`): garis pantai di semua sisi (persegi membulat yang
+  tidak rata; bagian depan tetap lurus untuk dermaga dan perahu), **laut luas** di sekeliling sampai
+  cakrawala, pantai pasir di setiap sisi, sungai bermuara ke laut di kiri dan kanan.
+  Jalan tetap melintang dan berakhir di dekat pantai. Wilayah yang bisa dijalani Luna kini seluruh
+  pulau (dulu hanya radius 92 dari kafe); laut dalam tetap tidak bisa dimasuki.
+- **Pegunungan di belakang**: massif dengan puncak-puncak (setinggi ±50), kaki bukit hijau, lereng
+  hijau berbatu, abu-abu di atas dan puncak pucat. Bisa didaki; dinding terjal di puncak
+  tidak bisa dipanjat. Deretan gunung jauh lama (di luar jangkauan) dihapus.
+- **Hutan dan bunga** tersebar di seluruh pulau (190 pohon, makin jarang di lereng; dandelion
+  hingga 56 rumpun).
+- **Sistem open world**: `lib/windstopia-map.ts` memuat tempat-tempat bernama; dunia melaporkan
+  Luna berada di tempat mana (`regionAt`); saat tiba, nama tempat muncul sebentar di layar dan
+  kunjungan pertama dicatat (simpanan browser). Dasar untuk menaruh cerita dan petunjuk nanti.
+- Lore: `LORE_WINDSTOPIA.md` ditambah bagian "Peta pulau".
+- Dicek di browser: pulau dari atas (pantai depan, dermaga, muara sungai, laut), pegunungan dari
+  kafe dan dari lereng, Luna berlari dari kafe sampai puncak (nama tempat berganti: Jalan Pulau →
+  Padang Rumput → Kaki Pegunungan → Pegunungan → Puncak), kabut lantai bawah (siang, dari dekat),
+  performa tetap 60 fps. `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6,
+  `people.test` 13/13, `engine.test` 21/25 seperti sebelumnya. Tidak ada aset baru, `?v=` tetap.
+
+## 33. Kembali ke versi sebelum desa; kabut di kaki gunung, gunung lebih jauh dari menara (30 Okt 2026)
+
+- Atas permintaan pemilik proyek, **desa gaya Swiss dibatalkan** (rumah chalet, sawah, kebun, jalan
+  setapak berliku, warga dan sapi sementara): kode dikembalikan ke keadaan sebelum perubahan itu
+  (`git revert` dari commit b156909; riwayatnya tetap ada di git bila nanti ingin dipakai lagi).
+- **Kabut** dihapus dari kafe dan kini hanya **tiga lapis kabut tipis di kaki gunung**, mengikuti
+  bentuk tanah dan bergeser pelan.
+- **Gunung dimundurkan**: pulau diperpanjang ke belakang (pantai belakang di ±280 dari jalan) dan
+  deretan gunung baru mulai menanjak jauh di belakang menara. Di sekitar menara tanahnya tetap
+  landai (tinggi 0–3), jadi hanya menara yang menjulang di area itu; gunung baru terlihat di kejauhan
+  (mulai ±150 dari menara).
+- Nama tempat (Kaki Pegunungan, Pegunungan) disesuaikan ke jarak baru.
+
+## 34. Mode Bangun dibatalkan; sungai lama tetap hilang (30 Okt 2026)
+
+- Atas permintaan pemilik proyek, **mode bangun bebas dihapus** (kode dikembalikan dengan `git revert`
+  dari commit cfe13ce; riwayatnya tetap ada di git bila nanti ingin dipakai lagi).
+- **Tetap dipertahankan**: perbaikan "sungai lama": cekungan tanah di tengah pulau ditinggikan supaya
+  air laut tidak lagi terlihat sebagai kolam/garis air di dalam pulau.
+
+## 35. Garis hitam di sungai dan laut dihilangkan (30 Okt 2026)
+
+- Garis hitam (outline) yang muncul di tepi sungai, muara, dan pantai dihilangkan. Permukaan air (sungai,
+  danau, laut) kini menandai dirinya di pass outline (`markSurface` di `lib/toon.ts`: air menulis alpha
+  0,5 dan tanah 0,8), lalu garis tidak digambar di atas air maupun di tanah yang bersebelahan dengannya.
+  Benda lain (jembatan, dermaga, perahu, karakter) tetap punya garis tepi seperti biasa.
+- Dicek di browser: sungai di dekat jembatan dan pantai/muara dari atas; `typecheck`, `format:check`,
+  `build` lulus; `people.test` 13/13, `barista.test` 6/6, `engine.test` 21/25 seperti sebelumnya.
+
+## 36. Cadangan foto menu dari AI Studio (31 Okt 2026)
+
+- Foto menu asli (ilustrasi gelas bergaya gambar tangan dengan logo Winds Space, 424 × 600) diambil
+  dari aplikasi Google AI Studio pemilik (windsverse.ai.studio) karena file aslinya di iPad terhapus.
+  Disimpan di folder `menu-photos/` (39 file, sekitar 3 MB, nama file = nama menu). Folder ini hanya
+  cadangan; tidak ikut disajikan oleh website.
+- 33 menu punya foto asli; 6 file berisi gambar yang sama dengan menu lain (varian milkshake/yogurt).
+  22 menu lain di AI Studio hanya memakai foto contoh Unsplash, jadi tidak diambil.
+- Foto dipasang ke menu lewat halaman admin (unggah per menu). Resep tidak ikut diambil.

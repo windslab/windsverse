@@ -31,6 +31,24 @@ export function toonGradient() {
   return gradient;
 }
 
+/**
+ * Marks a material as water or ground in the outline pass (see `outlineShader`): water gets no
+ * outline lines, and neither does the ground right next to it. Works on toon materials.
+ */
+export function markSurface(material: THREE.Material, kind: 'water' | 'ground') {
+  const before = material.onBeforeCompile,
+    key = material.customProgramCacheKey.bind(material);
+  material.onBeforeCompile = (shader, renderer) => {
+    before.call(material, shader, renderer);
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <opaque_fragment>',
+      `#include <opaque_fragment>
+      gl_FragColor.a = ${kind === 'water' ? '0.5' : '0.8'};`,
+    );
+  };
+  material.customProgramCacheKey = () => key() + '-mark-' + kind;
+}
+
 type Lit = THREE.MeshStandardMaterial & Partial<THREE.MeshPhysicalMaterial>;
 
 /**
@@ -111,6 +129,9 @@ const outlineShader = {
     uniform vec3 gradeLift;
     uniform float gradeSaturation;
     varying vec2 vUv;
+    // Surfaces that should not get outlines mark themselves in the colour target's alpha:
+    // water writes 0.5 and the ground 0.8 (see markSurface); solid objects write 1, the hull 0.
+    float isMark(vec4 c, float mark) { return step(abs(c.a - mark), 0.08); }
     // 1 / view distance: linear in screen space on any plane.
     float inv(vec2 uv) {
       float d = texture2D(tDepth, uv).x;
@@ -128,6 +149,14 @@ const outlineShader = {
       // Fade lines out toward the far plane so the ground's distant edge never draws a horizon line.
       float far = smoothstep(cameraFar * 0.3, cameraFar * 0.55, 1.0 / w);
       float edge = smoothstep(0.003, 0.009, -lap) * strength * (1.0 - far);
+      // No lines on water, nor on the banks and ground right beside it: the river and the sea
+      // are drawn flat, without hard black edges along their shores.
+      vec2 reach = o * 2.5;
+      float wetNeighbour = max(
+        max(isMark(texture2D(tColor, vUv + vec2(reach.x, 0.0)), 0.5), isMark(texture2D(tColor, vUv - vec2(reach.x, 0.0)), 0.5)),
+        max(isMark(texture2D(tColor, vUv + vec2(0.0, reach.y)), 0.5), isMark(texture2D(tColor, vUv - vec2(0.0, reach.y)), 0.5))
+      );
+      edge *= 1.0 - max(isMark(base, 0.5), isMark(base, 0.8) * wetNeighbour);
       gl_FragColor = vec4(base.rgb, 1.0);
       // The background is a flat clear colour that the normal renderer never tone-maps.
       if (texture2D(tDepth, vUv).x < 1.0) {
@@ -137,8 +166,8 @@ const outlineShader = {
         gl_FragColor.rgb = mix(vec3(luma), gl_FragColor.rgb, gradeSaturation) * gradeTint;
         gl_FragColor.rgb += gradeLift * (1.0 - gl_FragColor.rgb);
       }
-      // Opaque materials always write alpha 1; only the character hull writes 0.
-      gl_FragColor.rgb = mix(gl_FragColor.rgb, lineColor, max(edge, 1.0 - base.a));
+      // Solid materials write alpha 1; only the character hull writes 0.
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, lineColor, max(edge, step(base.a, 0.05)));
       #include <colorspace_fragment>
     }`,
 };

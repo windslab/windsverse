@@ -21,8 +21,12 @@ import {
   type MenuItem,
   type Order,
 } from '@/lib/barista-game';
+import { playSfx } from '@/lib/cafe-sound';
+import { regionById, visitRegion } from '@/lib/windstopia-map';
 import styles from './explore-mode.module.css';
 import VintageCamera from './vintage-camera';
+import Digicam from './explore-digicam';
+import { Bag, Notebook, Reader, type BagItem } from './explore-bag';
 
 export type ExploreApi = {
   setManual: (on: boolean) => void;
@@ -56,6 +60,8 @@ export type ExploreApi = {
   ) => void;
   /** Out on the land beyond the sidewalk. */
   outdoors: () => boolean;
+  /** Which named place of the island Luna is in (ids in lib/windstopia-map.ts). */
+  region: () => string;
   spots: {
     plants: Spot[];
     tables: Spot[];
@@ -73,7 +79,21 @@ export type ExploreApi = {
     look: (dx: number, dy: number) => void;
     facing: (facing: 'environment' | 'user') => void;
     stream: () => MediaStream | null;
+    /** Digicam: zoom 1–4×, tilt the picture (radians), hand-held or on the tripod. */
+    zoom: (zoom: number) => void;
+    roll: (radians: number) => void;
+    mount: (mount: 'hand' | 'tripod') => void;
+    /** The world's sounds, for recording a video (null while sound is off). */
+    audio: () => MediaStream | null;
   };
+  /** Luna's tripod: set it up in front of her, pack it away. */
+  tripod: { place: () => boolean; remove: () => void; placed: () => boolean; near: () => boolean };
+  /** Places to settle: piano, guitar, cello, sofa, sofaLie, pier. */
+  restSpots: { name: string; position: THREE.Vector3; heading: number; lie: boolean }[];
+  /** Settle at a rest spot (name, or name + ':read'), or 'read-here' / 'lie-here'. */
+  settle: (name: string) => boolean;
+  /** What Luna is doing while settled ('' when not). */
+  activity: () => string;
 };
 type Spot = { name: string; box: THREE.Box3 };
 
@@ -129,12 +149,39 @@ const spotDistance = (at: THREE.Vector3, box: THREE.Box3) =>
         Math.max(box.min.x - at.x, 0, at.x - box.max.x),
         Math.max(box.min.z - at.z, 0, at.z - box.max.z),
       );
+/** What Luna can do at each rest spot. */
+const REST_LABELS: Record<string, string> = {
+  piano: 'Main piano',
+  guitar: 'Main gitar',
+  cello: 'Main cello',
+  sofa: 'Duduk santai',
+  sofaLie: 'Rebahan di sofa',
+  pier: 'Duduk di ujung dermaga',
+};
 const emptyDrink = (): Drink => ({ cup: null, amounts: {}, espressoQuality: 1 });
 
-export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: () => void }) {
+export default function ExploreMode({
+  api,
+  onExit,
+  sound,
+  onToggleSound,
+}: {
+  api: ExploreApi;
+  onExit: () => void;
+  /** Sound on/off (the same switch as the café view's). */
+  sound: boolean;
+  onToggleSound: () => void;
+}) {
   const [menu, setMenu] = useState<MenuItem[]>([]),
     [customers, setCustomers] = useState<Customer[]>([]),
     [panel, setPanel] = useState<Panel>(null),
+    /** Luna's bag and what's open from it. */
+    [bagOpen, setBagOpen] = useState(false),
+    [notebookOpen, setNotebookOpen] = useState(false),
+    [readerOpen, setReaderOpen] = useState(false),
+    [digicam, setDigicam] = useState<'hand' | 'tripod' | null>(null),
+    /** The place name shown briefly when Luna arrives somewhere (new places say so). */
+    [place, setPlace] = useState<{ name: string; note: string; first: boolean } | null>(null),
     [actions, setActions] = useState<{ id: string; label: string }[]>([]),
     [ticket, setTicket] = useState<string | null>(null),
     [drink, setDrink] = useState<Drink>(emptyDrink()),
@@ -154,6 +201,8 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
     counter = useRef(0),
     chase = useRef<string | null>(null),
     cooldown = useRef<Record<string, number>>({}),
+    regionRef = useRef(''),
+    placeTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     lastPhoto = useRef<string | null>(null),
     keyRun = useRef(false),
     touchRun = useRef(false),
@@ -345,7 +394,10 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         applyStick();
         e.preventDefault();
       } else if (key === ' ') {
-        if (!e.repeat) api.jump();
+        if (!e.repeat) {
+          api.jump();
+          playSfx('jump');
+        }
         e.preventDefault();
       } else if (key === 'e' && actionsRef.current[0]) {
         runRef.current(actionsRef.current[0].id);
@@ -379,6 +431,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40
       ) {
         api.jump();
+        playSfx('jump');
         lastTap = { at: 0, x: 0, y: 0 };
       } else lastTap = { at: now, x: e.clientX, y: e.clientY };
     };
@@ -443,12 +496,45 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
         Math.abs(at.y - api.frame.y) < 0.6
       )
         list.push({ id: 'hang', label: 'Pasang foto di bingkai' });
-      if (api.sitting()) list.push({ id: 'stand', label: 'Berdiri' });
-      else if (!holding) {
+      if (api.sitting()) {
+        const doing = api.activity();
+        list.push({
+          id: 'stand',
+          label: ['piano', 'guitar', 'cello'].includes(doing)
+            ? 'Berhenti main'
+            : doing === 'lying'
+              ? 'Bangun'
+              : 'Berdiri',
+        });
+      } else if (!holding) {
+        // Instruments, the sofa and the end of the pier.
+        for (const spot of api.restSpots) {
+          if (flat(at, spot.position) > 0.85 || Math.abs(at.y - spot.position.y) > 0.8) continue;
+          const label = REST_LABELS[spot.name];
+          if (label) list.push({ id: 'settle:' + spot.name, label });
+        }
         const seat = api.seatNear();
         if (seat) list.push({ id: 'sit:' + seat.id, label: 'Duduk' });
+        if (api.tripod.near()) list.push({ id: 'tripod-pack', label: 'Ambil tripod' });
+        // Out on the land: lie back on the grass for a while.
+        if (api.outdoors() && !list.some((a) => a.id.startsWith('settle:')))
+          list.push({ id: 'settle:lie-here', label: 'Rebahan' });
       }
       list.splice(3);
+      // Open world: name each place when Luna arrives, and note the first visit.
+      const here = api.region();
+      if (here !== regionRef.current) {
+        regionRef.current = here;
+        const region = regionById(here);
+        if (region) {
+          const first = visitRegion(here);
+          setPlace({ name: region.name, note: first ? region.note : '', first });
+          if (placeTimer.current) clearTimeout(placeTimer.current);
+          placeTimer.current = setTimeout(() => setPlace(null), first ? 4200 : 2200);
+        }
+      }
+      // The book closes when Luna stops reading.
+      if (api.activity() !== 'reading') setReaderOpen(false);
       setActions((old) => (JSON.stringify(old) === JSON.stringify(list) ? old : list));
       // Heading to a guest who was still walking to their seat: follow them there.
       if (chase.current && !api.walking() && !list.some((a) => a.id === 'serve')) {
@@ -514,7 +600,13 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
       }, seconds * 1000);
     if (verb === 'telescope') api.telescope();
     if (verb === 'stand') api.stand();
-    if (verb === 'sit') api.sit(arg);
+    if (verb === 'sit' && api.sit(arg)) playSfx('sit');
+    if (verb === 'settle' && api.settle(arg)) playSfx('sit');
+    if (verb === 'tripod-pack') {
+      api.tripod.remove();
+      setNote('Tripod masuk tas');
+      setTimeout(() => setNote(''), 1800);
+    }
     if (verb === 'water' || verb === 'wipe') {
       const spot = (verb === 'water' ? api.spots.plants : api.spots.tables).find(
         (p) => p.name === arg,
@@ -563,6 +655,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
       const thanks = THANKS[Math.floor(Math.random() * THANKS.length)];
       const points = 20 + Math.round(c.order.item.price / 1000);
       api.deliver(c.key);
+      playSfx('serve');
       setCustomers((list) =>
         list.map((x) => (x.key === c.key ? { ...x, stage: 'served', servedAt: Date.now() } : x)),
       );
@@ -572,6 +665,36 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
       setHolding(false);
       setTicket(null);
       setDrink(emptyDrink());
+    }
+  };
+  /** Using something from Luna's bag. */
+  const applyItem = (item: BagItem, action?: string) => {
+    setBagOpen(false);
+    if (item === 'notebook') setNotebookOpen(true);
+    if (item === 'book') {
+      // On the sofa if she's beside it, otherwise right where she is.
+      const sofa = api.restSpots.find((s) => s.name === 'sofa');
+      const at = api.luna();
+      api.settle(sofa && flat(at, sofa.position) < 1.2 ? 'sofa:read' : 'read-here');
+      setReaderOpen(true);
+    }
+    if (item === 'digicam') setDigicam('hand');
+    if (item === 'storycam') run('photo');
+    if (item === 'tripod') {
+      if (action === 'pack') {
+        api.tripod.remove();
+        setDigicam(null);
+      } else {
+        if (action === 'place') {
+          if (api.sitting()) api.stand();
+          if (!api.tripod.place()) {
+            setNote('Tidak ada tempat lapang untuk tripod di sini');
+            setTimeout(() => setNote(''), 2200);
+            return;
+          }
+        }
+        setDigicam('tripod');
+      }
     }
   };
   useEffect(() => {
@@ -596,7 +719,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
   const ticketCustomer = customers.find((c) => c.key === ticket);
 
   return (
-    <div className={styles.hud}>
+    <div className={styles.hud} data-camera={digicam ? '' : undefined}>
       <header className={styles.top}>
         <span className={styles.score}>
           {score.points} poin · {score.served} tamu
@@ -631,7 +754,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
           api.setRun(keyRun.current || touchRun.current);
         }}
       />
-      {!panel && actions.length > 0 && (
+      {!panel && !digicam && actions.length > 0 && (
         <div className={styles.prompts}>
           {actions.map((a, i) => (
             <button key={a.id} className={styles.prompt} onClick={() => run(a.id)}>
@@ -641,11 +764,21 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
           ))}
         </div>
       )}
-      {!panel && (
+      {!panel && !digicam && (
         <nav className={styles.tools} aria-label="Alat">
+          <button onClick={() => setBagOpen(true)}>tas</button>
           <button onClick={() => run('photo')}>kamera</button>
           <button onClick={() => run('sweep')}>sapu</button>
+          <button onClick={onToggleSound} aria-pressed={sound}>
+            {sound ? 'suara: on' : 'suara: off'}
+          </button>
         </nav>
+      )}
+      {place && !digicam && (
+        <p className={styles.place} key={place.name} role="status">
+          <b>{place.name}</b>
+          {place.note && <small>{place.note}</small>}
+        </p>
       )}
       {note && (
         <p className={styles.note} role="status">
@@ -674,6 +807,39 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
           <small>+{toast.points} poin</small>
         </div>
       )}
+      {bagOpen && !panel && (
+        <Bag
+          tripodPlaced={api.tripod.placed()}
+          onUse={applyItem}
+          onClose={() => setBagOpen(false)}
+        />
+      )}
+      {notebookOpen && !panel && <Notebook onClose={() => setNotebookOpen(false)} />}
+      {readerOpen && !panel && (
+        <Reader
+          onClose={() => {
+            setReaderOpen(false);
+          }}
+        />
+      )}
+      {digicam && (
+        <Digicam
+          api={api}
+          mount={digicam}
+          onClose={() => setDigicam(null)}
+          onHang={(url) => {
+            lastPhoto.current = url;
+            api.hangPhoto(url);
+            try {
+              localStorage.setItem(FRAME_KEY, url);
+            } catch {
+              /* Too big or storage blocked: it still hangs for this visit. */
+            }
+            setNote('Foto terpasang di bingkai menara');
+            setTimeout(() => setNote(''), 2200);
+          }}
+        />
+      )}
       {panel === 'cashier' && queueCustomer && (
         <CashierPanel
           customer={queueCustomer}
@@ -698,6 +864,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
                 key={c.id}
                 onClick={() => {
                   setDrink((d) => ({ ...d, cup: c.id as CupId }));
+                  playSfx('cup');
                   setPanel(null);
                 }}
               >
@@ -717,6 +884,7 @@ export default function ExploreMode({ api, onExit }: { api: ExploreApi; onExit: 
           onChange={setDrink}
           onClose={() => setPanel(null)}
           onFinish={() => {
+            playSfx('stir');
             setHolding(true);
             setPanel(null);
           }}
@@ -855,7 +1023,13 @@ function CashierPanel({
           ) : (
             <div className={styles.choices}>
               {DENOMINATIONS.filter((d) => d < customer.order.paid).map((d) => (
-                <button key={d} onClick={() => setTray((t) => [...t, d])}>
+                <button
+                  key={d}
+                  onClick={() => {
+                    playSfx('coin');
+                    setTray((t) => [...t, d]);
+                  }}
+                >
                   +{d >= 1000 ? d / 1000 + 'rb' : d}
                 </button>
               ))}
@@ -866,7 +1040,13 @@ function CashierPanel({
               )}
             </div>
           )}
-          <button className={styles.primary} onClick={() => onDone(wrong, { given, due })}>
+          <button
+            className={styles.primary}
+            onClick={() => {
+              playSfx('register');
+              onDone(wrong, { given, due });
+            }}
+          >
             {due === 0 ? 'terima uang' : 'berikan kembalian'} →
           </button>
         </>
@@ -893,6 +1073,7 @@ function PrepPanel({
 }) {
   const add = (id: string, delta: number) => {
     const ing = INGREDIENTS.find((i) => i.id === id)!;
+    if (delta > 0) playSfx('pour');
     onChange((d) => ({
       ...d,
       amounts: {
@@ -964,12 +1145,21 @@ function EspressoPanel({
     pullTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(
     () => () => {
-      if (holdTimer.current) clearInterval(holdTimer.current);
-      if (pullTimer.current) clearInterval(pullTimer.current);
+      // Closing the panel mid-way: the grinder and the brew stop too.
+      if (holdTimer.current) {
+        clearInterval(holdTimer.current);
+        playSfx('grind-stop');
+      }
+      if (pullTimer.current) {
+        clearInterval(pullTimer.current);
+        playSfx('brew-stop');
+      }
     },
     [],
   );
   const startPull = () => {
+    playSfx('tamp');
+    setTimeout(() => playSfx('brew-start'), 450);
     setStep('pull');
     const started = Date.now();
     pullTimer.current = setInterval(() => {
@@ -979,6 +1169,8 @@ function EspressoPanel({
   };
   const stopPull = () => {
     if (pullTimer.current) clearInterval(pullTimer.current);
+    pullTimer.current = null;
+    playSfx('brew-stop');
     // Sweet spot in the middle of the dial (like 25–30 s on a real machine).
     const quality = Math.max(0.2, 1 - Math.abs(needle - 0.55) * 3.2);
     onShot(quality);
@@ -1010,6 +1202,7 @@ function EspressoPanel({
           <button
             className={styles.primary}
             onPointerDown={() => {
+              playSfx('grind-start');
               if (holdTimer.current) clearInterval(holdTimer.current);
               holdTimer.current = setInterval(
                 () =>
@@ -1017,6 +1210,8 @@ function EspressoPanel({
                     const next = Math.min(1, g + 0.04);
                     if (next >= 1) {
                       if (holdTimer.current) clearInterval(holdTimer.current);
+                      holdTimer.current = null;
+                      playSfx('grind-stop');
                       setStep('tamp');
                     }
                     return next;
@@ -1024,8 +1219,16 @@ function EspressoPanel({
                 30,
               );
             }}
-            onPointerUp={() => holdTimer.current && clearInterval(holdTimer.current)}
-            onPointerLeave={() => holdTimer.current && clearInterval(holdTimer.current)}
+            onPointerUp={() => {
+              playSfx('grind-stop');
+              if (holdTimer.current) clearInterval(holdTimer.current);
+              holdTimer.current = null;
+            }}
+            onPointerLeave={() => {
+              playSfx('grind-stop');
+              if (holdTimer.current) clearInterval(holdTimer.current);
+              holdTimer.current = null;
+            }}
           >
             Tahan untuk menggiling
           </button>
