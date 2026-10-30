@@ -4,7 +4,7 @@
 // for phones (one terrain mesh, merged mountains, instanced trees).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { toonGradient } from './toon';
+import { markSurface, toonGradient } from './toon';
 
 /** Small deterministic value noise so the world looks the same on every visit. */
 function makeNoise(seed = 7) {
@@ -457,6 +457,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   }
   materials.push(terrainMaterial);
   islandFade(terrainMaterial);
+  markSurface(terrainMaterial, 'ground');
   const terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
   terrain.name = 'World_Terrain';
   terrain.receiveShadow = true;
@@ -552,6 +553,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   };
   riverMaterial.customProgramCacheKey = () => 'world-river';
   islandFade(riverMaterial);
+  markSurface(riverMaterial, 'water');
   materials.push(riverMaterial);
   const water = new THREE.Mesh(riverGeometry, riverMaterial);
   water.name = 'World_River';
@@ -584,6 +586,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   seaMaterial.customProgramCacheKey = () => 'world-sea';
   materials.push(seaMaterial);
   islandFade(seaMaterial);
+  markSurface(seaMaterial, 'water');
   {
     // The open sea all around the island, out to the horizon.
     const g = new THREE.PlaneGeometry(1100, 1100, 1, 1);

@@ -730,3 +730,12 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   dari commit cfe13ce; riwayatnya tetap ada di git bila nanti ingin dipakai lagi).
 - **Tetap dipertahankan**: perbaikan "sungai lama": cekungan tanah di tengah pulau ditinggikan supaya
   air laut tidak lagi terlihat sebagai kolam/garis air di dalam pulau.
+
+## 35. Garis hitam di sungai dan laut dihilangkan (30 Okt 2026)
+
+- Garis hitam (outline) yang muncul di tepi sungai, muara, dan pantai dihilangkan. Permukaan air (sungai,
+  danau, laut) kini menandai dirinya di pass outline (`markSurface` di `lib/toon.ts`: air menulis alpha
+  0,5 dan tanah 0,8), lalu garis tidak digambar di atas air maupun di tanah yang bersebelahan dengannya.
+  Benda lain (jembatan, dermaga, perahu, karakter) tetap punya garis tepi seperti biasa.
+- Dicek di browser: sungai di dekat jembatan dan pantai/muara dari atas; `typecheck`, `format:check`,
+  `build` lulus; `people.test` 13/13, `barista.test` 6/6, `engine.test` 21/25 seperti sebelumnya.
