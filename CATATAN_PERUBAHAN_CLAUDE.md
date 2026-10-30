@@ -739,3 +739,13 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   Benda lain (jembatan, dermaga, perahu, karakter) tetap punya garis tepi seperti biasa.
 - Dicek di browser: sungai di dekat jembatan dan pantai/muara dari atas; `typecheck`, `format:check`,
   `build` lulus; `people.test` 13/13, `barista.test` 6/6, `engine.test` 21/25 seperti sebelumnya.
+
+## 36. Cadangan foto menu dari AI Studio (31 Okt 2026)
+
+- Foto menu asli (ilustrasi gelas bergaya gambar tangan dengan logo Winds Space, 424 × 600) diambil
+  dari aplikasi Google AI Studio pemilik (windsverse.ai.studio) karena file aslinya di iPad terhapus.
+  Disimpan di folder `menu-photos/` (39 file, sekitar 3 MB, nama file = nama menu). Folder ini hanya
+  cadangan; tidak ikut disajikan oleh website.
+- 33 menu punya foto asli; 6 file berisi gambar yang sama dengan menu lain (varian milkshake/yogurt).
+  22 menu lain di AI Studio hanya memakai foto contoh Unsplash, jadi tidak diambil.
+- Foto dipasang ke menu lewat halaman admin (unggah per menu). Resep tidak ikut diambil.
