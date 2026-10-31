@@ -213,7 +213,8 @@ export default function Noisegasm({
       yt.current = new YT.Player(el, {
         width: 160,
         height: 90,
-        videoId: kind === 'video' ? id : undefined,
+        // The current API rejects an explicit `videoId: undefined`, so a playlist leaves it out.
+        ...(kind === 'video' ? { videoId: id } : {}),
         playerVars: {
           playsinline: 1,
           rel: 0,

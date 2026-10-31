@@ -834,3 +834,10 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Dicek di browser (desktop dan ukuran HP) dengan database uji lokal: Azwar pagi 3–5, malam 6–7,
   full day 8; Fayza malam 3–4 bergabung ke shift yang sama; menghapus centang tanggal 5 menghapus
   shift kosongnya.
+
+## 42. Playlist YouTube di Noisegasm bisa diputar lagi (1 Nov 2026)
+
+- Penyebab: pemutar YouTube versi terbaru menolak kolom `videoId` yang kosong ("Invalid video id"),
+  dan kode kita selalu mengirim kolom itu, termasuk untuk link playlist. Akibatnya playlist tidak
+  pernah termuat (iframe kosong). Kini `videoId` hanya dikirim untuk link video tunggal.
+- Dicek di halaman live: playlist "Winds Playlist" (21 video) termuat dan player siap tanpa error.
