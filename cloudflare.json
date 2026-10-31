@@ -1,5 +1,5 @@
 {
   "worker": "winds-space",
-  "d1": { "name": "winds-space-db", "id": "cc9c4549-0b7b-4d1c-8834-4bb90779d873" },
+  "d1": { "name": "winds-space-db", "id": "a169a9ee-fd8d-49f6-add4-1881b088150b" },
   "r2": { "bucket": "winds-space-files" }
 }
