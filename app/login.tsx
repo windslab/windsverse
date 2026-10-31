@@ -4,8 +4,7 @@ import { Coffee, ShieldCheck, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import Cafe from './cafe';
 import { BrandMark } from '@/components/brand-mark';
 export default function Login() {
-  const [activationPending, setActivationPending] = useState(false),
-    [ready, setReady] = useState(false),
+  const [ready, setReady] = useState(false),
     [signedIn, setSignedIn] = useState(false),
     [canActivate, setCanActivate] = useState(false),
     [activate, setActivate] = useState(false),
@@ -15,6 +14,8 @@ export default function Login() {
     [id, setId] = useState(''),
     [pin, setPin] = useState(''),
     [confirm, setConfirm] = useState(''),
+    [setupCode, setSetupCode] = useState(''),
+    [ownerName, setOwnerName] = useState(''),
     [logo, setLogo] = useState('');
   async function status() {
     try {
@@ -23,7 +24,6 @@ export default function Login() {
       if (!r.ok) throw Error(d.error);
       setSignedIn(!!d.actor);
       setCanActivate(d.canActivate);
-      setActivationPending(d.activationPending);
       setActivate(d.canActivate);
       setError('');
     } catch (e: any) {
@@ -88,7 +88,7 @@ export default function Login() {
           <h2>{activate ? 'Buat akses admin.' : 'Masuk ke ruang kafe.'}</h2>
           <p className="muted">
             {activate
-              ? 'Tentukan ID dan PIN milikmu. Setelah disimpan, gunakan keduanya untuk masuk dari perangkat mana pun.'
+              ? 'Masukkan kode penyiapan, lalu tentukan ID dan PIN milikmu. Setelah disimpan, gunakan keduanya untuk masuk dari perangkat mana pun.'
               : 'Gunakan ID dan PIN yang diberikan admin. Admin dan karyawan masuk di halaman yang sama.'}
           </p>
           <form
@@ -109,12 +109,14 @@ export default function Login() {
                       action: activate ? 'activate' : 'login',
                       loginId: id,
                       pin,
+                      ...(activate ? { setupCode, name: ownerName } : {}),
                     }),
                   }),
                   d: any = await r.json();
                 if (!r.ok) throw Error(d.error);
                 setPin('');
                 setConfirm('');
+                setSetupCode('');
                 window.location.replace('/login');
               } catch (e: any) {
                 setError(e.message);
@@ -123,6 +125,34 @@ export default function Login() {
               }
             }}
           >
+            {activate && (
+              <>
+                <div className="field">
+                  <label htmlFor="setup-code">Kode penyiapan</label>
+                  <input
+                    id="setup-code"
+                    type="password"
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    required
+                    value={setupCode}
+                    onChange={(e) => setSetupCode(e.target.value)}
+                  />
+                  <small>Kode rahasia yang kamu simpan di pengaturan hosting.</small>
+                </div>
+                <div className="field">
+                  <label htmlFor="owner-name">Nama pemilik</label>
+                  <input
+                    id="owner-name"
+                    maxLength={60}
+                    placeholder="Contoh: Winds"
+                    value={ownerName}
+                    onChange={(e) => setOwnerName(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
             <div className="field">
               <label htmlFor="login-id">ID {activate ? 'admin' : 'karyawan / admin'}</label>
               <input
@@ -223,14 +253,6 @@ export default function Login() {
               Winds Verse
               <ArrowRight size={15} />
             </a>
-            {activationPending && !canActivate && (
-              <a
-                href="/signin-with-chatgpt?return_to=/login"
-                title="Hanya untuk aktivasi pemilik awal"
-              >
-                Aktivasi pemilik pertama
-              </a>
-            )}
           </div>
         </div>
       </section>

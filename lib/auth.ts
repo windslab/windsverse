@@ -1,4 +1,4 @@
-import { getChatGPTUser } from '@/app/chatgpt-auth';
+import { env } from 'cloudflare:workers';
 import { database } from './store';
 import { Fault } from './engine';
 import type { Actor } from './model';
@@ -57,17 +57,25 @@ export async function authenticate(req: Request): Promise<Actor> {
   Object.defineProperty(actor, 'sessionHash', { value: await digest(token), enumerable: false });
   return actor;
 }
+// The first owner proves themselves with a one-time setup code kept as the OWNER_SETUP_CODE
+// secret on the host (never in the repository). Once the owner has an ID and PIN it is unused.
+function setupCode() {
+  const code = env.OWNER_SETUP_CODE;
+  return typeof code === 'string' && code.length >= 12 ? code : '';
+}
 export async function canActivateOwner() {
-  const u = await getChatGPTUser();
-  if (!u) return false;
-  const db = database();
-  const c = await db
-    .prepare('SELECT owner_id FROM control WHERE id=1')
-    .first<{ owner_id: string }>();
-  if (!c || c.owner_id !== u.userId) return false;
-  return !(await db
+  if (!setupCode()) return false;
+  return !(await database()
     .prepare("SELECT employee_id FROM auth_credentials WHERE employee_id='owner'")
     .first());
+}
+export async function setupCodeMatches(value: unknown) {
+  const code = setupCode();
+  if (!code || typeof value !== 'string' || value.length > 200) return false;
+  const [a, b] = await Promise.all([digest(value.trim()), digest(code)]);
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0 && a.length === b.length;
 }
 // Atomic reservations count in-flight attempts too, so parallel requests cannot skip the limit.
 export async function limitAttempt(req: Request, subject: string) {

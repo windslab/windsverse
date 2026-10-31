@@ -10,9 +10,11 @@ import {
   limitAttempt,
   sessionCookie,
   sessionToken,
+  setupCodeMatches,
 } from '@/lib/auth';
 import { digest, hashPin, loginId, randomSecret, validatePin, verifyPin } from '@/lib/auth-crypto';
 import { Fault } from '@/lib/engine';
+import { initial } from '@/lib/model';
 export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
@@ -95,11 +97,16 @@ export async function POST(req: Request) {
       return authResponse({ ok: true }, cookie);
     }
     if (p.action === 'activate') {
+      await limitAttempt(req, 'activate');
       if (!(await canActivateOwner()))
         throw new Fault(
           'Aktivasi hanya tersedia untuk pemilik awal yang belum memiliki ID dan PIN.',
           403,
         );
+      if (!(await setupCodeMatches(p.setupCode)))
+        throw new Fault('Kode penyiapan tidak sesuai.', 403);
+      const ownerName =
+        typeof p.name === 'string' && p.name.trim() ? p.name.trim().slice(0, 60) : 'Pemilik';
       const id = loginId(p.loginId);
       validatePin(p.pin);
       const salt = randomSecret(16),
@@ -113,8 +120,36 @@ export async function POST(req: Request) {
           .first()
       )
         throw new Fault('ID sudah digunakan.', 409);
+      // A brand-new host has no café yet: the first activation also creates it (empty, with the
+      // owner as the only admin), as the old host used to do on its own.
+      const fresh = !(await db.prepare('SELECT id FROM control WHERE id=1').first());
+      const seed = fresh
+        ? Object.entries(
+            initial({
+              id: 'employee:owner',
+              employeeId: 'owner',
+              name: ownerName,
+              email: '',
+              role: 'admin',
+            }),
+          ).flatMap(([kind, rows]) =>
+            (rows as { id: string }[]).map((row) =>
+              db
+                .prepare('INSERT OR IGNORE INTO records(id,kind,data) VALUES(?,?,?)')
+                .bind(row.id, kind, JSON.stringify(row)),
+            ),
+          )
+        : [];
       try {
         await db.batch([
+          ...(fresh
+            ? [
+                db.prepare(
+                  "INSERT OR IGNORE INTO control(id,owner_id,revision,last_mutation) VALUES(1,'owner',0,'')",
+                ),
+                ...seed,
+              ]
+            : []),
           db
             .prepare(
               "INSERT INTO auth_credentials(employee_id,login_id,pin_hash,salt,version,enabled,updated_at) VALUES('owner',?,?,?,?,1,?)",
@@ -136,6 +171,7 @@ export async function POST(req: Request) {
           409,
         );
       }
+      await clearAttempts('activate');
       return authResponse({ ok: true }, await createSession(req, (await credentialFor('owner'))!));
     }
     const a = await authenticate(req);

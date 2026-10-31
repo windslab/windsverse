@@ -749,3 +749,35 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - 33 menu punya foto asli; 6 file berisi gambar yang sama dengan menu lain (varian milkshake/yogurt).
   22 menu lain di AI Studio hanya memakai foto contoh Unsplash, jadi tidak diambil.
 - Foto dipasang ke menu lewat halaman admin (unggah per menu). Resep tidak ikut diambil.
+
+## 37. Persiapan pindah hosting ke akun Cloudflare sendiri (31 Okt 2026, branch hosting-cloudflare)
+
+- **Login pemilik tanpa ChatGPT**: aktivasi pemilik pertama kini memakai **kode penyiapan** rahasia
+  (`OWNER_SETUP_CODE`, disimpan di Cloudflare, tidak di repo), dibatasi 5 percobaan per 15 menit.
+  Formulir aktivasi meminta kode, nama pemilik, ID, dan PIN. `app/chatgpt-auth.ts` dihapus.
+- **Kafe baru dibuat otomatis** saat aktivasi pertama di database kosong (dulu dibuat oleh Sites):
+  baris kontrol, akun pemilik sebagai admin, kategori bawaan, pengaturan kafe, dan tier gaji.
+- **Konfigurasi Cloudflare** di `cloudflare.json` (nama worker, ID D1, nama bucket R2; bukan
+  rahasia). Selama ID D1 kosong, build sama seperti untuk Sites. Perintah baru: `npm run cf:deploy`
+  (build + migrasi + unggah), `npm run cf:migrate`, `npm run cf:setup-code`.
+- **Pindah data lama**: `scripts/filter-backup.mjs` membuat paket cadangan yang hanya berisi menu,
+  kategori, foto menu, bahan/HPP, resep (ditambah pengaturan kafe dan tier gaji yang wajib untuk
+  pemulihan). Paket dipulihkan lewat admin → Cadangan & pemulihan. Paket berisi resep asli dan
+  disimpan di luar repo.
+- Panduan langkah demi langkah: `HOSTING_CLOUDFLARE.md`. Konfigurasi Sites (`.openai/hosting.json`)
+  tidak diubah.
+- Diuji di komputer dengan database kosong memakai hasil build produksi: migrasi, kode salah
+  ditolak, aktivasi pemilik, lalu pemulihan paket menu (49 menu, 9 kategori, 39 bahan, 45 resep,
+  42 foto menu tampil di halaman menu). `typecheck`, `format:check` lulus; `barista.test` 6/6,
+  `engine.test` 21/25 seperti sebelumnya.
+
+## 38. Website pindah ke Cloudflare milik sendiri (31 Okt 2026, branch hosting-cloudflare)
+
+- D1 `winds-space-db` dan R2 `winds-space-files` dibuat di wilayah Asia (APAC); database dimigrasi.
+- Worker `winds-space` dideploy, pemilik diaktifkan dengan kode penyiapan, lalu menu (49), foto menu
+  (42), bahan/HPP (39), dan resep (45) dipulihkan dari paket saringan.
+- Domain `windsverse.com` dihubungkan: nameserver Rumahweb diganti ke Cloudflare, catatan DNS lama
+  ke Sites dihapus, `windsverse.com` dan `www.windsverse.com` dipasang sebagai custom domain worker
+  (`cloudflare.json` → `domains`).
+- Dicek: halaman utama dengan scene 3D dan tombol Explore, menu dengan foto, login, tanpa error
+  konsol, di domain asli.
