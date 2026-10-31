@@ -3,6 +3,10 @@
 // cream border with a caption. Everything is plain canvas so it runs on any phone.
 
 export type Lut = { size: number; data: Uint8Array };
+/** A tone curve as [input, output] points on 0–255, sorted by input. */
+export type CurvePoint = [number, number];
+/** RGB curves like an editing app: a master curve for all channels, then one per channel. */
+export type Curves = { rgb?: CurvePoint[]; r?: CurvePoint[]; g?: CurvePoint[]; b?: CurvePoint[] };
 
 export type Film = {
   id: string;
@@ -20,6 +24,8 @@ export type Film = {
     contrast: number;
     saturation: number;
     mono?: boolean;
+    /** Optional tone curves, applied after the rest of the grade. */
+    curves?: Curves;
   };
   grain: number;
   vignette: number;
@@ -156,9 +162,18 @@ function grade(ctx: CanvasRenderingContext2D, w: number, h: number, film: Film) 
     const s = x < 0.5 ? 2 * x * x : 1 - 2 * (1 - x) * (1 - x);
     return Math.min(255, Math.max(0, (x + (s - x) * (contrast - 0.8) * 1.6) * 255));
   };
+  // Tone curves fold into the same tables: master curve first, then the channel's own.
+  const curves = film.grade.curves,
+    master = curves?.rgb ? curveTable(curves.rgb) : null,
+    own = [curves?.r, curves?.g, curves?.b].map((c) => (c ? curveTable(c) : null));
   const lut = [0, 1, 2].map((ch) => {
     const t = new Float32Array(256);
-    for (let i = 0; i < 256; i++) t[i] = lift[ch] + (curve(i) * gain[ch] * (255 - lift[ch])) / 255;
+    for (let i = 0; i < 256; i++) {
+      let v = lift[ch] + (curve(i) * gain[ch] * (255 - lift[ch])) / 255;
+      if (master) v = master[clamp(v)];
+      if (own[ch]) v = own[ch]![clamp(v)];
+      t[i] = v;
+    }
     return t;
   });
   let seed = 1234567;
@@ -183,6 +198,54 @@ function grade(ctx: CanvasRenderingContext2D, w: number, h: number, film: Film) 
 }
 
 const clamp = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v | 0);
+
+/**
+ * A 256-entry table for a tone curve through `points`, smooth and without overshoot
+ * (monotone cubic, as in photo editors). Outside the first and last point it stays flat.
+ */
+export function curveTable(points: CurvePoint[]): Uint8Array {
+  const p = [...points].sort((a, b) => a[0] - b[0]),
+    n = p.length,
+    table = new Uint8Array(256);
+  if (n < 2) {
+    for (let i = 0; i < 256; i++) table[i] = n ? clamp(p[0][1]) : i;
+    return table;
+  }
+  const h: number[] = [],
+    m: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    h[i] = p[i + 1][0] - p[i][0];
+    m[i] = h[i] ? (p[i + 1][1] - p[i][1]) / h[i] : 0;
+  }
+  // Fritsch–Carlson tangents keep each segment between its two points.
+  const t: number[] = [m[0]];
+  for (let i = 1; i < n - 1; i++)
+    t[i] =
+      m[i - 1] * m[i] <= 0
+        ? 0
+        : (3 * (h[i - 1] + h[i])) /
+          ((2 * h[i] + h[i - 1]) / m[i - 1] + (h[i] + 2 * h[i - 1]) / m[i]);
+  t[n - 1] = m[n - 2];
+  let k = 0;
+  for (let x = 0; x < 256; x++) {
+    if (x <= p[0][0]) table[x] = clamp(p[0][1]);
+    else if (x >= p[n - 1][0]) table[x] = clamp(p[n - 1][1]);
+    else {
+      while (x > p[k + 1][0]) k++;
+      const s = (x - p[k][0]) / h[k],
+        s2 = s * s,
+        s3 = s2 * s;
+      table[x] = clamp(
+        (2 * s3 - 3 * s2 + 1) * p[k][1] +
+          (s3 - 2 * s2 + s) * h[k] * t[k] +
+          (-2 * s3 + 3 * s2) * p[k + 1][1] +
+          (s3 - s2) * h[k] * t[k + 1] +
+          0.5,
+      );
+    }
+  }
+  return table;
+}
 
 function vignette(ctx: CanvasRenderingContext2D, w: number, h: number, strength: number) {
   const g = ctx.createRadialGradient(

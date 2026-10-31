@@ -4,7 +4,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Eye, EyeOff, Pencil, Plus, Trash2, Tv, Upload } from 'lucide-react';
-import { FILMS, develop, parseCube, presetFilm, type Lut, type PresetData } from '@/lib/film';
+import {
+  FILMS,
+  develop,
+  parseCube,
+  presetFilm,
+  type Curves,
+  type Lut,
+  type PresetData,
+} from '@/lib/film';
+import CurveEditor, { cleanCurves } from './curve-editor';
 
 type Preset = PresetData & { enabled: boolean };
 type Photo = { id: string; film: string; createdAt: string; expiresAt: string; memoirs: boolean };
@@ -28,6 +37,7 @@ type Knobs = {
   contrast: number;
   saturation: number;
   mono: boolean;
+  curves: Curves;
   grain: number;
   vignette: number;
   leakColor: string;
@@ -44,6 +54,7 @@ const blankKnobs: Knobs = {
   contrast: 1,
   saturation: 1,
   mono: false,
+  curves: {},
   grain: 0.06,
   vignette: 0.35,
   leakColor: '',
@@ -68,6 +79,7 @@ function toPreset(id: string, k: Knobs, lutSize?: number): PresetData & { enable
       contrast: k.contrast,
       saturation: k.saturation,
       mono: k.mono || undefined,
+      curves: cleanCurves(k.curves),
     },
     grain: k.grain,
     vignette: k.vignette,
@@ -87,6 +99,7 @@ function toKnobs(p: Preset): Knobs {
     contrast: p.grade.contrast,
     saturation: p.grade.saturation,
     mono: !!p.grade.mono,
+    curves: p.grade.curves ?? {},
     grain: p.grain,
     vignette: p.vignette,
     leakColor: p.leak?.color ?? '',
@@ -569,6 +582,10 @@ function PresetEditor({
         {slider('Pudar', 'fade', 0, 60, 1)}
         {slider('Kontras', 'contrast', 0.6, 1.4, 0.01)}
         {slider('Saturasi', 'saturation', 0, 1.6, 0.01)}
+        <fieldset>
+          <legend>Kurva warna</legend>
+          <CurveEditor value={knobs.curves} onChange={(curves) => set('curves', curves)} />
+        </fieldset>
         {slider('Butiran film', 'grain', 0, 0.25, 0.01)}
         {slider('Sudut gelap', 'vignette', 0, 1, 0.01)}
         <label>

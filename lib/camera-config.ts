@@ -14,6 +14,15 @@ export const MAX_LUT_SIZE = 33;
 export type CameraConfig = { rollSize: number; hiddenFilms: string[] };
 
 const unit = z.number().min(0).max(1);
+const byte = z.number().int().min(0).max(255);
+/** A tone curve: 2–12 points with strictly increasing inputs. */
+const curve = z
+  .array(z.tuple([byte, byte]))
+  .min(2)
+  .max(12)
+  .refine((points) => points.every((p, i) => i === 0 || p[0] > points[i - 1][0]), {
+    message: 'Titik kurva harus berurutan.',
+  });
 export const presetSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]{3,40}$/),
   name: z.string().trim().min(1).max(30),
@@ -33,6 +42,14 @@ export const presetSchema = z.object({
     contrast: z.number().min(0.6).max(1.4),
     saturation: z.number().min(0).max(1.6),
     mono: z.boolean().optional(),
+    curves: z
+      .object({
+        rgb: curve.optional(),
+        r: curve.optional(),
+        g: curve.optional(),
+        b: curve.optional(),
+      })
+      .optional(),
   }),
   grain: z.number().min(0).max(0.25),
   vignette: unit,

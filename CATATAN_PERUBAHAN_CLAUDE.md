@@ -841,3 +841,19 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   dan kode kita selalu mengirim kolom itu, termasuk untuk link playlist. Akibatnya playlist tidak
   pernah termuat (iframe kosong). Kini `videoId` hanya dikirim untuk link video tunggal.
 - Dicek di halaman live: playlist "Winds Playlist" (21 video) termuat dan player siap tanpa error.
+
+## 43. Kurva warna RGB di preset film Story of Winds (1 Nov 2026)
+
+- Editor preset kini punya bagian **Kurva warna** seperti aplikasi edit foto: kanal **RGB** (semua
+  warna) lalu **Merah**, **Hijau**, **Biru**. Ketuk grafik untuk menambah titik (maks. 12), geser
+  untuk mengubah, ketuk dua kali atau "Hapus titik" untuk menghapus; titik ujung hanya naik-turun.
+  Ada "Reset" per kanal dan "Reset semua"; kanal yang diubah diberi titik hijau. Pratinjau langsung
+  ikut berubah.
+- Kurva diterapkan setelah penyesuaian lain (kehangatan, pudar, kontras, saturasi) dan sebelum
+  butiran film, pada foto tamu maupun pratinjau. Kurva dihitung halus tanpa lonjakan (monotone
+  cubic). Preset lama tanpa kurva tidak berubah; kurva lurus tidak disimpan.
+- Kode: `app/curve-editor.tsx` (+ `.module.css`), `curveTable` dan tipe `Curves` di `lib/film.ts`,
+  skema `grade.curves` di `lib/camera-config.ts`, editor di `app/camera-admin.tsx`.
+- Dicek: hitungan kurva (lurus = tidak berubah, kurva S, pudar), dan di browser dengan database uji
+  lokal (menambah dan menggeser titik dengan mouse, pratinjau berubah, preset tersimpan dan kurvanya
+  muncul lagi saat diedit). `typecheck`, `format:check`, `build` lulus.
