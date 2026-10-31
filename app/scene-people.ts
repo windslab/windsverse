@@ -232,7 +232,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       visual.add(serving);
     }
     // Guests in Luna's art style: her model, recoloured per guest (see luna/guest-look.ts).
-    const guest = index > 0 && luna ? guestRig(luna, 1.18 * scale) : null;
+    const guest = index > 0 && luna ? guestRig(luna, 1.42 * scale) : null;
     if (guest) {
       materials.push(...guest.materials);
       geometries.push(...guest.geometries);
@@ -782,7 +782,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
         if (!actor) continue;
         actor.key = visitor.key;
         actor.group = visitor.group ?? visitor.key;
-        actor.guest?.setLook(lookFor(visitor.key, visitor.male));
+        actor.guest?.setLook(lookFor(visitor.name ?? visitor.key, visitor.male));
         actor.position.copy(
           paths.snap(
             anchors.entrance
@@ -1005,7 +1005,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
               ? 0
               : detailed.hip - 0.05 * scale
             : actor.guest
-              ? actor.guest.rig.hip - 0.05 * scale
+              ? actor.guest.hip() - (crossLegged ? actor.guest.legHalf() : 0.05 * scale)
               : (crossLegged ? 0.43 : 0.445) * scale),
         target.z,
       );
@@ -1044,10 +1044,14 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       );
     else if (actor.guest)
       // Guests move with Luna's rig too: walk, stand while waiting, sit at the table.
-      actor.guest.rig.update(age, stride, sitting ? 'sitting' : 'idle', reduced, actor.climb, {
-        phase: age * 7 + actor.phase.length,
-        run: false,
-      });
+      actor.guest.update(
+        age,
+        stride,
+        crossLegged ? 'floor' : sitting ? 'sitting' : 'idle',
+        reduced,
+        actor.climb,
+        age * 7 + actor.phase.length,
+      );
     else {
       actor.legs.forEach((leg, i) => {
         if (crossLegged) {
@@ -1097,8 +1101,12 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
           scale;
     }
     actor.drink.visible = !isBarista && sitting && actor.delivered;
-    if (actor.guest) actor.drink.position.copy(drinkRest);
-    else if (actor.drink.visible) {
+    if (actor.guest) {
+      // The cup stands on the table top in front of them (low lesehan tables included).
+      actor.drink.position.copy(drinkRest);
+      if (sitting && actor.seat?.tableY !== undefined)
+        actor.drink.position.y = (actor.seat.tableY - actor.visual.position.y) / scale + 0.045;
+    } else if (actor.drink.visible) {
       // Rest, reach for the cup, lift it, tip it for a few sips, then set it back on the table.
       const t = reduced ? 0 : (age + actor.drinkPhase) % DRINK_CYCLE,
         step = THREE.MathUtils.smoothstep;

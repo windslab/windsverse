@@ -47,6 +47,9 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
   model.updateWorldMatrix(true, true);
   const hipJoint = model.getObjectByName('Luna_Leg_L'),
     hip = hipJoint ? hipJoint.getWorldPosition(new THREE.Vector3()).y : height * 0.4;
+  // Half the leg's thickness: how far the hip sits above the floor with the legs stretched out.
+  const pants = model.getObjectByName('Luna_Leg_L_pants'),
+    legHalf = pants ? new THREE.Box3().setFromObject(pants).getSize(new THREE.Vector3()).z / 2 : 0;
   // Hands: the centre of each hand mesh, for props to sit in Luna's grip.
   const hands = (['R', 'L'] as const).map((side) => {
     const mesh = model.getObjectByName(`Luna_Wrist_${side}_hand`) as THREE.Mesh | undefined;
@@ -58,6 +61,7 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
     root,
     feet,
     hip,
+    legHalf,
     /** World position of Luna's right (0) or left (1) hand; false if the model has no hands. */
     hand(side: 0 | 1, target: THREE.Vector3) {
       const h = hands[side];
@@ -179,6 +183,18 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
           pose(6, -0.12, wave(0.25) * 0.45, 0);
           pose(7, -0.08, 0, 0);
         }
+        return;
+      }
+      if (task === 'floor') {
+        // On the floor at a lesehan table: legs stretched out under it, hands on the thighs.
+        pose(0, -1.5, 0, 0.12);
+        pose(1, -1.5, 0, -0.12);
+        pose(2, -0.75, 0, 0.18);
+        pose(3, -0.75, 0, -0.18);
+        pose(4, -0.35);
+        pose(5, -0.35);
+        pose(6, 0, wave(0.65) * 0.025, 0);
+        pose(7, 0.04, 0, 0);
         return;
       }
       if (task === 'sitting') {

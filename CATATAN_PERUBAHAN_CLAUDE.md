@@ -991,3 +991,26 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   selesai), shot Espresso, dan tamu laki-laki/perempuan. `typecheck`, `format:check`, `build`
   lulus; `barista.test` + `people.test` 19/19, `engine.test` 28/32 (4 gagal lama). 13 error lint di
   `scene-3d.tsx` sudah ada sebelumnya.
+
+## 49. Tamu Windstopia: proporsi dewasa, rambut & wajah bervariasi, gelas di meja (1 Nov 2026)
+
+- **Nama tamu baru** (20): Fajar, Uli, Ekki, Vira, Aan, Ayi, Aslam, Nisa, Fina, Podding, Adit,
+  Acca, Mamat, Novy, Ifnul, Giffari, Aris, Bayu, Amal, Amma. Laki-laki: Fajar, Ekki, Aan, Aslam,
+  Adit, Mamat, Ifnul, Giffari, Aris, Bayu, Amal; perempuan: Uli, Vira, Ayi, Nisa, Fina, Podding,
+  Acca, Novy, Amma. Dua tamu yang sedang di kafe tidak pernah bernama sama.
+- **Penampilan mengikuti nama**: Fajar selalu terlihat sama setiap datang (warna, rambut, wajah).
+- **Proporsi dewasa**: kepala lebih kecil, kaki, badan, dan lengan lebih panjang, tinggi sedikit
+  berbeda per orang (laki-laki rata-rata lebih tinggi). Tamu kini punya **lutut**, jadi saat duduk
+  di kursi kakinya menekuk ke bawah.
+- **Tangan tidak lagi putus**: lengan bawah sebelumnya ikut terhapus karena nama "Elbow" mengandung
+  kata "bow" (pita barista). Pita kini dikenali dengan nama lengkapnya.
+- **12 gaya rambut**: laki-laki (cepak, jabrik, belah samping, botak tipis, topi, keriting),
+  perempuan (panjang, kuncir kuda, cepol, bob, **hijab**, kuncir dua). Rambut Luna tidak dipakai.
+- **Wajah digambar per tamu** dalam gaya piksel Luna: 6 bentuk mata, alis, 5 bentuk mulut, pipi
+  merah, bintik, kacamata, kumis/janggut/brewok untuk laki-laki; warna kulit ikut tamu.
+- **Gelas tamu** kini diletakkan tepat di atas meja yang dihadapi (termasuk meja lesehan rendah di
+  lantai 2), tidak lagi melayang. Di lesehan, tamu duduk di lantai dengan kaki selonjor ke bawah
+  meja, bukan pose duduk di kursi yang menembus lantai.
+- Diuji di browser (dev): tamu antre, duduk di kursi dan bangku teras lantai 2, wajah dan rambut
+  dilihat dari dekat. `typecheck`, `format:check`, `build` lulus; `barista.test` + `people.test`
+  19/19.

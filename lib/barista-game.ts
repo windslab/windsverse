@@ -217,20 +217,26 @@ export type Order = {
 };
 
 const NAMES: { name: string; male: boolean }[] = [
-  { name: 'Rina', male: false },
-  { name: 'Dimas', male: true },
-  { name: 'Sari', male: false },
-  { name: 'Bayu', male: true },
-  { name: 'Nadia', male: false },
-  { name: 'Arif', male: true },
-  { name: 'Tika', male: false },
   { name: 'Fajar', male: true },
-  { name: 'Mila', male: false },
-  { name: 'Yoga', male: true },
-  { name: 'Putri', male: false },
-  { name: 'Raka', male: true },
-  { name: 'Ayu', male: false },
-  { name: 'Galih', male: true },
+  { name: 'Uli', male: false },
+  { name: 'Ekki', male: true },
+  { name: 'Vira', male: false },
+  { name: 'Aan', male: true },
+  { name: 'Ayi', male: false },
+  { name: 'Aslam', male: true },
+  { name: 'Nisa', male: false },
+  { name: 'Fina', male: false },
+  { name: 'Podding', male: false },
+  { name: 'Adit', male: true },
+  { name: 'Acca', male: false },
+  { name: 'Mamat', male: true },
+  { name: 'Novy', male: false },
+  { name: 'Ifnul', male: true },
+  { name: 'Giffari', male: true },
+  { name: 'Aris', male: true },
+  { name: 'Bayu', male: true },
+  { name: 'Amal', male: true },
+  { name: 'Amma', male: false },
 ];
 const level = (v: number) => (v < 0.3 ? 'sedikit' : v < 0.62 ? 'sedang' : 'banyak');
 
@@ -269,7 +275,8 @@ export function describeItem(item: MenuItem) {
 }
 
 /** A new customer and their order, with a personal twist on sweetness and strength. */
-export function newCustomer(menu: MenuItem[], rand = Math.random) {
+/** `taken`: names already in the café, so two guests never share one. */
+export function newCustomer(menu: MenuItem[], rand = Math.random, taken: string[] = []) {
   const item = menu[Math.floor(rand() * menu.length)],
     d = describeItem(item);
   const pick = <T>(list: T[]) => list[Math.floor(rand() * list.length)];
@@ -347,7 +354,9 @@ export function newCustomer(menu: MenuItem[], rand = Math.random) {
   const notes = [20000, 50000, 100000].filter((n) => n >= item.price);
   const paid =
     rand() < 0.15 ? item.price : (notes[Math.floor(rand() * notes.length)] ?? item.price);
-  const who = NAMES[Math.floor(rand() * NAMES.length)];
+  const free = NAMES.filter((n) => !taken.includes(n.name)),
+    names = free.length ? free : NAMES;
+  const who = names[Math.floor(rand() * names.length)];
   return {
     name: who.name,
     male: who.male,

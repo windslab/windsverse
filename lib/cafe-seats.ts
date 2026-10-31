@@ -8,6 +8,8 @@ export type CafeSeat = {
   takeaway: boolean;
   /** Lesehan: sit cross-legged on the floor (surface is the floor itself). */
   floor?: boolean;
+  /** Top of the table this seat faces (world y), for setting a drink down on it. */
+  tableY?: number;
 };
 // Seats face the closest edge of their table (not its centre), so everyone along a long table
 // looks straight across it.
@@ -125,6 +127,7 @@ export function findCafeSeats(cafe: THREE.Object3D): CafeSeat[] {
               thin ? cafe.localToWorld(new THREE.Vector3(0, 0.174, 0)).y : bounds.min.y,
             ),
             table: table?.key ?? '',
+            tableY: table?.box.max.y,
             heading: table ? faceTable(table.box, surface.x, surface.z) : 0,
             takeaway: /take.?away/i.test(node.name),
           });
@@ -153,6 +156,7 @@ export function findCafeSeats(cafe: THREE.Object3D): CafeSeat[] {
         surface: new THREE.Vector3(x, floorY, z),
         floorY,
         table: tableKey(node.name),
+        tableY: box.max.y,
         heading: faceTable(box, x, z),
         takeaway: false,
         floor: true,

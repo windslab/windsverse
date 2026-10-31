@@ -254,6 +254,7 @@ export default function ExploreMode({
         type: c.order.takeaway ? 'takeaway' : 'dine_in',
         tableNumber: null,
         finishedAt: c.servedAt ?? null,
+        name: c.name,
         male: c.male,
       })),
     );
@@ -341,7 +342,11 @@ export default function ExploreMode({
       const crowd = crowdRef.current,
         waiting = customersRef.current.filter((c) => c.stage !== 'served').length;
       if (waiting >= crowd.max || Math.random() > crowd.chance) return;
-      const { name, male, order } = newCustomer(menu);
+      const { name, male, order } = newCustomer(
+        menu,
+        Math.random,
+        customersRef.current.filter((c) => c.stage !== 'served').map((c) => c.name),
+      );
       counter.current += 1;
       setCustomers((list) => [
         ...list,
