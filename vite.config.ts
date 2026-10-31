@@ -22,7 +22,12 @@ const managedLinux = readExecutionProfile() === 'managed-linux';
 const localBindingConfig = {
   main: './build/sites-worker.ts',
   compatibility_flags: ['nodejs_compat'],
-  ...(ownAccount ? { name: cloudflareConfig.worker } : {}),
+  ...(ownAccount
+    ? {
+        name: cloudflareConfig.worker,
+        routes: cloudflareConfig.domains.map((pattern) => ({ pattern, custom_domain: true })),
+      }
+    : {}),
   d1_databases: d1
     ? [
         {

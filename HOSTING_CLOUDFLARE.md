@@ -30,10 +30,18 @@ dibeli di Rumahweb.
      (hanya menyisakan menu, kategori, foto menu, bahan/HPP, resep, pengaturan kafe, dan tier gaji).
    - Di website baru: admin → **Cadangan & pemulihan** → unggah paket hasil → pratinjau →
      pulihkan (ketik PULIHKAN dan PIN admin).
-8. **Domain**: tambahkan domain di Cloudflare (Add a site), salin catatan DNS yang ada (misalnya
-   email), ganti nameserver di panel Rumahweb ke nameserver Cloudflare, lalu di Workers → worker
-   `winds-space` → Settings → Domains & Routes tambahkan domainnya. Situs lama tetap jalan sampai
-   nameserver berpindah (bisa beberapa jam).
+8. **Domain**: di Cloudflare pilih **Connect domain**, paket Free, hapus catatan DNS lama yang
+   mengarah ke hosting lama, lalu ganti nameserver di Rumahweb ke nameserver Cloudflare. Setelah
+   domain **Active**, `npm run cf:deploy` memasang domain di `cloudflare.json` (`domains`) ke
+   worker sebagai custom domain.
+
+## Keadaan sekarang (31 Okt 2026)
+
+- Worker `winds-space` di `https://windsverse.com`, `https://www.windsverse.com`, dan
+  `https://winds-space.windsverse.workers.dev`.
+- D1 `winds-space-db` dan R2 `winds-space-files` di wilayah Asia (APAC).
+- Nameserver domain (Rumahweb): `alexandra.ns.cloudflare.com`, `sam.ns.cloudflare.com`.
+- Menu, foto menu, HPP, dan resep sudah dipindah dari website lama.
 
 ## Deploy berikutnya
 

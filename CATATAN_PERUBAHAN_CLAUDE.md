@@ -770,3 +770,14 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   ditolak, aktivasi pemilik, lalu pemulihan paket menu (49 menu, 9 kategori, 39 bahan, 45 resep,
   42 foto menu tampil di halaman menu). `typecheck`, `format:check` lulus; `barista.test` 6/6,
   `engine.test` 21/25 seperti sebelumnya.
+
+## 38. Website pindah ke Cloudflare milik sendiri (31 Okt 2026, branch hosting-cloudflare)
+
+- D1 `winds-space-db` dan R2 `winds-space-files` dibuat di wilayah Asia (APAC); database dimigrasi.
+- Worker `winds-space` dideploy, pemilik diaktifkan dengan kode penyiapan, lalu menu (49), foto menu
+  (42), bahan/HPP (39), dan resep (45) dipulihkan dari paket saringan.
+- Domain `windsverse.com` dihubungkan: nameserver Rumahweb diganti ke Cloudflare, catatan DNS lama
+  ke Sites dihapus, `windsverse.com` dan `www.windsverse.com` dipasang sebagai custom domain worker
+  (`cloudflare.json` → `domains`).
+- Dicek: halaman utama dengan scene 3D dan tombol Explore, menu dengan foto, login, tanpa error
+  konsol, di domain asli.
