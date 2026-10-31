@@ -12,6 +12,7 @@ import {
   initial,
   localDate,
   businessDay,
+  shiftSlot,
   shiftTotals,
   hasMissingHpp,
   tracksStock,
@@ -480,6 +481,85 @@ export function apply(
     validateTiers(rows);
     s.tiers = rows;
     return;
+  }
+  if (action === 'roster.person') {
+    // Plan one employee's month: each date may be checked for the morning shift, the night
+    // shift, both (full day) or neither (a day off). Each date keeps one morning and one night
+    // shift that everyone on it shares.
+    admin(a);
+    const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+    const slotTimes = z.object({ name: str, start: time, end: time });
+    const input = z
+      .object({
+        employeeId: str,
+        days: z.record(date, z.object({ pagi: z.boolean(), malam: z.boolean() })),
+        pagi: slotTimes,
+        malam: slotTimes,
+      })
+      .parse(p);
+    const dates = Object.keys(input.days).sort();
+    assert(dates.length > 0 && dates.length <= 62, 'Pilih paling banyak 62 tanggal sekaligus.');
+    const eid = input.employeeId;
+    assert(find(s, 'employees', eid).status === 'aktif', 'Karyawan tidak aktif.');
+    const result = { added: 0, removed: 0, skipped: [] as string[] };
+    for (const d of dates) {
+      for (const slot of ['pagi', 'malam'] as const) {
+        const want = input.days[d][slot];
+        const here = s.shifts.filter((sh) => sh.date === d && shiftSlot(sh) === slot);
+        const on = here.filter((sh) => sh.employeeIds.includes(eid));
+        if (!want) {
+          for (const sh of on) {
+            const worked = s.attendance.some((at) => at.shiftId === sh.id);
+            if (sh.status !== 'planned' || worked) {
+              result.skipped.push(d);
+              continue;
+            }
+            sh.employeeIds = sh.employeeIds.filter((x: string) => x !== eid);
+            result.removed++;
+            if (!sh.employeeIds.length) s.shifts = s.shifts.filter((x) => x.id !== sh.id);
+          }
+          continue;
+        }
+        if (on.length) continue;
+        const times = input[slot];
+        let target = here.find((sh) => sh.status !== 'closed');
+        if (!target) {
+          if (d < businessDay(now)) {
+            result.skipped.push(d);
+            continue;
+          }
+          const startDate = new Date(d + 'T' + times.start + ':00+08:00'),
+            endDate = new Date(d + 'T' + times.end + ':00+08:00');
+          if (endDate <= startDate) endDate.setUTCDate(endDate.getUTCDate() + 1);
+          target = {
+            id: id(),
+            name: times.name,
+            startAt: startDate.toISOString(),
+            endAt: endDate.toISOString(),
+            employeeIds: [],
+            status: 'planned',
+            date: d,
+            scheduleTimezone: CAFE_TIMEZONE,
+          };
+          s.shifts.push(target);
+        }
+        const t = target;
+        assert(
+          !s.shifts.some(
+            (sh) =>
+              sh.id !== t.id &&
+              sh.employeeIds.includes(eid) &&
+              new Date(sh.startAt) < new Date(t.endAt) &&
+              new Date(sh.endAt) > new Date(t.startAt),
+          ),
+          'Jadwal karyawan bertumpang tindih pada ' + d + '.',
+        );
+        t.employeeIds.push(eid);
+        result.added++;
+      }
+    }
+    result.skipped = [...new Set(result.skipped)];
+    return result;
   }
   if (action === 'roster.bulk') {
     admin(a);

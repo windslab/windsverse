@@ -1,0 +1,145 @@
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.person {
+  border: 1px solid #354459;
+  border-radius: 999px;
+  padding: 7px 14px;
+  background: #1c2838;
+  color: #ccd6e4;
+  font-size: 0.85rem;
+}
+.person[aria-checked='true'] {
+  background: #c4ec81;
+  border-color: #c4ec81;
+  color: #101416;
+  font-weight: 600;
+}
+.person:disabled:not([aria-checked='true']) {
+  opacity: 0.45;
+}
+.monthBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.monthBar strong {
+  text-transform: capitalize;
+}
+.empty {
+  color: #9aa6b9;
+  text-align: center;
+  padding: 24px 0;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+}
+.weekday {
+  font-size: 0.7rem;
+  color: #9aa6b9;
+  text-align: center;
+}
+.cell {
+  border: 1px solid #293447;
+  border-radius: 9px;
+  background: #111b29;
+  padding: 4px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  min-width: 0;
+}
+.cell.today {
+  border-color: #c4ec81;
+}
+.cell.full {
+  background: #22301f;
+}
+.cell.past {
+  opacity: 0.45;
+}
+.date {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #ccd6e4;
+}
+.cell.off .date {
+  color: #6e7b8f;
+}
+.tick {
+  border: 1px solid #354459;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  min-height: 26px;
+  color: #6e7b8f;
+  background: transparent;
+}
+.tick.pagi[aria-pressed='true'] {
+  background: #f2c46d;
+  border-color: #f2c46d;
+  color: #2a1d05;
+}
+.tick.malam[aria-pressed='true'] {
+  background: #8294d1;
+  border-color: #8294d1;
+  color: #0d1430;
+}
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 0.78rem;
+  color: #b6c1d1;
+}
+.summary i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  margin-right: 4px;
+}
+.dotPagi {
+  background: #f2c46d;
+}
+.dotMalam {
+  background: #8294d1;
+}
+.dotFull {
+  background: linear-gradient(90deg, #f2c46d 50%, #8294d1 50%);
+}
+.times {
+  font-size: 0.8rem;
+  color: #b6c1d1;
+}
+.times summary {
+  cursor: pointer;
+}
+.timeRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 96px;
+  gap: 6px;
+  margin: 8px 0;
+}
+.timeRow input {
+  background: #111b29;
+  border: 1px solid #344052;
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: #f5f6f8;
+  min-width: 0;
+}
+.hint {
+  font-size: 0.78rem;
+  color: #f2c46d;
+}

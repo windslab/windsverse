@@ -941,3 +941,42 @@ test('a night shift past midnight still belongs to the day it started', () => {
   assert.equal(apply(f.s, f.budi, 'attendance.in', {}, wita('00:40', '2026-10-09')).id, f.malam.id);
   apply(f.s, f.budi, 'attendance.out', { id: open(f.s, f.budi).id }, wita('02:00', '2026-10-09'));
 });
+
+test('per-employee roster: check morning, night, both or neither for each date', () => {
+  const f = rosterDay();
+  const times = {
+    pagi: { name: 'Shift pagi', start: '08:00', end: '16:00' },
+    malam: { name: 'Shift malam', start: '16:00', end: '23:00' },
+  };
+  const plan = (who: Actor, days: Record<string, { pagi: boolean; malam: boolean }>) =>
+    apply(f.s, owner, 'roster.person', { employeeId: who.employeeId, days, ...times }, morning);
+  const r = plan(f.budi, {
+    '2026-10-08': { pagi: true, malam: true },
+    '2026-10-09': { pagi: true, malam: false },
+    '2026-10-10': { pagi: false, malam: false },
+    '2026-10-11': { pagi: false, malam: true },
+  });
+  assert.equal(r.added, 3);
+  // 8 Oct already had a morning (Sari) and a night (Budi) shift: Budi joins the morning one.
+  assert.ok(f.pagi.employeeIds.includes(f.budi.employeeId));
+  assert.equal(f.s.shifts.filter((sh: any) => sh.date === '2026-10-08').length, 2);
+  const on = (d: string) =>
+    f.s.shifts
+      .filter((sh: any) => sh.date === d && sh.employeeIds.includes(f.budi.employeeId))
+      .map((sh: any) => sh.name);
+  assert.deepEqual(on('2026-10-09'), ['Shift pagi']);
+  assert.deepEqual(on('2026-10-10'), []);
+  assert.deepEqual(on('2026-10-11'), ['Shift malam']);
+  // A second employee on the same date shares the shift instead of getting a new one.
+  plan(f.sari, { '2026-10-09': { pagi: true, malam: false } });
+  assert.equal(f.s.shifts.filter((sh: any) => sh.date === '2026-10-09').length, 1);
+  // Unchecking removes the employee; an emptied shift disappears.
+  const back = plan(f.budi, { '2026-10-11': { pagi: false, malam: false } });
+  assert.equal(back.removed, 1);
+  assert.equal(f.s.shifts.filter((sh: any) => sh.date === '2026-10-11').length, 0);
+  // A shift someone already checked into is left alone.
+  apply(f.s, f.sari, 'attendance.in', {}, wita('08:00'));
+  const kept = plan(f.sari, { '2026-10-08': { pagi: false, malam: false } });
+  assert.deepEqual(kept.skipped, ['2026-10-08']);
+  assert.ok(f.pagi.employeeIds.includes(f.sari.employeeId));
+});
