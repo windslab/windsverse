@@ -25,6 +25,9 @@ const localBindingConfig = {
   ...(ownAccount
     ? {
         name: cloudflareConfig.worker,
+        // Keep the workers.dev address as a backup next to the custom domains.
+        workers_dev: true,
+        preview_urls: false,
         routes: cloudflareConfig.domains.map((pattern) => ({ pattern, custom_domain: true })),
       }
     : {}),

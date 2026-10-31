@@ -809,3 +809,10 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   `barista.test` 6/6; `typecheck`, `format:check`, `build` lulus. Dicek di browser (ukuran HP) dengan
   database uji lokal: cek in pukul 00.12, cek out saat data berubah dari perangkat lain (otomatis
   dicoba ulang), shift tertutup dengan gaji tier, tombol Full day di kalender.
+
+## 40. Deploy absensi fleksibel; alamat cadangan workers.dev tetap aktif (1 Nov 2026)
+
+- Absensi fleksibel (bagian 39) dideploy ke windsverse.com (`npm run cf:deploy`, tanpa migrasi baru).
+- Setelah domain dipasang, Cloudflare mematikan alamat `winds-space.windsverse.workers.dev`. Kini
+  diaktifkan lagi sebagai alamat cadangan (`workers_dev: true`), dan pratinjau per versi dimatikan
+  (`preview_urls: false`).
