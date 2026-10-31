@@ -809,3 +809,28 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   `barista.test` 6/6; `typecheck`, `format:check`, `build` lulus. Dicek di browser (ukuran HP) dengan
   database uji lokal: cek in pukul 00.12, cek out saat data berubah dari perangkat lain (otomatis
   dicoba ulang), shift tertutup dengan gaji tier, tombol Full day di kalender.
+
+## 40. Deploy absensi fleksibel; alamat cadangan workers.dev tetap aktif (1 Nov 2026)
+
+- Absensi fleksibel (bagian 39) dideploy ke windsverse.com (`npm run cf:deploy`, tanpa migrasi baru).
+- Setelah domain dipasang, Cloudflare mematikan alamat `winds-space.windsverse.workers.dev`. Kini
+  diaktifkan lagi sebagai alamat cadangan (`workers_dev: true`), dan pratinjau per versi dimatikan
+  (`preview_urls: false`).
+
+## 41. Jadwal per karyawan: centang pagi/malam per tanggal (1 Nov 2026)
+
+- Tombol baru **Jadwal per karyawan** di Kalender shift: pilih nama karyawan, lalu di kalender sebulan
+  centang **P** (pagi) dan/atau **M** (malam) di setiap tanggal. Tanpa centang = libur, dua centang =
+  full day. Ada tombol cepat "Semua pagi", "Semua malam", "Kosongkan", dan pindah bulan. Setelah
+  disimpan, langsung bisa memilih karyawan berikutnya.
+- Setiap tanggal memakai satu shift pagi dan satu shift malam bersama: karyawan yang dicentang
+  bergabung ke shift yang sudah ada, atau shift baru dibuat dengan jam pagi/malam (diambil dari
+  shift terakhir, bisa diubah). Menghapus centang mengeluarkan karyawan dari shift; shift yang jadi
+  kosong terhapus. Shift yang sudah berjalan/selesai atau sudah ada absensinya tidak diubah dan
+  dilaporkan. Tanggal yang sudah lewat tidak bisa diubah dari sini.
+- Pagi/malam ditentukan dari jam mulai (sebelum 14.00 WITA = pagi). "Input cepat" lama tetap ada.
+- Kode: `app/roster-planner.tsx` (+ `.module.css`), aksi `roster.person` di `lib/engine.ts`,
+  `shiftSlot` di `lib/model.ts`. Tes baru di `tests/engine.test.ts` (28 lulus, 4 gagal lama).
+- Dicek di browser (desktop dan ukuran HP) dengan database uji lokal: Azwar pagi 3–5, malam 6–7,
+  full day 8; Fayza malam 3–4 bergabung ke shift yang sama; menghapus centang tanggal 5 menghapus
+  shift kosongnya.

@@ -4,6 +4,7 @@ import BackupPanel from './backup-panel';
 import AuditPanel from './audit-panel';
 import CameraAdmin from './camera-admin';
 import MusicAdmin from './music-admin';
+import RosterPlanner from './roster-planner';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
@@ -255,6 +256,7 @@ export default function Cafe({ name }: { name: string }) {
     [synced, setSynced] = useState(''),
     [busy, setBusy] = useState(false),
     [tab, setTab] = useState('dashboard'),
+    [planner, setPlanner] = useState(false),
     [search, setSearch] = useState(''),
     [modal, setModal] = useState<any>(null),
     [confirm, setConfirm] = useState<any>(null),
@@ -904,10 +906,16 @@ export default function Cafe({ name }: { name: string }) {
       </div>
       <div className="row">
         {title === 'Kalender shift' && admin && (
-          <button className="button primary" onClick={quickRoster}>
-            <CalendarDays size={16} />
-            Input cepat
-          </button>
+          <>
+            <button className="button primary" onClick={() => setPlanner(true)}>
+              <Users size={16} />
+              Jadwal per karyawan
+            </button>
+            <button className="button" onClick={quickRoster}>
+              <CalendarDays size={16} />
+              Input cepat
+            </button>
+          </>
         )}
         {extra}
         {kind && canEditKind(kind) && (
@@ -3380,6 +3388,16 @@ export default function Cafe({ name }: { name: string }) {
           <span>Pembaruan otomatis 3 detik · Jadwal WITA</span>
         </footer>
       </SidebarInset>
+      {admin && (
+        <RosterPlanner
+          open={planner}
+          onClose={() => setPlanner(false)}
+          employees={s.employees.filter((e) => e.status === 'aktif')}
+          shifts={s.shifts}
+          busy={busy}
+          onSave={(payload) => act('roster.person', payload, 'Jadwal disimpan')}
+        />
+      )}
       <Dialog
         open={!!modal}
         onOpenChange={(v) => {

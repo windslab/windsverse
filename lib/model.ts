@@ -53,6 +53,9 @@ export const tracksStock = (ingredient: Row) => ingredient.trackStock === true;
  */
 export const businessDay = (d: Date = new Date()) =>
   localDate(new Date(d.getTime() - 5 * 60 * 60 * 1000));
+/** Morning or night, from the start time in WITA: shifts starting before 14:00 are morning. */
+export const shiftSlot = (sh: Row): 'pagi' | 'malam' =>
+  (new Date(sh.startAt).getUTCHours() + 8) % 24 < 14 ? 'pagi' : 'malam';
 export const localDate = (d: Date = new Date()) =>
   new Intl.DateTimeFormat('en-CA', {
     timeZone: CAFE_TIMEZONE,
