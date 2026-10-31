@@ -1,0 +1,5 @@
+{
+  "worker": "winds-space",
+  "d1": { "name": "winds-space-db", "id": "" },
+  "r2": { "bucket": "winds-space-files" }
+}
