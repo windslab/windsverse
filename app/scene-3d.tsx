@@ -561,6 +561,8 @@ export default function CafeScene({
     const followHold = { blocked: 0, clear: 0, last: 0 };
     let occluders: THREE.Object3D[] | undefined,
       lastProbe = 0;
+    // Whether guests currently arrive by car (explore mode).
+    let taxiArrivals = false;
     // Entering/leaving explore mode changes how close the camera may come.
     exploreRef.current.onToggle = (on: boolean) => {
       followShown.radius = 0;
@@ -1390,6 +1392,27 @@ export default function CafeScene({
             });
           }
         }
+        // Explore mode: guests arrive by car. It pulls up in the lane on the café's side, stops by
+        // the entrance, lets them out at the kerb, then drives on.
+        const taxi = (() => {
+          if (!trafficLanes.length) return null;
+          const vehicle = makeVehicle('car');
+          vehicle.scale.copy(trafficLanes[0].cars[0].model.scale);
+          toonify(vehicle);
+          vehicle.visible = false;
+          scene.add(vehicle);
+          trafficModels.push(vehicle);
+          return {
+            model: vehicle,
+            lane: trafficLanes[0],
+            phase: 'idle' as 'idle' | 'coming' | 'stopped' | 'going',
+            s: 0,
+            v: 0,
+            stopS: 0,
+            timer: 0,
+            riders: [] as string[],
+          };
+        })();
         // The library anchor uses the reading-corner shelf in the exported cafe.
         // The world from the Windstronout panorama replaces the plain floor: hills, river,
         // karst towers, trees and the observatory, all toon-shaded like the café.
@@ -1693,6 +1716,7 @@ export default function CafeScene({
             chooseShot: () => barHandlers?.chooseShot(),
             hint: (text) => barHandlers?.hint(text),
             swap: (slot) => barHandlers?.swap(slot),
+            pouring: (id) => barHandlers?.pouring(id),
           });
           addedMaterials.push(...toonify(bar.group, (_, m) => !!m.userData.live));
           const crewForDebug = people;
@@ -2790,18 +2814,23 @@ export default function CafeScene({
             if (followShown.radius > 0) {
               followWish.radius *= followSpherical.radius / followShown.radius;
               followWish.phi += followSpherical.phi - followShown.phi;
+              followWish.theta += followSpherical.theta - followShown.theta;
             } else {
               followWish.radius = followSpherical.radius;
               followWish.phi = followSpherical.phi;
+              followWish.theta = followSpherical.theta;
               followGoal.radius = followShown.radius = followSpherical.radius;
               followGoal.phi = followShown.phi = followSpherical.phi;
+              followGoal.theta = followShown.theta = followSpherical.theta;
+              followHold.blocked = 0;
             }
             // Free look: from above Luna down to just below her eye line (to see the sky).
             followWish.radius = THREE.MathUtils.clamp(followWish.radius, 1.8, 9);
             followWish.phi = THREE.MathUtils.clamp(followWish.phi, 0.2, 1.68);
             controls!.target.lerp(followTarget, reduced ? 1 : 1 - Math.exp(-delta * 6));
-            // Camera collision: when a roof or wall is in the way, drop lower and/or come
-            // closer instead of hiding anything (a few probes per second).
+            // Camera collision: when a roof or wall is in the way, the camera swings round (and up
+            // or down) at the same distance to a clear view of Luna; nothing is hidden, and it
+            // only comes closer when no angle is clear (a few probes per second).
             // Inside the tower: a wide lens, no zooming in on Luna, and the camera stays within the
             // walls so the library can be enjoyed.
             const inTower = !!world && world.towerInfo.inside(people.baristaPosition());
@@ -2812,8 +2841,9 @@ export default function CafeScene({
             }
             if (inTower) {
               followGoal.phi = followWish.phi;
+              followGoal.theta = followWish.theta;
               followGoal.radius = Math.min(followWish.radius, 3.2);
-            } else if (t - lastProbe > 0.08) {
+            } else if (t - lastProbe > 0.1) {
               lastProbe = t;
               if (!occluders) {
                 const list: THREE.Object3D[] = [];
@@ -2827,9 +2857,12 @@ export default function CafeScene({
                 const size = new THREE.Vector3();
                 cafeModel?.traverse((node) => {
                   const mesh = node as THREE.Mesh;
+                  const material = mesh.material as THREE.MeshStandardMaterial | undefined;
                   if (
                     mesh.isMesh &&
-                    !/leaf|leaves|undergrowth|cable|socket|bulb|daun|rumput|grass|kursi|meja|pot|cup/i.test(
+                    // Glass is seen through, so it never blocks the view.
+                    !(material && material.transparent && material.opacity < 0.9) &&
+                    !/leaf|leaves|undergrowth|cable|socket|bulb|daun|rumput|grass|kursi|meja|pot|cup|kaca|glass/i.test(
                       mesh.name + ' ' + (mesh.parent?.name ?? ''),
                     ) &&
                     new THREE.Box3().setFromObject(mesh).getSize(size).length() > 1.4
@@ -2837,34 +2870,70 @@ export default function CafeScene({
                     list.push(mesh);
                 });
               }
-              // Calm camera: the player's angle is kept; only when a wall or roof has blocked the
-              // view for a moment does it ease closer, and it waits a while before easing back.
-              followDir.setFromSphericalCoords(1, followWish.phi, followSpherical.theta);
-              probeRay.near = 0.75;
-              probeRay.set(controls!.target, followDir);
-              probeRay.far = followWish.radius + 0.3;
-              const hit = probeRay.intersectObjects(occluders, false)[0];
+              // The player's own angle when it is clear; otherwise the nearest clear angle around
+              // Luna at the same distance (kept while it stays clear, so the view never flips back
+              // and forth); closer only when nothing around is clear.
+              const clearAt = (phi: number, theta: number, radius: number) => {
+                followDir.setFromSphericalCoords(1, phi, theta);
+                probeRay.near = 0.6;
+                probeRay.far = radius + 0.35;
+                probeRay.set(controls!.target, followDir);
+                return !probeRay.intersectObjects(occluders!, false)[0];
+              };
+              const wishPhi = followWish.phi,
+                wishTheta = followWish.theta,
+                radius = followWish.radius;
               const step = t - followHold.last;
               followHold.last = t;
-              if (hit && hit.distance < followWish.radius) {
-                followHold.blocked += step;
-                followHold.clear = 0;
-                const safe = Math.max(1.8, hit.distance - 0.3);
-                if (followHold.blocked > 0.45 && Math.abs(safe - followGoal.radius) > 0.35)
-                  followGoal.radius = safe;
-              } else {
-                followHold.clear += step;
+              const wishClear = clearAt(wishPhi, wishTheta, radius);
+              followHold.clear = wishClear ? followHold.clear + step : 0;
+              // Back to the player's angle once it has been clear for a moment (not at every gap).
+              if (wishClear && (!followHold.blocked || followHold.clear > 0.7)) {
                 followHold.blocked = 0;
-                if (followHold.clear > 0.9) followGoal.radius = followWish.radius;
+                followGoal.phi = wishPhi;
+                followGoal.theta = wishTheta;
+                followGoal.radius = radius;
+              } else if (wishClear) {
+                // Waiting a moment before swinging back.
+              } else if (
+                !followHold.blocked ||
+                !clearAt(followGoal.phi, followGoal.theta, followGoal.radius)
+              ) {
+                followHold.blocked = 1;
+                let found = false;
+                search: for (const r of [radius, radius * 0.8, radius * 0.62, 1.8]) {
+                  for (const turn of [
+                    0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.5, -1.5, 2.1, -2.1, 3.1,
+                  ])
+                    for (const tilt of [0, -0.3, 0.3])
+                      if (
+                        clearAt(
+                          THREE.MathUtils.clamp(wishPhi + tilt, 0.25, 1.5),
+                          wishTheta + turn,
+                          Math.max(1.8, r),
+                        )
+                      ) {
+                        followGoal.phi = THREE.MathUtils.clamp(wishPhi + tilt, 0.25, 1.5);
+                        followGoal.theta = wishTheta + turn;
+                        followGoal.radius = Math.max(1.8, r);
+                        found = true;
+                        break search;
+                      }
+                }
+                if (!found) followGoal.radius = 1.8;
               }
-              followGoal.phi = followWish.phi;
             }
             // Ease in and out gently; no sudden zoom.
-            const k = reduced ? 1 : 1 - Math.exp(-delta * 1.6);
-            followShown.phi +=
-              (followGoal.phi - followShown.phi) * (reduced ? 1 : 1 - Math.exp(-delta * 6));
+            const k = reduced ? 1 : 1 - Math.exp(-delta * 1.6),
+              turn = reduced ? 1 : 1 - Math.exp(-delta * 2.2);
+            followShown.phi += (followGoal.phi - followShown.phi) * turn;
             followShown.radius += (followGoal.radius - followShown.radius) * k;
-            followShown.theta = followSpherical.theta;
+            // The shortest way round to the goal's heading.
+            const dTheta =
+              ((((followGoal.theta - followShown.theta) % (Math.PI * 2)) + Math.PI * 3) %
+                (Math.PI * 2)) -
+              Math.PI;
+            followShown.theta += dTheta * turn;
             camera.position.copy(controls!.target).add(followOffset.setFromSpherical(followShown));
             if (inTower && world) {
               const info = world.towerInfo,
@@ -2922,6 +2991,93 @@ export default function CafeScene({
               people.baristaPosition().z - crossing.center.z,
             ) < crossing.reach;
           const listener = controls!.target;
+          if (taxi && people) {
+            const wantArrivals = exploreRef.current.on && !reduced;
+            if (wantArrivals !== taxiArrivals) {
+              taxiArrivals = wantArrivals;
+              people.setArrivals(wantArrivals);
+              if (!wantArrivals) {
+                taxi.phase = 'idle';
+                taxi.model.visible = false;
+              }
+            }
+            const lane = taxi.lane,
+              entrance = people.entrance();
+            if (taxi.phase === 'idle' && people.arriving().length) {
+              // The lane on the café's side; stop right in front of the entrance.
+              let best = Infinity;
+              for (const l of trafficLanes) {
+                const along = entrance.clone().sub(l.start),
+                  off = along.addScaledVector(l.direction, -along.dot(l.direction)).length();
+                if (off < best) {
+                  best = off;
+                  taxi.lane = l;
+                }
+              }
+              const l = taxi.lane;
+              taxi.stopS = entrance.clone().sub(l.start).dot(l.direction);
+              taxi.s = taxi.stopS - 32;
+              taxi.v = 5;
+              taxi.timer = 0;
+              taxi.phase = 'coming';
+              taxi.model.rotation.y = Math.atan2(-l.direction.x, -l.direction.z);
+              const palette = ['#a65b4a', '#4f6772', '#a6a58e', '#d4b58e', '#6f7d5a', '#e2dccd'];
+              (taxi.model.userData.paint as THREE.MeshStandardMaterial).color.set(
+                palette[Math.floor(Math.random() * palette.length)],
+              );
+            }
+            if (taxi.phase !== 'idle') {
+              let target = taxi.phase === 'stopped' ? 0 : 6;
+              if (taxi.phase === 'coming')
+                target = Math.min(target, Math.sqrt(2 * 2.2 * Math.max(0, taxi.stopS - taxi.s)));
+              // Never into the back of a car ahead in the lane.
+              for (const car of taxi.lane.cars) {
+                const gap = car.s - taxi.s;
+                if (car.active && gap > 0 && gap < 9)
+                  target = Math.min(target, car.v * THREE.MathUtils.clamp((gap - 4) / 4, 0, 1));
+              }
+              taxi.v += THREE.MathUtils.clamp(target - taxi.v, -8 * delta, 3 * delta);
+              taxi.s += Math.max(0, taxi.v) * delta;
+              taxi.model.position.copy(lane.start).addScaledVector(lane.direction, taxi.s);
+              if (taxi.phase === 'coming' && taxi.stopS - taxi.s < 0.08 && taxi.v < 0.25) {
+                taxi.phase = 'stopped';
+                taxi.v = 0;
+                taxi.timer = 0;
+              }
+              if (taxi.phase === 'stopped') {
+                taxi.timer += delta;
+                // The doors open: whoever is waiting steps out onto the kerb on the café's side.
+                const waiting = people.arriving();
+                if (taxi.timer > 0.6 && waiting.length) {
+                  const car = taxi.model.position,
+                    side = entrance.clone().sub(car);
+                  side.addScaledVector(lane.direction, -side.dot(lane.direction)).setY(0);
+                  const kerb = car
+                    .clone()
+                    .addScaledVector(side.normalize(), taxi.model.scale.x * 0.8)
+                    .addScaledVector(lane.direction, -taxi.model.scale.x * 0.15);
+                  kerb.y = entrance.y;
+                  people.release(waiting, kerb);
+                  taxi.timer = Math.min(taxi.timer, 0.7);
+                }
+                if (taxi.timer > 2.2) taxi.phase = 'going';
+              }
+              const fade =
+                THREE.MathUtils.smoothstep(taxi.s, taxi.stopS - 32, taxi.stopS - 26) *
+                (1 - THREE.MathUtils.smoothstep(taxi.s, taxi.stopS + 34, taxi.stopS + 44));
+              setVehicleFade(taxi.model, fade);
+              taxi.model.visible = fade > 0.001;
+              (taxi.model.userData.lamp as THREE.MeshBasicMaterial).opacity =
+                (night ? 1 : 0.38) * fade;
+              const glow = taxi.model.userData.roadGlow as THREE.Mesh;
+              glow.visible = night && fade > 0.001;
+              (glow.material as THREE.MeshBasicMaterial).opacity = night ? 0.7 * fade : 0;
+              if (taxi.phase === 'going' && taxi.s > taxi.stopS + 44) {
+                taxi.phase = 'idle';
+                taxi.model.visible = glow.visible = false;
+              }
+            }
+          }
           for (const lane of trafficLanes) {
             if (lane.audio && !soundRef.current) {
               stopVehicleSound(lane.audio);
@@ -2976,6 +3132,12 @@ export default function CafeScene({
                 const gap = ahead.s - car.s;
                 if (gap < 9)
                   target = Math.min(target, ahead.v * THREE.MathUtils.clamp((gap - 4) / 4, 0, 1));
+              }
+              // Wait behind the car dropping guests off.
+              if (taxi && taxi.phase !== 'idle' && taxi.lane === lane) {
+                const gap = taxi.s - car.s;
+                if (gap > 0 && gap < 9)
+                  target = Math.min(target, taxi.v * THREE.MathUtils.clamp((gap - 4) / 4, 0, 1));
               }
               // Stop before the zebra crossing while Luna is there.
               if (lunaCrossing) {

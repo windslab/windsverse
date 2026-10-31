@@ -4,8 +4,8 @@
 // help, a shot menu by the machine, an ice button for the freezer behind Luna, and a small
 // "selesai" button above the cup once the drink is made.
 import { useEffect, useRef, useState } from 'react';
-import { ingredientById, recipeFor, type Drink, type Order } from '@/lib/barista-game';
-import type { ShotKind } from '@/lib/bar-rig';
+import { ingredientById, POUR_WINDOW, recipeFor, type Drink, type Order } from '@/lib/barista-game';
+import { mlOf, type ShotKind } from '@/lib/bar-rig';
 import type { ExploreApi } from './explore-mode';
 import styles from './explore-bar.module.css';
 
@@ -50,10 +50,12 @@ export default function BarStation({
   const [hint, setHint] = useState(''),
     [slots, setSlots] = useState(loadSlots),
     [swap, setSwap] = useState<number | null>(null),
-    [shotMenu, setShotMenu] = useState(false);
+    [shotMenu, setShotMenu] = useState(false),
+    [pouring, setPouring] = useState<string | null>(null);
   const change = useRef(onChange),
     finish = useRef<HTMLButtonElement>(null),
-    shots = useRef<HTMLDivElement>(null);
+    shots = useRef<HTMLDivElement>(null),
+    meter = useRef<HTMLDivElement>(null);
   useEffect(() => {
     change.current = onChange;
   });
@@ -79,13 +81,49 @@ export default function BarStation({
         window.setTimeout(() => setHint((h) => (h === text ? '' : h)), 3200);
       },
       swap: setSwap,
+      pouring: setPouring,
     });
     return () => bar.close();
   }, [bar]);
-  useEffect(() => bar.setDrink({ cup: drink.cup, amounts: drink.amounts }), [bar, drink]);
+  const recipe = recipeFor(order);
+  // The finished drink's volume: the cup fills to the brim as the last step goes in.
+  const full = recipe.reduce((ml, s) => ml + (s.need ? mlOf(s.need.id, s.need.amount) : 0), 0);
+  useEffect(
+    () => bar.setDrink({ cup: drink.cup, amounts: drink.amounts, full }),
+    [bar, drink, full],
+  );
   useEffect(() => bar.setSlots(slots), [bar, slots]);
 
-  const steps = recipeFor(order).map((s) => ({ label: s.label, done: s.done(drink) }));
+  // A held pour: the meter shows how much went in against the recipe's "just right" window, and
+  // letting go says how it went.
+  const pourStep = pouring ? recipe.find((s) => s.pour && s.need?.id === pouring) : undefined;
+  const target = pourStep?.need?.amount ?? 0,
+    poured = pouring ? (drink.amounts[pouring] ?? 0) : 0,
+    lastPour = useRef<{ id: string; target: number; poured: number } | null>(null);
+  useEffect(() => {
+    if (pouring) lastPour.current = { id: pouring, target, poured };
+  }, [pouring, target, poured]);
+  useEffect(() => {
+    if (pouring || !lastPour.current) return;
+    const { target: aim, poured: got } = lastPour.current;
+    lastPour.current = null;
+    if (!aim) return;
+    const ratio = got / aim;
+    const text =
+      ratio < POUR_WINDOW[0]
+        ? 'Kurang sedikit, tahan lagi.'
+        : ratio <= POUR_WINDOW[1]
+          ? 'Pas! Takarannya sempurna ✨'
+          : 'Kebanyakan sedikit, tapi masih enak.';
+    const timer = window.setTimeout(() => setHint(text), 0);
+    const clear = window.setTimeout(() => setHint((h) => (h === text ? '' : h)), 3000);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(clear);
+    };
+  }, [pouring]);
+
+  const steps = recipe.map((s) => ({ label: s.label, done: s.done(drink) }));
   const next = steps.find((s) => !s.done);
   const ready = !!drink.cup && !next;
 
@@ -96,6 +134,7 @@ export default function BarStation({
       for (const [el, what] of [
         [finish.current, 'cup'],
         [shots.current, 'machine'],
+        [meter.current, 'cup'],
       ] as const) {
         if (!el) continue;
         const at = bar.anchor(what);
@@ -197,6 +236,29 @@ export default function BarStation({
       <p className={styles.hint}>
         {hint || (next ? 'Berikutnya: ' + next.label : 'Siap disajikan!')}
       </p>
+      {pouring && (
+        <div ref={meter} className={styles.meter} aria-label="Takaran">
+          <div className={styles.meterBar}>
+            {target > 0 && (
+              <span
+                className={styles.meterZone}
+                style={{
+                  bottom: `${(POUR_WINDOW[0] / 1.4) * 100}%`,
+                  height: `${((POUR_WINDOW[1] - POUR_WINDOW[0]) / 1.4) * 100}%`,
+                }}
+              />
+            )}
+            <span
+              className={styles.meterFill}
+              style={{ height: `${Math.min(100, (poured / Math.max(1, target * 1.4)) * 100)}%` }}
+            />
+          </div>
+          <small>
+            {Math.round(poured)}
+            {target ? ` / ${target}` : ''} ml
+          </small>
+        </div>
+      )}
       {ready && (
         <button ref={finish} className={styles.finish} onClick={onFinish}>
           selesai ✓

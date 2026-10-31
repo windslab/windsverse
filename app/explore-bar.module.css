@@ -22,6 +22,7 @@
 }
 .ticket,
 .top,
+.meter,
 .ice,
 .shots,
 .swap,
@@ -191,4 +192,46 @@
 .shots small {
   font-size: 10px;
   color: #d9ccb8;
+}
+
+/* Held pour: a slim meter beside the cup, the just-right window in green. */
+.meter {
+  position: fixed;
+  left: 0;
+  top: 0;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  margin-left: 64px;
+  pointer-events: none;
+  animation: fade 0.2s ease both;
+}
+.meterBar {
+  position: relative;
+  width: 12px;
+  height: 96px;
+  border-radius: 6px;
+  background: rgba(30, 20, 12, 0.6);
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+.meterZone {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(130, 200, 120, 0.55);
+}
+.meterFill {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  border-radius: 4px;
+  background: #f6f1e7;
+}
+.meter small {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(30, 20, 12, 0.6);
+  font-size: 10px;
 }

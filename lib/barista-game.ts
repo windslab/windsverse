@@ -157,40 +157,59 @@ export function windstopiaMenu(products: { name: string; price: number }[]) {
     return own && own.price > 0 ? { ...item, price: own.price } : item;
   });
 }
-export type RecipeStep = { label: string; done: (drink: Drink) => boolean };
+export type RecipeStep = {
+  label: string;
+  done: (drink: Drink) => boolean;
+  /** The ingredient and amount this step asks for (none for the cup). */
+  need?: { id: string; amount: number };
+  /** Poured while held: the meter shows this window as just right. */
+  pour?: boolean;
+};
+/** A held pour is just right from 92 % to 110 % of the recipe's amount. */
+export const POUR_WINDOW = [0.92, 1.1] as const;
 /** The steps for an order, in the order they make sense at the bar. */
 export function recipeFor(order: Order): RecipeStep[] {
-  const n = order.item.name.toLowerCase(),
-    has = (id: string, amount: number) => (drink: Drink) => (drink.amounts[id] ?? 0) >= amount;
+  const n = order.item.name.toLowerCase();
+  const step = (label: string, id: string, amount: number): RecipeStep => ({
+    label,
+    need: { id, amount },
+    done: (d) => (d.amounts[id] ?? 0) >= amount,
+  });
+  const pour = (label: string, id: string, amount: number): RecipeStep => ({
+    label,
+    need: { id, amount },
+    pour: true,
+    done: (d) => (d.amounts[id] ?? 0) >= amount * POUR_WINDOW[0],
+  });
   const steps: RecipeStep[] = [
     order.iced
       ? { label: 'Ambil cup plastik', done: (d) => d.cup === 'gelas-es' }
       : { label: 'Ambil paper cup', done: (d) => d.cup === 'cangkir' || d.cup === 'cup-takeaway' },
   ];
-  if (order.iced) steps.push({ label: 'Es batu dari freezer', done: has('es', 1) });
+  if (order.iced) steps.push(step('Es batu dari freezer', 'es', 1));
   if (/coffee|kopi/.test(n))
     steps.push(
-      { label: 'Espresso dari mesin', done: has('espresso', 1) },
-      { label: 'Gula aren 2 pompa', done: has('aren', 20) },
-      { label: 'Susu 2 tuang', done: has('fullcream', 60) },
+      step('Espresso dari mesin', 'espresso', 1),
+      step('Gula aren 2 pompa', 'aren', 20),
+      pour('Susu 60 ml (tahan)', 'fullcream', 60),
     );
   else if (/chocolate|cokelat|coklat/.test(n))
     steps.push(
-      { label: 'Cokelat 2 sendok', done: has('cokelat', 10) },
-      { label: 'Gula cair 1 pompa', done: has('gula', 10) },
-      { label: 'Susu 4 tuang', done: has('fullcream', 120) },
+      step('Cokelat 2 sendok', 'cokelat', 10),
+      step('Gula cair 1 pompa', 'gula', 10),
+      pour('Susu 120 ml (tahan)', 'fullcream', 120),
     );
   else if (/matcha/.test(n))
     steps.push(
-      { label: 'Matcha 2 sendok', done: has('matcha', 6) },
-      { label: 'Gula cair 1 pompa', done: has('gula', 10) },
-      { label: 'Susu 4 tuang', done: has('fullcream', 120) },
+      step('Matcha 2 sendok', 'matcha', 6),
+      step('Gula cair 1 pompa', 'gula', 10),
+      pour('Susu 120 ml (tahan)', 'fullcream', 120),
     );
   else if (/lemon|tea|teh/.test(n))
     steps.push(
-      { label: 'Teh 3 tuang', done: has('teh', 150) },
-      { label: 'Sirup lemon 2 pompa', done: has('lemon', 20) },
-      { label: 'Gula cair 1 pompa', done: has('gula', 10) },
+      pour('Teh 150 ml (tahan)', 'teh', 150),
+      step('Sirup lemon 2 pompa', 'lemon', 20),
+      step('Gula cair 1 pompa', 'gula', 10),
     );
   return steps;
 }

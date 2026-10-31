@@ -8,7 +8,6 @@ import { LogOut } from 'lucide-react';
 import type { CafeVisitor } from '@/lib/cafe-activity';
 import type { BarDrink, BarHandlers, ShotKind } from '@/lib/bar-rig';
 import {
-  DENOMINATIONS,
   crowdFor,
   windstopiaMenu,
   GAME_MINUTES_PER_SECOND,
@@ -974,85 +973,35 @@ function CashierPanel({
   onClose: () => void;
   onDone: (wrongItem: boolean, change: { given: number; due: number }) => void;
 }) {
-  const [step, setStep] = useState<'order' | 'pay'>('order'),
-    [wrong, setWrong] = useState(false),
-    [reply, setReply] = useState(''),
-    [tray, setTray] = useState<number[]>([]);
-  const due = customer.order.paid - customer.order.item.price,
-    given = tray.reduce((a, b) => a + b, 0);
+  const [wrong, setWrong] = useState(false),
+    [reply, setReply] = useState('');
+  const due = customer.order.paid - customer.order.item.price;
   return (
     <div className={styles.panel} role="dialog" aria-label="Kasir">
       <p className={styles.speech}>
         <b>{customer.name}</b> “{customer.order.line}”
       </p>
-      {step === 'order' ? (
-        <>
-          <small className={styles.label}>catat pesanan</small>
-          <div className={styles.choices}>
-            {menu.map((m) => (
-              <button
-                key={m.id}
-                onClick={() => {
-                  if (m.id !== customer.order.item.id) {
-                    setWrong(true);
-                    setReply(`Bukan itu kak, ${customer.order.item.name}.`);
-                    return;
-                  }
-                  setStep('pay');
-                  setReply('');
-                }}
-              >
-                {m.name}
-              </button>
-            ))}
-          </div>
-          {reply && <p className={styles.reply}>{reply}</p>}
-        </>
-      ) : (
-        <>
-          <p className={styles.bill}>
-            total <b>{rupiah(customer.order.item.price)}</b> · dibayar{' '}
-            <b>{rupiah(customer.order.paid)}</b>
-            {due > 0 && (
-              <>
-                {' '}
-                · kembalian <b className={given === due ? styles.ok : undefined}>{rupiah(given)}</b>
-              </>
-            )}
-          </p>
-          {due === 0 ? (
-            <p className={styles.reply}>Uangnya pas.</p>
-          ) : (
-            <div className={styles.choices}>
-              {DENOMINATIONS.filter((d) => d < customer.order.paid).map((d) => (
-                <button
-                  key={d}
-                  onClick={() => {
-                    playSfx('coin');
-                    setTray((t) => [...t, d]);
-                  }}
-                >
-                  +{d >= 1000 ? d / 1000 + 'rb' : d}
-                </button>
-              ))}
-              {tray.length > 0 && (
-                <button className={styles.muted} onClick={() => setTray([])}>
-                  ulang
-                </button>
-              )}
-            </div>
-          )}
+      <small className={styles.label}>catat pesanan · {rupiah(customer.order.item.price)}</small>
+      <div className={styles.choices}>
+        {menu.map((m) => (
           <button
-            className={styles.primary}
+            key={m.id}
             onClick={() => {
+              if (m.id !== customer.order.item.id) {
+                setWrong(true);
+                setReply(`Bukan itu kak, ${customer.order.item.name}.`);
+                return;
+              }
+              // The money (and any change) is handled by the register on its own.
               playSfx('register');
-              onDone(wrong, { given, due });
+              onDone(wrong, { given: due, due });
             }}
           >
-            {due === 0 ? 'terima uang' : 'berikan kembalian'} →
+            {m.name}
           </button>
-        </>
-      )}
+        ))}
+      </div>
+      {reply && <p className={styles.reply}>{reply}</p>}
       <button className={styles.close} onClick={onClose}>
         tutup
       </button>

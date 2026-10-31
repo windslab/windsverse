@@ -31,8 +31,24 @@ export type BarHandlers = {
   hint: (text: string) => void;
   /** Long press on a syrup bottle: choose what it holds. */
   swap: (slot: number) => void;
+  /** Milk or tea is being poured while held (null when it stops). */
+  pouring: (id: string | null) => void;
 };
-export type BarDrink = { cup: BarCup | 'cup-takeaway' | null; amounts: Record<string, number> };
+export type BarDrink = {
+  cup: BarCup | 'cup-takeaway' | null;
+  amounts: Record<string, number>;
+  /** Millilitres of the finished drink: the cup is full when it gets there. */
+  full?: number;
+};
+/** How much an ingredient adds to the cup, in millilitres. */
+export const mlOf = (id: string, amount: number) =>
+  id === 'espresso'
+    ? amount * 30
+    : id === 'cokelat' || id === 'matcha'
+      ? amount * 2
+      : id === 'es'
+        ? 0
+        : amount;
 
 const Y = 1.25; // counter top
 const P = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -46,13 +62,14 @@ const SPOT = {
   paper: P(-3.48, Y, 3.55),
   cocoa: P(-2.76, Y, 3.33),
   matcha: P(-2.67, Y, 3.33),
-  milk: P(-2.82, Y, 3.54),
-  tea: P(-2.72, Y, 3.54),
+  milk: P(-2.84, Y, 3.47),
+  tea: P(-2.73, Y, 3.47),
   freezer: P(-2.65, 1.3, 4.6),
 };
 /** Fixed views for Luna's eyes (model units): the counter, and turned round to the freezer. */
 export const BAR_VIEWS = {
-  counter: { eye: P(-3.17, 2.18, 3.84), target: P(-3.17, 1.2, 3.32) },
+  // Luna's own eye height: the counter below, the café still in view beyond it.
+  counter: { eye: P(-3.17, 1.72, 4.18), target: P(-3.17, 1.27, 3.3) },
   freezer: { eye: P(-2.66, 1.62, 3.95), target: P(-2.66, 1.12, 4.62) },
 };
 const COLORS: Record<string, number> = {
@@ -76,9 +93,9 @@ const STEP: Record<string, number> = {
   karamel: 10,
   cokelat: 5,
   matcha: 3,
-  fullcream: 30,
-  teh: 50,
 };
+/** Pouring while held: millilitres per second. */
+const FLOW: Record<string, number> = { fullcream: 45, teh: 60 };
 /** Seconds each shot pours, and how much of a cup it fills (ml). */
 const SHOTS: Record<ShotKind, { seconds: number; ml: number }> = {
   ristretto: { seconds: 2.2, ml: 20 },
@@ -305,6 +322,41 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
   );
   hit(freezerHit, 'freezer');
   group.add(freezerHit);
+  // The freezer is one model piece, so a lid of the same size lies on its top and swings open
+  // (hinged at the back) over a frosty inside while ice is scooped.
+  const freezerBox = new THREE.Box3(P(-3.01, 0.58, 4.29), P(-2.29, 1.3, 4.9));
+  const freezerModel = model.getObjectByName('freezer');
+  if (freezerModel) {
+    model.updateWorldMatrix(true, true);
+    const world = new THREE.Box3().setFromObject(freezerModel);
+    freezerBox.set(model.worldToLocal(world.min.clone()), model.worldToLocal(world.max.clone()));
+  }
+  const fw = freezerBox.max.x - freezerBox.min.x,
+    fd = freezerBox.max.z - freezerBox.min.z,
+    top = freezerBox.max.y;
+  const lidHinge = new THREE.Group();
+  lidHinge.position.set((freezerBox.min.x + freezerBox.max.x) / 2, top, freezerBox.max.z);
+  lidHinge.add(
+    mesh(new THREE.BoxGeometry(fw + 0.01, 0.03, fd + 0.01), mat(0xeef1f2), P(0, 0.015, -fd / 2)),
+  );
+  lidHinge.add(
+    mesh(new THREE.BoxGeometry(fw * 0.4, 0.015, 0.02), mat(0x9aa3a8), P(0, 0.02, -fd - 0.005)),
+  );
+  const inside = new THREE.Group();
+  inside.position.set(lidHinge.position.x, top + 0.003, (freezerBox.min.z + freezerBox.max.z) / 2);
+  inside.add(mesh(new THREE.BoxGeometry(fw - 0.05, 0.004, fd - 0.05), mat(0xb8d4e3)));
+  for (let k = 0; k < 14; k++) {
+    const c = new THREE.Mesh(iceGeo, iceMat);
+    c.position.set(
+      (((k * 37) % 11) / 11) * (fw - 0.12) - (fw - 0.12) / 2,
+      0.008,
+      (((k * 53) % 7) / 7) * (fd - 0.12) - (fd - 0.12) / 2,
+    );
+    c.rotation.set(k, k * 0.5, 0);
+    inside.add(c);
+  }
+  lidHinge.visible = inside.visible = false;
+  group.add(lidHinge, inside);
   const scoop = new THREE.Group();
   scoop.add(
     mesh(new THREE.SphereGeometry(0.035, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), metal).rotateX(
@@ -372,9 +424,10 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     on.hint('Ambil cup dulu di tumpukan cup, di depan kiri.');
     return true;
   };
-  const cupTo = (to: THREE.Vector3, dur = 0.45) => {
+  const cupTo = async (to: THREE.Vector3, dur = 0.45) => {
+    if (state.cupAt.distanceTo(to) < 0.005 && cup.position.distanceTo(to) < 0.005) return;
     state.cupAt.copy(to);
-    return moveTo(cup, to, dur, 0.03);
+    await moveTo(cup, to, dur, 0.03);
   };
   const run = async (task: () => Promise<void>) => {
     if (state.busy) return;
@@ -401,6 +454,7 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     if (needCup()) return;
     const id = slots[i],
       b = bottles[i];
+    // The cup slides under this pump (and stays there for the next press).
     await cupTo(
       SPOT.bottle(i)
         .clone()
@@ -433,7 +487,6 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
       },
       ease.back,
     );
-    await cupTo(SPOT.work, 0.4);
   }
   async function spoonPowder(id: string) {
     if (needCup()) return;
@@ -467,36 +520,66 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
       ease.back,
     );
   }
-  async function pour(id: string) {
+  // Milk and tea pour for as long as they are held: the box comes over the cup, tips, and the
+  // stream runs until let go; the amount goes into the drink as it flows.
+  const hold = {
+    id: '',
+    box: milk,
+    on: false,
+    released: false,
+    flowing: false,
+    unsent: 0,
+    sentAt: 0,
+  };
+  async function pourHeld(id: string) {
     if (needCup()) return;
     const box = id === 'teh' ? tea : milk,
       home = box.position.clone(),
-      above = state.cupAt.clone().add(P(0.06, 0.13, 0));
-    await moveTo(box, above, 0.45, 0.05);
+      above = state.cupAt.clone().add(P(0.06, 0.15, 0));
+    Object.assign(hold, {
+      id,
+      box,
+      on: true,
+      released: false,
+      flowing: false,
+      unsent: 0,
+      sentAt: 0,
+    });
+    on.pouring(id);
+    await moveTo(box, above, 0.3, 0.04);
+    await play(0.18, (k) => (box.rotation.z = k * 1.15));
     on.sound('pour');
-    await play(0.3, (k) => (box.rotation.z = k * 1.1));
-    streamBetween(
-      above.clone().add(P(-0.04, -0.01, 0)),
-      state.cupAt.clone().add(P(0, 0.1, 0)),
-      COLORS[id],
-    );
-    on.add(id, STEP[id]);
-    await wait(0.35);
+    hold.flowing = true;
+    // update() pours while held; wait here until let go.
+    while (!hold.released) await wait(0.05);
+    hold.flowing = false;
     stream.visible = false;
-    await play(0.25, (k) => (box.rotation.z = 1.1 * (1 - k)));
-    await moveTo(box, home, 0.45, 0.05);
+    if (hold.unsent) on.add(id, Math.round(hold.unsent));
+    hold.unsent = 0;
+    hold.on = false;
+    on.pouring(null);
+    await play(0.2, (k) => (box.rotation.z = 1.15 * (1 - k)));
+    await moveTo(box, home, 0.35, 0.04);
   }
   async function scoopIce() {
     if (needCup()) return;
     if (drink.amounts.es) return on.hint('Esnya sudah cukup untuk satu gelas.');
     state.view = 'freezer';
-    await wait(0.6);
+    await wait(0.55);
+    // Lid up, scoop in and out, lid down.
+    lidHinge.visible = inside.visible = true;
+    on.sound('click');
+    await play(0.45, (k) => (lidHinge.rotation.x = k * 1.25), ease.out);
     scoop.visible = true;
-    scoop.position.copy(SPOT.freezer).add(P(0, -0.12, 0));
+    scoop.position.copy(inside.position).add(P(0, 0.2, -0.05));
+    await moveTo(scoop, inside.position.clone().add(P(0, 0.03, 0)), 0.3);
     on.sound('ice');
-    await moveTo(scoop, SPOT.freezer.clone().add(P(0, 0.12, -0.05)), 0.5);
-    state.view = 'counter';
+    await moveTo(scoop, inside.position.clone().add(P(0, 0.22, -0.12)), 0.35);
     scoop.visible = false;
+    await play(0.4, (k) => (lidHinge.rotation.x = 1.25 * (1 - k)), ease.inOut);
+    lidHinge.visible = inside.visible = false;
+    on.sound('click');
+    state.view = 'counter';
     await wait(0.5);
     scoop.visible = true;
     scoop.position.copy(state.cupAt).add(P(0, 0.26, 0.04));
@@ -532,8 +615,6 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     on.sound('brew-stop');
     on.add('espresso', 1);
     on.hint(`${kind[0].toUpperCase() + kind.slice(1)} siap (${start + 1} shot di cup).`);
-    await wait(0.3);
-    await cupTo(SPOT.work, 0.5);
   }
 
   function styleCup() {
@@ -565,16 +646,14 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     };
     for (const [id, amount] of Object.entries(a)) {
       if (!amount || id === 'es') continue;
-      take(
-        id,
-        id === 'espresso' ? amount * 30 : id === 'cokelat' || id === 'matcha' ? amount * 2 : amount,
-      );
+      take(id, mlOf(id, amount));
     }
+    if (hold.flowing && hold.unsent) take(hold.id, hold.unsent);
     if (state.pouring) take('espresso', state.pouring);
     const plastic = cupKind !== 'cangkir';
     const height = plastic ? 0.12 : 0.1,
-      capacity = plastic ? 360 : 240,
-      fill = Math.min(1, volume / capacity);
+      // Each ingredient raises the level; the finished drink fills the cup to just below the rim.
+      fill = Math.min(1, (volume / (drink.full || (plastic ? 360 : 240))) * 0.9);
     liquid.visible = fill > 0.005;
     if (total) liquidMat.color.setRGB(r / total, g / total, b / total);
     const h = Math.max(0.001, fill * height),
@@ -593,8 +672,8 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     'cup:cangkir': () => run(() => takeCup('cangkir')),
     'powder:cokelat': () => run(() => spoonPowder('cokelat')),
     'powder:matcha': () => run(() => spoonPowder('matcha')),
-    'pour:fullcream': () => run(() => pour('fullcream')),
-    'pour:teh': () => run(() => pour('teh')),
+    'pour:fullcream': () => run(() => pourHeld('fullcream')),
+    'pour:teh': () => run(() => pourHeld('teh')),
     freezer: () => run(scoopIce),
     machine: () => {
       if (state.busy) return;
@@ -616,6 +695,7 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     setDrink(d: BarDrink) {
       drink.cup = d.cup;
       drink.amounts = d.amounts;
+      drink.full = d.full;
       if (!d.cup) {
         cup.visible = false;
         cupKind = null;
@@ -637,8 +717,14 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     machineAnchor: (out: THREE.Vector3) => machine.localToWorld(out.set(0, 0.4, 0.1)),
     pointerDown(action: string | null) {
       press = action ? { action, at: performance.now() } : null;
+      // Milk and tea start pouring at once and keep going while held.
+      if (action?.startsWith('pour:')) {
+        void actions[action]?.();
+        press = null;
+      }
     },
     pointerUp() {
+      if (hold.on) hold.released = true;
       const p = press;
       press = null;
       if (!p) return;
@@ -649,6 +735,22 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
       void actions[p.action]?.();
     },
     update(dt: number) {
+      if (hold.flowing && !hold.released) {
+        hold.unsent += (FLOW[hold.id] ?? 40) * dt;
+        hold.sentAt += dt;
+        const lip = hold.box.localToWorld(P(-0.045, 0.12, 0)),
+          surface = state.cupAt.clone().add(P(0, 0.05, 0));
+        group.worldToLocal(lip);
+        streamBetween(lip, surface, COLORS[hold.id]);
+        // The drink takes it in small sips, so the recipe meter moves smoothly.
+        if (hold.sentAt > 0.1 && hold.unsent >= 1) {
+          const whole = Math.floor(hold.unsent);
+          on.add(hold.id, whole);
+          hold.unsent -= whole;
+          hold.sentAt = 0;
+        }
+        showDrink();
+      }
       for (let i = tweens.length - 1; i >= 0; i--) {
         const tw = tweens[i];
         tw.t = Math.min(1, tw.t + dt / tw.dur);
