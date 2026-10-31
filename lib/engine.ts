@@ -11,6 +11,7 @@ import {
   defaultCategories,
   initial,
   localDate,
+  businessDay,
   shiftTotals,
   hasMissingHpp,
   tracksStock,
@@ -150,6 +151,8 @@ export class Fault extends Error {
   constructor(
     message: string,
     public status = 400,
+    /** Machine-readable reason for the client, e.g. 'not-rostered'. */
+    public code = '',
   ) {
     super(message);
   }
@@ -332,6 +335,13 @@ export function apply(
     const ended = at >= new Date(sh.endAt);
     if (attendanceDone && ordersDone && (rosterDone || ended))
       finalizeShift(sh, ended ? sh.endAt : stamp);
+  };
+  // Closing a side shift must never block the action that triggered it (e.g. a check-in).
+  const tryFinalize = (sh: Row) => {
+    if (sh.status !== 'open' || !s.attendance.some((at) => at.shiftId === sh.id)) return;
+    try {
+      maybeFinalizeShift(sh);
+    } catch {}
   };
   if (action === 'save') {
     const k = p.kind as Kind;
@@ -684,41 +694,54 @@ export function apply(
       !s.payrolls.some((pr) => pr.period === sh.date.slice(0, 7) && pr.status === 'lunas'),
       'Periode payroll sudah dibayar dan dikunci.',
     );
-    assert(!s.shifts.some((x) => x.status === 'open'), 'Tutup shift sebelumnya terlebih dahulu.');
-    assert(
-      now >= new Date(sh.startAt) && now < new Date(sh.endAt),
-      'Shift hanya dapat dibuka dalam jadwalnya.',
-    );
     sh.status = 'open';
     sh.openedAt = stamp;
     return;
   }
   if (action === 'attendance.in') {
-    const sh = find(s, 'shifts', p.shiftId);
-    canShift(sh);
+    // What counts is being present on a shift, not the hours: check-in works at any time and
+    // picks the employee's own shift of the business day from the calendar.
+    const eid = a.role === 'admin' && p.employeeId ? p.employeeId : a.employeeId;
+    const day = businessDay(now);
+    const attended = (sh: Row) =>
+      s.attendance.some((at) => at.shiftId === sh.id && at.employeeId === eid);
+    let sh: Row | undefined;
+    if (p.shiftId) sh = find(s, 'shifts', p.shiftId);
+    else {
+      const mine = s.shifts.filter((x) => x.date === day && x.employeeIds.includes(eid));
+      sh = mine
+        .filter((x) => x.status !== 'closed' && !attended(x))
+        .sort((x, y) => x.startAt.localeCompare(y.startAt))[0];
+      if (!sh && mine.length) fail('Absensi shift hari ini sudah lengkap.');
+      if (!sh)
+        throw new Fault(
+          'Kamu tidak dijadwalkan hari ini. Pilih shift yang kamu gantikan.',
+          409,
+          'not-rostered',
+        );
+    }
     assert(sh.status === 'planned' || sh.status === 'open', 'Shift sudah selesai.');
     assertPeriodEditable(sh.date.slice(0, 7));
-    const shiftDate = sh.date;
-    const endDate = localDate(new Date(sh.endAt));
     assert(
-      shiftDate === today || (shiftDate < today && endDate >= today && now < new Date(sh.endAt)),
+      sh.date === day || sh.date === today,
       'Karyawan hanya dapat absen pada shift yang berlangsung hari ini.',
     );
-    assert(
-      now >= new Date(sh.startAt),
-      'Check-in belum dapat dilakukan sebelum jadwal shift dimulai.',
-    );
-    assert(now < new Date(sh.endAt), 'Jadwal shift sudah berakhir.');
-    const eid = a.role === 'admin' && p.employeeId ? p.employeeId : a.employeeId;
-    assert(sh.employeeIds.includes(eid), 'Karyawan tidak terdaftar dalam roster.');
-    assert(
-      !s.attendance.some((at) => at.shiftId === sh.id && at.employeeId === eid),
-      'Absensi shift sudah tercatat.',
-    );
-    assert(
-      !s.attendance.some((at) => at.employeeId === eid && !at.checkOut && at.status === 'hadir'),
-      'Selesaikan absensi sebelumnya.',
-    );
+    // Standing in for someone without a calendar change: the employee joins that shift's
+    // roster, marked as a stand-in.
+    const standIn = !sh.employeeIds.includes(eid);
+    if (standIn) {
+      assert(p.standIn === true, 'Karyawan tidak terdaftar dalam roster.');
+      assert(find(s, 'employees', eid).status === 'aktif', 'Karyawan tidak aktif.');
+      sh.employeeIds.push(eid);
+    }
+    assert(!attended(sh), 'Absensi shift sudah tercatat.');
+    // A shift the employee forgot to check out of ends here, so it can be closed and paid.
+    for (const prev of s.attendance.filter(
+      (at) => at.employeeId === eid && !at.checkOut && at.status === 'hadir',
+    )) {
+      prev.checkOut = stamp;
+      tryFinalize(find(s, 'shifts', prev.shiftId));
+    }
     if (sh.status === 'planned') {
       sh.status = 'open';
       sh.openedAt = stamp;
@@ -730,8 +753,26 @@ export function apply(
       status: 'hadir',
       checkIn: stamp,
       checkOut: null,
-      notes: String(p.notes || '').slice(0, 2000),
+      notes: (standIn ? 'Pengganti. ' : '') + String(p.notes || '').slice(0, 2000),
     });
+    // Shifts whose schedule is over and whose last present employee has left close now.
+    for (const other of s.shifts) if (other.id !== sh.id) tryFinalize(other);
+    return sh;
+  }
+  if (action === 'roster.fullday') {
+    // Full day: the employee works every shift of that date and is paid for each of them.
+    admin(a);
+    const date = z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .parse(p.date);
+    const ids = z.array(str).min(1).max(30).parse(p.employeeIds);
+    const shifts = s.shifts.filter((sh) => sh.date === date && sh.status !== 'closed');
+    assert(shifts.length > 0, 'Belum ada shift pada tanggal ini.');
+    for (const eid of ids) {
+      assert(find(s, 'employees', eid).status === 'aktif', 'Karyawan tidak aktif.');
+      for (const sh of shifts) if (!sh.employeeIds.includes(eid)) sh.employeeIds.push(eid);
+    }
     return;
   }
   if (action === 'attendance.out') {
@@ -742,12 +783,8 @@ export function apply(
     );
     const sh = shiftEditable(s, at.shiftId);
     assert(!at.checkOut && at.status === 'hadir', 'Absensi sudah selesai.');
-    assert(
-      a.role === 'admin' || localDate(new Date(sh.endAt)) === today || sh.date === today,
-      'Karyawan hanya dapat check-out pada hari berjalan; hubungi admin untuk koreksi absensi lama.',
-    );
     assertPeriodEditable(sh.date.slice(0, 7));
-    assert(now > new Date(at.checkIn), 'Check-out harus setelah check-in.');
+    assert(now >= new Date(at.checkIn), 'Check-out harus setelah check-in.');
     at.checkOut = stamp;
     maybeFinalizeShift(sh);
     return;
@@ -841,7 +878,19 @@ export function apply(
     return;
   }
   if (action === 'order.create') {
-    const sh = find(s, 'shifts', p.shiftId);
+    // An order belongs to the shift its author is checked into, whenever it is entered.
+    const active = s.attendance.find(
+      (at) =>
+        at.employeeId === a.employeeId &&
+        at.status === 'hadir' &&
+        !at.checkOut &&
+        s.shifts.some((x) => x.id === at.shiftId && x.status === 'open'),
+    );
+    const sh = find(
+      s,
+      'shifts',
+      a.role !== 'admin' && active ? active.shiftId : p.shiftId || active?.shiftId,
+    );
     canShift(sh);
     const pastPlanned = sh.status === 'planned' && now >= new Date(sh.endAt);
     const historical = sh.status === 'closed' || pastPlanned;
@@ -1137,16 +1186,14 @@ export function apply(
     admin(a);
     const sh = find(s, 'shifts', p.id);
     assertPeriodEditable(sh.date.slice(0, 7));
-    assert(sh.status === 'open', 'Shift tidak sedang berjalan.');
+    assert(sh.status === 'open' || sh.status === 'planned', 'Shift sudah ditutup.');
     assert(
       !s.orders.some((o) => o.shiftId === sh.id && !['selesai', 'dibatalkan'].includes(o.status)),
       'Selesaikan atau batalkan seluruh pesanan shift.',
     );
+    // The admin may close a shift at any time; whoever is still checked in is checked out now.
     const attendance = s.attendance.filter((at) => at.shiftId === sh.id && at.status === 'hadir');
-    assert(
-      attendance.every((at) => !!at.checkOut),
-      'Ada karyawan yang belum absen keluar.',
-    );
+    for (const at of attendance) if (!at.checkOut) at.checkOut = stamp;
     validateTiers(s.tiers);
     const totals = shiftTotals(s, sh);
     assert(totals.wage !== undefined, 'Laba tidak cocok dengan tier gaji.');

@@ -93,7 +93,11 @@ export async function commit(
   if (action === 'initialize') throw new Fault('Gunakan pengaturan pemilik yang sudah ada.', 403);
   if (!control) throw new Fault('Siapkan kafe terlebih dahulu.', 409);
   if (control.revision !== revision)
-    throw new Fault('Data telah berubah di perangkat lain. Muat ulang dan ulangi tindakan.', 409);
+    throw new Fault(
+      'Data telah berubah di perangkat lain. Muat ulang dan ulangi tindakan.',
+      409,
+      'stale',
+    );
   const old = new Map(
     kinds.flatMap((k) =>
       implicitCategories && k === 'categories'
@@ -244,6 +248,7 @@ export function errorResponse(e: any) {
             ? 'Isian tidak valid: ' +
               e.issues.map((i: any) => i.path.join('.') + ' ' + i.message).join('; ')
             : 'Permintaan belum berhasil. Coba lagi atau hubungi pemilik.',
+      ...(e instanceof Fault && e.code ? { code: e.code } : {}),
     },
     {
       status: e instanceof Fault ? e.status : e?.name === 'ZodError' ? 400 : 500,
