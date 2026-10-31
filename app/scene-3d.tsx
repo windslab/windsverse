@@ -23,6 +23,7 @@ import { createCafeWorld } from '@/lib/cafe-world';
 import { createCritters } from '@/lib/cafe-critters';
 import { createWeather } from '@/lib/cafe-weather';
 import { createCafeCat } from '@/lib/cafe-cat';
+import { createBarRig, type BarHandlers, type BarRig } from '@/lib/bar-rig';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 function objectByModelName(root: THREE.Object3D, name: string) {
@@ -528,6 +529,15 @@ export default function CafeScene({
       look: new THREE.Vector3(),
       saved: null as { position: THREE.Vector3; target: THREE.Vector3; fov: number } | null,
     };
+    // The 3D bar station on the counter (lib/bar-rig.ts) and the screen handlers it reports to.
+    let bar: BarRig | undefined,
+      barHandlers: BarHandlers | null = null,
+      barPan = 0,
+      barPanTarget = 0,
+      barDrag: { x: number; pan: number } | null = null;
+    const barRay = new THREE.Raycaster(),
+      barNdc = new THREE.Vector2(),
+      barAnchor = new THREE.Vector3();
     const cctvLook = { yaw: 0, pitch: 0 },
       cctvDrag = new Map<number, { x: number; y: number }>(),
       cctvDir = new THREE.Vector3();
@@ -1675,6 +1685,17 @@ export default function CafeScene({
           // Explore mode: beyond the sidewalk Luna walks on the surrounding world.
           if (world && siteBox) people.setOutdoors({ walk: world.walkHeight, site: siteBox });
           cafeModel = model;
+          bar = createBarRig(model, {
+            sound: (name) => playSfx(name),
+            add: (id, amount) => barHandlers?.add(id, amount),
+            cup: (cup) => barHandlers?.cup(cup),
+            shot: (quality, seconds, ml) => barHandlers?.shot(quality, seconds, ml),
+            ice: () => barHandlers?.ice(),
+            hint: (text) => barHandlers?.hint(text),
+            readout: (r) => barHandlers?.readout(r),
+            swap: (slot) => barHandlers?.swap(slot),
+          });
+          addedMaterials.push(...toonify(bar.group));
           const crewForDebug = people;
           // Development only (?sceneStats): camera handle for checking views.
           if (debugPerf && process.env.NODE_ENV !== 'production')
@@ -1759,6 +1780,69 @@ export default function CafeScene({
                   addedTextures.push(texture);
                   w.setFramePhoto(texture);
                 });
+              },
+              bar: {
+                open: (handlers: BarHandlers) => {
+                  barHandlers = handlers;
+                  barPan = barPanTarget = 0;
+                  people?.setBaristaVisible(false);
+                },
+                close: () => {
+                  barHandlers = null;
+                  barDrag = null;
+                  people?.setBaristaVisible(true);
+                },
+                setDrink: (drink) => bar?.setDrink(drink),
+                setSlots: (slots: string[]) => bar?.setSlots(slots),
+                setDose: (grams: number) => bar?.setDose(grams),
+                down: (x: number, y: number) => {
+                  if (!bar || !renderer) return;
+                  const rect = renderer.domElement.getBoundingClientRect();
+                  barNdc.set(
+                    ((x - rect.left) / rect.width) * 2 - 1,
+                    -((y - rect.top) / rect.height) * 2 + 1,
+                  );
+                  barRay.setFromCamera(barNdc, camera);
+                  let action: string | null = null;
+                  for (const h of barRay.intersectObjects(bar.hits, true)) {
+                    let o: THREE.Object3D | null = h.object;
+                    while (o && !o.userData.bar) o = o.parent;
+                    if (o) {
+                      action = o.userData.bar as string;
+                      break;
+                    }
+                  }
+                  bar.pointerDown(action, x, y);
+                  if (!action && bar.state.pf !== 'group') barDrag = { x, pan: barPanTarget };
+                },
+                move: (x: number, y: number) => {
+                  const width = renderer?.domElement.clientWidth ?? 800;
+                  if (barDrag) {
+                    // Look along the counter (it is wider than the view on a phone).
+                    barPanTarget = THREE.MathUtils.clamp(
+                      barDrag.pan - ((x - barDrag.x) / width) * 1.4,
+                      -0.95,
+                      0.85,
+                    );
+                    return;
+                  }
+                  bar?.pointerMove(x, y, width);
+                },
+                up: () => {
+                  barDrag = null;
+                  bar?.pointerUp();
+                },
+                /** Screen position just above the cup (for the finish button), or null. */
+                anchor: () => {
+                  if (!bar || !renderer) return null;
+                  bar.cupAnchor(barAnchor).project(camera);
+                  if (barAnchor.z > 1) return null;
+                  const rect = renderer.domElement.getBoundingClientRect();
+                  return {
+                    x: rect.left + ((barAnchor.x + 1) / 2) * rect.width,
+                    y: rect.top + ((1 - barAnchor.y) / 2) * rect.height,
+                  };
+                },
               },
               pov: (on: boolean) => {
                 if (on === pov.on || !people) return;
@@ -2525,6 +2609,7 @@ export default function CafeScene({
             controls!.enableRotate = !explore.run;
           }
           people?.update(delta, reduced);
+          bar?.update(delta);
           const exploreCamera =
             explore.on &&
             !telescopeMode &&
@@ -2541,13 +2626,31 @@ export default function CafeScene({
             }
           }
           if (explore.on && pov.on && people && !photo.on) {
-            // Luna's eyes over the counter; eased so the move feels soft.
-            const scale = cafeModel?.getWorldScale(photoScale).x ?? 1;
-            pov.eye.copy(people.baristaPosition());
-            pov.eye.y += 1.02 * scale;
-            photoDir.setFromSphericalCoords(1, Math.PI / 2 + 0.62, pov.heading);
-            pov.eye.addScaledVector(photoDir, -0.12 * scale);
-            pov.look.copy(pov.eye).add(photoDir);
+            // Luna's eyes over the counter (or turned to the freezer); eased so moves feel soft.
+            const view = bar && cafeModel ? bar.views[bar.view()] : null;
+            if (view && bar && cafeModel) {
+              barPan += (barPanTarget - barPan) * (1 - Math.exp(-delta * 8));
+              const counter = bar.view() === 'counter',
+                pan = counter ? barPan : 0,
+                portrait = camera.aspect < 1;
+              pov.eye.copy(view.eye);
+              pov.eye.x += pan;
+              if (portrait && counter) {
+                pov.eye.z += 0.25;
+                pov.eye.y += 0.12;
+              }
+              pov.look.copy(view.target);
+              pov.look.x += pan;
+              cafeModel.localToWorld(pov.eye);
+              cafeModel.localToWorld(pov.look);
+            } else {
+              const scale = cafeModel?.getWorldScale(photoScale).x ?? 1;
+              pov.eye.copy(people.baristaPosition());
+              pov.eye.y += 1.02 * scale;
+              photoDir.setFromSphericalCoords(1, Math.PI / 2 + 0.62, pov.heading);
+              pov.eye.addScaledVector(photoDir, -0.12 * scale);
+              pov.look.copy(pov.eye).add(photoDir);
+            }
             const ease = 1 - Math.exp(-delta * 5);
             camera.position.lerp(pov.eye, ease);
             controls!.target.lerp(pov.look, ease);
@@ -3135,6 +3238,7 @@ export default function CafeScene({
       toonOutline.dispose();
       sky.dispose();
       world?.dispose();
+      bar?.dispose();
       addedTargets.forEach((target) => target.dispose());
       renderer?.dispose();
       renderer?.forceContextLoss();

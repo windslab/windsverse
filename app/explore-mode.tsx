@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { LogOut } from 'lucide-react';
 import type { CafeVisitor } from '@/lib/cafe-activity';
+import type { BarDrink, BarHandlers } from '@/lib/bar-rig';
 import {
   DENOMINATIONS,
   crowdFor,
@@ -72,6 +73,18 @@ export type ExploreApi = {
   telescope: () => void;
   /** Making a drink: the camera moves to Luna's eyes over the bar counter (and back). */
   pov: (on: boolean) => void;
+  /** The 3D bar station on the counter (lib/bar-rig.ts), driven from the screen. */
+  bar: {
+    open: (handlers: BarHandlers) => void;
+    close: () => void;
+    setDrink: (drink: BarDrink) => void;
+    setSlots: (slots: string[]) => void;
+    setDose: (grams: number) => void;
+    down: (x: number, y: number) => void;
+    move: (x: number, y: number) => void;
+    up: () => void;
+    anchor: () => { x: number; y: number } | null;
+  };
   /** Story of Winds from Luna's camera. */
   photo: {
     start: () => void;
@@ -861,6 +874,7 @@ export default function ExploreMode({
       )}
       {panel === 'bar' && ticketCustomer && (
         <BarStation
+          bar={api.bar}
           name={ticketCustomer.name}
           order={ticketCustomer.order}
           drink={drink}

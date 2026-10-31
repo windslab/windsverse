@@ -1282,6 +1282,10 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       manualTask = next;
     },
     baristaPosition: () => barista.position,
+    /** Hidden while the camera looks through her eyes at the bar. */
+    setBaristaVisible(on: boolean) {
+      barista.visual.visible = on;
+    },
     /** Which way Luna faces (radians about Y; 0 = +Z). */
     baristaHeading: () => barista.visual.rotation.y,
     stations: { cashier: anchors.cashier, bar: anchors.working, entrance: anchors.entrance },

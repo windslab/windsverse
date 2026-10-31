@@ -931,3 +931,29 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   tampilan desktop dan HP. Kamera POV di dalam 3D belum diuji di browser (panel browser
   tersembunyi). `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6, `engine.test`
   28/32 seperti sebelumnya.
+
+## 47. Meja racik Windstopia menjadi 3D di meja bar asli (1 Nov 2026)
+
+- Versi 2D (bagian 46) diganti. Perlengkapan bar kini **model 3D** di atas meja bar asli kafe
+  (`lib/bar-rig.ts`), di samping mesin kopi, freezer, dan kulkas buatan pemilik: 3 botol sirup
+  berpompa, 3 toples bubuk (cokelat, matcha, taro), toples biji kopi, tumpukan cup plastik bening
+  dan paper cup, karton susu, kaleng SKM, grinder (hopper, tombol, garpu portafilter), portafilter,
+  tamper dengan alas, dan kotak ampas.
+- **Kamera mata Luna** dengan sudut tetap ke meja bar (geser layar ke kiri/kanan untuk melihat
+  sepanjang meja), dan berbalik ke freezer saat mengambil es. Luna disembunyikan selama itu.
+  Setelah "selesai", kamera kembali ke CCTV di area bar, lalu ke mode bebas setelah keluar.
+- **Interaksi**: sentuh benda 3D-nya. Cup meluncur dari tumpukan ke meja; sirup: cup bergeser ke
+  bawah corong, pompa ditekan (10 ml), tekan lama botol untuk mengganti isinya; bubuk: tutup
+  terangkat, sendok menuang; susu/SKM: diangkat dan dituang; es: kamera menoleh ke freezer, scoop,
+  lalu es masuk cup.
+- **Espresso seperti aslinya**: portafilter ke garpu grinder; ketuk grinder untuk menggiling sesuai
+  **dosis** (pilih 16/18/20 g); ke alas, ketuk tamper (turun, tekan, putar sedikit, naik); ketuk
+  portafilter: naik ke bawah group head dalam posisi miring ke kiri, lalu **geser ke kanan** untuk
+  memutarnya sampai terkunci (tertarik sendiri bila dekat tengah); ketuk mesin untuk brew (cup ke
+  drip tray, aliran espresso, timer dan volume target 1:2), ketuk lagi untuk stop. Shot bagus:
+  24–31 dtk dan dekat 1:2. Ketuk portafilter untuk membuka, mengetuk ampas, dan mengembalikannya.
+- **Layar minimal**: tiket kecil, satu baris petunjuk, angka dosis/detik/ml saat dipakai, tombol
+  dosis, "buang", "tutup", dan tombol kecil **selesai** yang melayang di atas cup.
+- Typecheck, format, build, dan tes lulus seperti sebelumnya. Belum diuji langsung di browser
+  (panel browser asisten tersembunyi, scene 3D tidak dimuat); posisi benda dihitung dari koordinat
+  model kafe dan mungkin perlu disetel setelah dicoba.
