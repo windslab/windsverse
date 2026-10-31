@@ -27,6 +27,11 @@ export type Sfx =
   | 'tamp'
   | 'brew-start'
   | 'brew-stop'
+  | 'pump'
+  | 'scoop'
+  | 'ice'
+  | 'lock'
+  | 'knock'
   | 'serve'
   | 'sit'
   | 'jump'
@@ -638,6 +643,43 @@ export function createCafeSound(context: AudioContext) {
               gain: 0.03 * g,
               pan,
             });
+          break;
+        case 'pump':
+          // A syrup pump: soft plastic click down, then a thick little squirt.
+          tone({ f0: 900, f1: 600, decay: 0.04, gain: 0.04 * g, pan, wave: 'triangle' });
+          burst({
+            at: at + 0.06,
+            freq: 500,
+            freqTo: 300,
+            q: 2,
+            attack: 0.02,
+            decay: 0.18,
+            gain: 0.06 * g,
+            pan,
+          });
+          break;
+        case 'scoop':
+          burst({ freq: 3000, q: 0.8, attack: 0.04, decay: 0.25, gain: 0.03 * g, pan });
+          tone({ at: at + 0.18, f0: 2500, decay: 0.05, gain: 0.02 * g, pan });
+          break;
+        case 'ice':
+          for (let i = 0; i < 6; i++)
+            tone({
+              at: at + i * 0.05 + Math.random() * 0.03,
+              f0: 2800 + Math.random() * 1600,
+              decay: 0.05,
+              gain: 0.03 * g,
+              pan,
+              wave: 'triangle',
+            });
+          break;
+        case 'lock':
+          tone({ f0: 320, f1: 220, decay: 0.06, gain: 0.07 * g, pan, wave: 'triangle' });
+          tone({ at: at + 0.04, f0: 1900, decay: 0.05, gain: 0.04 * g, pan });
+          break;
+        case 'knock':
+          tone({ f0: 150, f1: 70, decay: 0.1, gain: 0.09 * g, pan });
+          burst({ type: 'lowpass', freq: 700, decay: 0.1, gain: 0.05 * g, pan });
           break;
         case 'sit':
           tone({ f0: 210, f1: 160, decay: 0.12, gain: 0.05 * g, pan, wave: 'triangle' });

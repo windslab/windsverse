@@ -10,7 +10,7 @@ export type Ingredient = {
   id: string;
   name: string;
   unit: string;
-  /** Amount added per tap. */
+  /** Amount added per tap (syrups: one 10 ml pump). */
   step: number;
   max: number;
   /** Taste contribution per unit. */
@@ -47,12 +47,12 @@ export const INGREDIENTS: Ingredient[] = [
     taste: { milky: 0.0045, sweet: 0.0004 },
   },
   { id: 'skm', name: 'SKM', unit: 'ml', step: 10, max: 60, taste: { sweet: 0.012, milky: 0.004 } },
-  { id: 'gula', name: 'Gula cair', unit: 'ml', step: 5, max: 40, taste: { sweet: 0.016 } },
+  { id: 'gula', name: 'Gula cair', unit: 'ml', step: 10, max: 40, taste: { sweet: 0.016 } },
   {
     id: 'aren',
     name: 'Gula aren',
     unit: 'ml',
-    step: 5,
+    step: 10,
     max: 40,
     taste: { sweet: 0.014 },
     flavor: 'aren',
@@ -80,7 +80,7 @@ export const INGREDIENTS: Ingredient[] = [
     id: 'vanila',
     name: 'Sirup vanila',
     unit: 'ml',
-    step: 5,
+    step: 10,
     max: 30,
     taste: { sweet: 0.01 },
     flavor: 'vanila',
@@ -89,7 +89,7 @@ export const INGREDIENTS: Ingredient[] = [
     id: 'karamel',
     name: 'Sirup karamel',
     unit: 'ml',
-    step: 5,
+    step: 10,
     max: 30,
     taste: { sweet: 0.012 },
     flavor: 'karamel',

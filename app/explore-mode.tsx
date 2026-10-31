@@ -4,19 +4,16 @@
 // pull espresso for coffee, then carry it to the guest's table for a star rating.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { Coffee, LogOut } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import type { CafeVisitor } from '@/lib/cafe-activity';
 import {
-  CUPS,
   DENOMINATIONS,
-  INGREDIENTS,
   crowdFor,
   drinkMenu,
   GAME_MINUTES_PER_SECOND,
   newCustomer,
   rupiah,
   type Crowd,
-  type CupId,
   type Drink,
   type MenuItem,
   type Order,
@@ -27,6 +24,7 @@ import styles from './explore-mode.module.css';
 import VintageCamera from './vintage-camera';
 import Digicam from './explore-digicam';
 import { Bag, Notebook, Reader, type BagItem } from './explore-bag';
+import BarStation from './explore-bar';
 
 export type ExploreApi = {
   setManual: (on: boolean) => void;
@@ -72,6 +70,8 @@ export type ExploreApi = {
   hangPhoto: (url: string) => void;
   /** Open Windstronout through the café's telescope. */
   telescope: () => void;
+  /** Making a drink: the camera moves to Luna's eyes over the bar counter (and back). */
+  pov: (on: boolean) => void;
   /** Story of Winds from Luna's camera. */
   photo: {
     start: () => void;
@@ -108,7 +108,7 @@ type Customer = {
   wrongItem?: boolean;
   servedAt?: number;
 };
-type Panel = 'cashier' | 'cup' | 'prep' | 'espresso' | null;
+type Panel = 'cashier' | 'bar' | null;
 type MenuSource = { id: string; name: string; price: number; category: string; status?: string };
 
 const NEAR = 1.15;
@@ -212,6 +212,11 @@ export default function ExploreMode({
     openRef = useRef(false),
     crowdHour = useRef(-1),
     crowdRef = useRef<Crowd>({ label: 'sepi', chance: 0.12, max: 2 });
+  // At the bar the camera becomes Luna's eyes; it returns when the bar closes or Explore ends.
+  useEffect(() => {
+    api.pov(panel === 'bar');
+  }, [api, panel]);
+  useEffect(() => () => api.pov(false), [api]);
   useEffect(() => {
     customersRef.current = customers;
   }, [customers]);
@@ -637,7 +642,7 @@ export default function ExploreMode({
       setTimeout(() => setNote(''), 2200);
     }
     if (id === 'cashier') setPanel('cashier');
-    if (id === 'cup' || id === 'prep') {
+    if (id === 'cup' || id === 'prep' || id === 'espresso') {
       if (!ticket) {
         const next = customersRef.current.find((c) => c.stage === 'waiting');
         if (next) {
@@ -645,9 +650,8 @@ export default function ExploreMode({
           setDrink(emptyDrink());
         }
       }
-      setPanel(id);
+      setPanel('bar');
     }
-    if (id === 'espresso') setPanel('espresso');
     if (id === 'serve' && ticket) {
       const c = customersRef.current.find((x) => x.key === ticket);
       if (!c) return;
@@ -855,55 +859,17 @@ export default function ExploreMode({
           }}
         />
       )}
-      {panel === 'cup' && (
-        <div className={styles.panel} role="dialog" aria-label="Ambil cangkir atau cup">
-          <p className={styles.speech}>Ambil yang mana?</p>
-          <div className={styles.choices}>
-            {CUPS.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => {
-                  setDrink((d) => ({ ...d, cup: c.id as CupId }));
-                  playSfx('cup');
-                  setPanel(null);
-                }}
-              >
-                {c.name}
-              </button>
-            ))}
-          </div>
-          <button className={styles.close} onClick={() => setPanel(null)}>
-            batal
-          </button>
-        </div>
-      )}
-      {panel === 'prep' && ticketCustomer && (
-        <PrepPanel
-          customer={ticketCustomer}
+      {panel === 'bar' && ticketCustomer && (
+        <BarStation
+          name={ticketCustomer.name}
+          order={ticketCustomer.order}
           drink={drink}
           onChange={setDrink}
           onClose={() => setPanel(null)}
           onFinish={() => {
-            playSfx('stir');
             setHolding(true);
             setPanel(null);
           }}
-        />
-      )}
-      {panel === 'espresso' && (
-        <EspressoPanel
-          shots={drink.amounts.espresso ?? 0}
-          onClose={() => setPanel(null)}
-          onShot={(quality) =>
-            setDrink((d) => {
-              const shots = (d.amounts.espresso ?? 0) + 1;
-              return {
-                ...d,
-                amounts: { ...d.amounts, espresso: shots },
-                espressoQuality: (d.espressoQuality * (shots - 1) + quality) / shots,
-              };
-            })
-          }
         />
       )}
     </div>
@@ -1054,227 +1020,6 @@ function CashierPanel({
       <button className={styles.close} onClick={onClose}>
         tutup
       </button>
-    </div>
-  );
-}
-
-function PrepPanel({
-  customer,
-  drink,
-  onChange,
-  onClose,
-  onFinish,
-}: {
-  customer: Customer;
-  drink: Drink;
-  onChange: (update: (d: Drink) => Drink) => void;
-  onClose: () => void;
-  onFinish: () => void;
-}) {
-  const add = (id: string, delta: number) => {
-    const ing = INGREDIENTS.find((i) => i.id === id)!;
-    if (delta > 0) playSfx('pour');
-    onChange((d) => ({
-      ...d,
-      amounts: {
-        ...d.amounts,
-        [id]: Math.min(ing.max, Math.max(0, (d.amounts[id] ?? 0) + delta * ing.step)),
-      },
-    }));
-  };
-  const cup = CUPS.find((c) => c.id === drink.cup);
-  return (
-    <div className={styles.panel} role="dialog" aria-label="Masukkan takaran">
-      <p className={styles.speech}>
-        {cup?.name} · {customer.order.item.name}
-      </p>
-      <ul className={styles.ingredients}>
-        {INGREDIENTS.map((ing) => {
-          const amount = drink.amounts[ing.id] ?? 0;
-          return (
-            <li key={ing.id} className={amount ? styles.used : undefined}>
-              <span>{ing.name}</span>
-              {ing.espresso ? (
-                <small>{amount ? `${amount} shot` : 'mesin espresso'}</small>
-              ) : (
-                <span className={styles.stepper}>
-                  <button onClick={() => add(ing.id, -1)} aria-label={'Kurangi ' + ing.name}>
-                    −
-                  </button>
-                  <small>
-                    {amount} {ing.unit}
-                  </small>
-                  <button onClick={() => add(ing.id, 1)} aria-label={'Tambah ' + ing.name}>
-                    +
-                  </button>
-                </span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      {customer.order.coffee && !(drink.amounts.espresso > 0) && (
-        <p className={styles.reply}>
-          <Coffee size={12} /> menu kopi: tarik shot di mesin espresso
-        </p>
-      )}
-      <button className={styles.primary} onClick={onFinish}>
-        selesai, siap diantar →
-      </button>
-      <button className={styles.close} onClick={onClose}>
-        tutup
-      </button>
-    </div>
-  );
-}
-
-function EspressoPanel({
-  shots,
-  onClose,
-  onShot,
-}: {
-  shots: number;
-  onClose: () => void;
-  onShot: (quality: number) => void;
-}) {
-  const [step, setStep] = useState<'grind' | 'tamp' | 'pull' | 'done'>('grind'),
-    [grind, setGrind] = useState(0),
-    [needle, setNeedle] = useState(0),
-    [result, setResult] = useState(''),
-    holdTimer = useRef<ReturnType<typeof setInterval> | null>(null),
-    pullTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  useEffect(
-    () => () => {
-      // Closing the panel mid-way: the grinder and the brew stop too.
-      if (holdTimer.current) {
-        clearInterval(holdTimer.current);
-        playSfx('grind-stop');
-      }
-      if (pullTimer.current) {
-        clearInterval(pullTimer.current);
-        playSfx('brew-stop');
-      }
-    },
-    [],
-  );
-  const startPull = () => {
-    playSfx('tamp');
-    setTimeout(() => playSfx('brew-start'), 450);
-    setStep('pull');
-    const started = Date.now();
-    pullTimer.current = setInterval(() => {
-      const t = ((Date.now() - started) / 2600) % 2;
-      setNeedle(t < 1 ? t : 2 - t);
-    }, 16);
-  };
-  const stopPull = () => {
-    if (pullTimer.current) clearInterval(pullTimer.current);
-    pullTimer.current = null;
-    playSfx('brew-stop');
-    // Sweet spot in the middle of the dial (like 25–30 s on a real machine).
-    const quality = Math.max(0.2, 1 - Math.abs(needle - 0.55) * 3.2);
-    onShot(quality);
-    setResult(
-      quality > 0.85
-        ? 'Sempurna! Crema cantik.'
-        : quality > 0.5
-          ? 'Lumayan.'
-          : needle > 0.55
-            ? 'Kelamaan, pahit.'
-            : 'Kecepetan, asam.',
-    );
-    setStep('done');
-  };
-  return (
-    <div className={styles.panel} role="dialog" aria-label="Mesin espresso">
-      <header>
-        <strong>Mesin espresso · {shots} shot</strong>
-        <button onClick={onClose} aria-label="Tutup">
-          ×
-        </button>
-      </header>
-      {step === 'grind' && (
-        <>
-          <p className={styles.speech}>Tahan tombol untuk menggiling biji kopi.</p>
-          <div className={styles.meter}>
-            <i style={{ width: `${grind * 100}%` }} />
-          </div>
-          <button
-            className={styles.primary}
-            onPointerDown={() => {
-              playSfx('grind-start');
-              if (holdTimer.current) clearInterval(holdTimer.current);
-              holdTimer.current = setInterval(
-                () =>
-                  setGrind((g) => {
-                    const next = Math.min(1, g + 0.04);
-                    if (next >= 1) {
-                      if (holdTimer.current) clearInterval(holdTimer.current);
-                      holdTimer.current = null;
-                      playSfx('grind-stop');
-                      setStep('tamp');
-                    }
-                    return next;
-                  }),
-                30,
-              );
-            }}
-            onPointerUp={() => {
-              playSfx('grind-stop');
-              if (holdTimer.current) clearInterval(holdTimer.current);
-              holdTimer.current = null;
-            }}
-            onPointerLeave={() => {
-              playSfx('grind-stop');
-              if (holdTimer.current) clearInterval(holdTimer.current);
-              holdTimer.current = null;
-            }}
-          >
-            Tahan untuk menggiling
-          </button>
-        </>
-      )}
-      {step === 'tamp' && (
-        <>
-          <p className={styles.speech}>Bubuk kopi siap. Padatkan (tamp) lalu pasang portafilter.</p>
-          <button className={styles.primary} onClick={startPull}>
-            Tamp & mulai seduh
-          </button>
-        </>
-      )}
-      {step === 'pull' && (
-        <>
-          <p className={styles.speech}>Hentikan saat jarum di zona hijau.</p>
-          <div className={styles.dial}>
-            <i className={styles.zone} />
-            <i className={styles.needle} style={{ left: `${needle * 100}%` }} />
-          </div>
-          <button className={styles.primary} onClick={stopPull}>
-            Stop
-          </button>
-        </>
-      )}
-      {step === 'done' && (
-        <>
-          <p className={styles.speech}>{result} Shot masuk ke gelas.</p>
-          <div className={styles.row}>
-            {shots < 3 && (
-              <button
-                className={styles.secondary}
-                onClick={() => {
-                  setGrind(0);
-                  setStep('grind');
-                }}
-              >
-                Tambah shot
-              </button>
-            )}
-            <button className={styles.primary} onClick={onClose}>
-              Selesai
-            </button>
-          </div>
-        </>
-      )}
     </div>
   );
 }

@@ -520,6 +520,14 @@ export default function CafeScene({
       photoDir = new THREE.Vector3(),
       photoScale = new THREE.Vector3();
     let photoSaved: { position: THREE.Vector3; target: THREE.Vector3; fov: number } | null = null;
+    // Making a drink: the camera glides to Luna's eyes, looking down at the bar counter.
+    const pov = {
+      on: false,
+      heading: 0,
+      eye: new THREE.Vector3(),
+      look: new THREE.Vector3(),
+      saved: null as { position: THREE.Vector3; target: THREE.Vector3; fov: number } | null,
+    };
     const cctvLook = { yaw: 0, pitch: 0 },
       cctvDrag = new Map<number, { x: number; y: number }>(),
       cctvDir = new THREE.Vector3();
@@ -1752,6 +1760,29 @@ export default function CafeScene({
                   w.setFramePhoto(texture);
                 });
               },
+              pov: (on: boolean) => {
+                if (on === pov.on || !people) return;
+                if (on) {
+                  pov.saved = {
+                    position: camera.position.clone(),
+                    target: controls!.target.clone(),
+                    fov: camera.fov,
+                  };
+                  // Face the espresso machine on the counter.
+                  const at = people.baristaPosition(),
+                    machinePos = machine?.getWorldPosition(new THREE.Vector3()) ?? at;
+                  pov.heading = Math.atan2(machinePos.x - at.x, machinePos.z - at.z);
+                  controls!.enabled = false;
+                } else if (pov.saved) {
+                  camera.position.copy(pov.saved.position);
+                  controls!.target.copy(pov.saved.target);
+                  camera.fov = pov.saved.fov;
+                  camera.updateProjectionMatrix();
+                  controls!.enabled = true;
+                  pov.saved = null;
+                }
+                pov.on = on;
+              },
               photo: {
                 start: () => {
                   if (photo.on) return;
@@ -2495,7 +2526,12 @@ export default function CafeScene({
           }
           people?.update(delta, reduced);
           const exploreCamera =
-            explore.on && !telescopeMode && !transition && !debugCamera.frozen && !photo.on;
+            explore.on &&
+            !telescopeMode &&
+            !transition &&
+            !debugCamera.frozen &&
+            !photo.on &&
+            !pov.on;
           // The instrument Luna is playing leaves its stand.
           if (world && people) {
             const playing = people.activity();
@@ -2504,7 +2540,29 @@ export default function CafeScene({
               if (standingOne) standingOne.visible = playing !== kind;
             }
           }
-          if (explore.on && photo.on && people && photo.mount === 'tripod' && tripod.placed) {
+          if (explore.on && pov.on && people && !photo.on) {
+            // Luna's eyes over the counter; eased so the move feels soft.
+            const scale = cafeModel?.getWorldScale(photoScale).x ?? 1;
+            pov.eye.copy(people.baristaPosition());
+            pov.eye.y += 1.02 * scale;
+            photoDir.setFromSphericalCoords(1, Math.PI / 2 + 0.62, pov.heading);
+            pov.eye.addScaledVector(photoDir, -0.12 * scale);
+            pov.look.copy(pov.eye).add(photoDir);
+            const ease = 1 - Math.exp(-delta * 5);
+            camera.position.lerp(pov.eye, ease);
+            controls!.target.lerp(pov.look, ease);
+            if (Math.abs(camera.fov - 62) > 0.05) {
+              camera.fov += (62 - camera.fov) * ease;
+              camera.updateProjectionMatrix();
+            }
+            camera.lookAt(controls!.target);
+          } else if (
+            explore.on &&
+            photo.on &&
+            people &&
+            photo.mount === 'tripod' &&
+            tripod.placed
+          ) {
             // The camera on its tripod, looking where it was set up (turnable and zoomable).
             photoDir.setFromSphericalCoords(
               1,

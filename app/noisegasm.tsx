@@ -7,7 +7,7 @@
 // the music starts on the first tap, click or key press anywhere on the page.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { Pause, Play, SkipBack, SkipForward } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Pause, Play, SkipBack, SkipForward } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import styles from './noisegasm.module.css';
 
@@ -67,7 +67,8 @@ function loadYouTube() {
 }
 
 const PAUSED_KEY = 'noisegasm-paused',
-  VOLUME_KEY = 'noisegasm-volume';
+  VOLUME_KEY = 'noisegasm-volume',
+  TUCKED_KEY = 'noisegasm-tucked';
 const session = {
   get(key: string) {
     try {
@@ -98,7 +99,9 @@ export default function Noisegasm({
     [playing, setPlaying] = useState(false),
     [volume, setVolumeState] = useState(0.5),
     [nowPlaying, setNowPlaying] = useState({ title: '', artist: '' }),
-    [waiting, setWaiting] = useState(false);
+    [waiting, setWaiting] = useState(false),
+    // Tucked to the screen edge so it covers nothing; the music keeps playing.
+    [tucked, setTucked] = useState(() => session.get(TUCKED_KEY) === '1');
   const audio = useRef<HTMLAudioElement>(null),
     graph = useRef<{ ctx: AudioContext; gain: GainNode } | null>(null),
     yt = useRef<YTPlayer | null>(null),
@@ -290,6 +293,7 @@ export default function Noisegasm({
         className={styles.mini + ' noisegasm-mini'}
         data-on={playing || undefined}
         data-youtube={youtube || undefined}
+        data-tucked={tucked || undefined}
       >
         <div className={styles.miniVideo} ref={ytHost} hidden={!youtube} />
         <button className={styles.miniMain} onClick={() => onOpenChange(true)}>
@@ -309,6 +313,19 @@ export default function Noisegasm({
           onClick={toggle}
         >
           {playing ? <Pause size={15} /> : <Play size={15} />}
+        </button>
+        <button
+          className={styles.miniTuck}
+          aria-label={
+            tucked ? 'Tampilkan pemutar musik' : 'Sembunyikan pemutar (musik tetap jalan)'
+          }
+          aria-expanded={!tucked}
+          onClick={() => {
+            session.set(TUCKED_KEY, tucked ? '' : '1');
+            setTucked(!tucked);
+          }}
+        >
+          {tucked ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
       </div>
 

@@ -900,3 +900,34 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   unggah foto landscape (tersimpan 1280×952, jatah 15 → 14), tombol ▶, dan tampilan HP berdiri.
   Kamera asli tidak bisa diuji di browser uji (akses kamera diblokir). `typecheck`,
   `format:check`, `build` lulus; masalah lint lama di file kamera tidak bertambah.
+
+## 46. Noisegasm bisa disembunyikan; meja racik Windstopia dari sudut pandang Luna (1 Nov 2026)
+
+- **Noisegasm**: pemutar mini kini di bawah jendela-jendela (kamera Story of Winds tidak lagi
+  tertutup) dan punya tombol **‹** untuk menyembunyikannya ke tepi kiri; tinggal tab kecil, musik
+  tetap berjalan. Pilihan ini diingat selama kunjungan.
+- **Meja racik baru** (`app/explore-bar.tsx`), menggantikan panel cangkir, daftar takaran, dan
+  panel espresso. Saat meracik, kamera meluncur halus ke mata Luna menghadap mesin espresso, lalu
+  kembali saat selesai. Di atasnya meja bar bergambar yang semuanya bisa disentuh:
+  - Rak **gelas plastik** (dingin) dan **paper cup** (panas); gelas meluncur ke tengah meja.
+  - **3 botol sirup berpompa**, tiap pompa 10 ml (tutup pompa turun, botol bergoyang, tetesan
+    melengkung ke gelas). Isi tiap botol bisa diganti (⟲): gula cair, gula aren, vanila, karamel;
+    pilihan diingat di perangkat.
+  - **Toples bubuk** cokelat, matcha, taro (tutup terbuka, sendok terbang ke gelas).
+  - **Toples biji kopi** untuk mengisi hopper grinder.
+  - Susu, SKM, teh, air panas.
+  - **Freezer**: buka laci, "Serok es" — satu serokan langsung untuk satu gelas.
+  - **Espresso seperti aslinya**: ketuk portafilter ke bawah **grinder**, tahan GRIND sampai penuh,
+    ketuk ke alas lalu tahan **tamper**, ketuk ke mesin, **seret gagangnya dari kiri ke kanan**
+    sampai terkunci di tengah (tertarik sendiri bila dilepas dekat tengah), tekan **BREW** — gelas
+    bergeser ke bawah mesin dan espresso mengalir — lalu **STOP**. Timer menunjukkan detik
+    ekstraksi; 24–31 detik = shot sempurna. Ketuk portafilter lagi untuk membuang ampas.
+  - Gelas menampilkan isinya: warna campuran, es batu yang bergoyang, crema, uap untuk minuman
+    panas. Tiket pesanan, petunjuk langkah berikutnya, "Buang & ulang", "Tutup", "Selesai racik".
+  - Di HP berdiri, meja lebih lebar dari layar dan bisa digeser ke kiri-kanan.
+  - Animasi lembut (pegas dan easing halus) dan suara baru: pompa, serok, es, kunci, ketuk ampas.
+- Dicek di halaman uji lokal: alur Es Kopi Susu Aren lengkap (gelas plastik, es 1 serok, aren 2
+  pompa = 20 ml, susu, giling, tamp, kunci dengan seret mouse, brew 26 dtk "shot sempurna"),
+  tampilan desktop dan HP. Kamera POV di dalam 3D belum diuji di browser (panel browser
+  tersembunyi). `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6, `engine.test`
+  28/32 seperti sebelumnya.
