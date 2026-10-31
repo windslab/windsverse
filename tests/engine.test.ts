@@ -472,8 +472,10 @@ test('closed shift preserves historic HPP and refreshes admin cost corrections',
   const f = fixture();
   const o = sell(f);
   finish(f, o);
-  assert.throws(() => apply(f.s, owner, 'shift.close', { id: f.shift.id }), /absen keluar/);
-  apply(f.s, f.staff, 'attendance.out', { id: f.s.attendance[0].id }, morningOut);
+  // The admin may close at any time; whoever is still checked in is checked out.
+  apply(f.s, owner, 'shift.close', { id: f.shift.id }, morningOut);
+  assert.equal(f.shift.status, 'closed');
+  assert.equal(f.s.attendance[0].checkOut, morningOut.toISOString());
   const snap = f.shift.snapshot.profit;
   f.s.ingredients[0].unitCost = 99999;
   assert.equal(f.shift.snapshot.profit, snap);
@@ -760,4 +762,182 @@ test('admin cannot disable or demote their own account', () => {
         }),
       /akunnya sendiri/,
     );
+});
+
+function rosterDay() {
+  const s = initial(owner);
+  apply(s, owner, 'demo', {}, morning);
+  const hire = (name: string) => {
+    const emp = apply(
+      s,
+      owner,
+      'save',
+      {
+        kind: 'employees',
+        data: { name, role: 'karyawan', status: 'aktif', joinedAt: '2026-10-08' },
+      },
+      morning,
+    );
+    return { id: name, employeeId: emp.id, name, email: '', role: 'karyawan' } as Actor;
+  };
+  const sari = hire('Sari'),
+    budi = hire('Budi');
+  const plan = (name: string, start: string, end: string, ids: string[]) =>
+    apply(
+      s,
+      owner,
+      'save',
+      { kind: 'shifts', data: { name, startAt: start, endAt: end, employeeIds: ids } },
+      morning,
+    );
+  const pagi = plan('Pagi', '2026-10-08T08:00:00+08:00', '2026-10-08T16:00:00+08:00', [
+    sari.employeeId,
+  ]);
+  const malam = plan('Malam', '2026-10-08T16:00:00+08:00', '2026-10-08T23:00:00+08:00', [
+    budi.employeeId,
+  ]);
+  const order = (who: Actor, at: Date) =>
+    apply(
+      s,
+      who,
+      'order.create',
+      {
+        items: [{ productId: s.products[0].id, quantity: 1 }],
+        orderType: 'takeaway',
+        paid: true,
+        paymentMethod: 'tunai',
+        cashPaid: 1e7,
+      },
+      at,
+    );
+  const done = (o: any, at: Date) => {
+    for (const status of ['sedang_dibuat', 'siap_disajikan', 'selesai'])
+      apply(s, owner, 'order.status', { id: o.id, status }, at);
+  };
+  return { s, sari, budi, pagi, malam, order, done };
+}
+const wita = (time: string, date = '2026-10-08') => new Date(`${date}T${time}:00+08:00`);
+const open = (s: any, who: Actor) =>
+  s.attendance.find((at: any) => at.employeeId === who.employeeId && !at.checkOut);
+
+test('check-in works at any hour and picks the shift from the calendar', () => {
+  const f = rosterDay();
+  // Long before the morning shift starts, and without saying which shift.
+  const sh = apply(f.s, f.sari, 'attendance.in', {}, wita('06:10'));
+  assert.equal(sh.id, f.pagi.id);
+  assert.equal(f.pagi.status, 'open');
+  // The night employee checks in early too; both shifts may run at the same time.
+  assert.equal(apply(f.s, f.budi, 'attendance.in', {}, wita('09:00')).id, f.malam.id);
+  assert.equal(f.malam.status, 'open');
+});
+
+test('orders go to the author’s own shift, whenever they are entered', () => {
+  const f = rosterDay();
+  apply(f.s, f.sari, 'attendance.in', {}, wita('08:00'));
+  apply(f.s, f.budi, 'attendance.in', {}, wita('16:00'));
+  // Sari enters her morning sales late in the evening, from her notebook.
+  const late = f.order(f.sari, wita('21:30'));
+  const night = f.order(f.budi, wita('21:31'));
+  assert.equal(late.shiftId, f.pagi.id);
+  assert.equal(night.shiftId, f.malam.id);
+  f.done(late, wita('21:40'));
+  apply(f.s, f.sari, 'attendance.out', { id: open(f.s, f.sari).id }, wita('21:45'));
+  assert.equal(f.pagi.status, 'closed');
+  assert.equal(f.pagi.snapshot.orderCount, 1);
+  assert.equal(f.malam.status, 'open');
+});
+
+test('a forgotten check-out ends when the employee checks into the next shift', () => {
+  const f = rosterDay();
+  apply(f.s, f.sari, 'attendance.in', {}, wita('08:00'));
+  const tomorrow = apply(
+    f.s,
+    owner,
+    'save',
+    {
+      kind: 'shifts',
+      data: {
+        name: 'Pagi',
+        startAt: '2026-10-09T08:00:00+08:00',
+        endAt: '2026-10-09T16:00:00+08:00',
+        employeeIds: [f.sari.employeeId],
+      },
+    },
+    wita('08:00'),
+  );
+  const next = apply(f.s, f.sari, 'attendance.in', {}, wita('07:55', '2026-10-09'));
+  assert.equal(next.id, tomorrow.id);
+  assert.equal(f.pagi.status, 'closed');
+  assert.equal(f.s.attendance.filter((at: any) => !at.checkOut).length, 1);
+});
+
+test('full day: one employee on both shifts is paid for each', () => {
+  const f = rosterDay();
+  apply(f.s, owner, 'roster.fullday', { date: '2026-10-08', employeeIds: [f.sari.employeeId] });
+  assert.ok(f.malam.employeeIds.includes(f.sari.employeeId));
+  assert.equal(apply(f.s, f.sari, 'attendance.in', {}, wita('08:00')).id, f.pagi.id);
+  apply(f.s, f.sari, 'attendance.out', { id: open(f.s, f.sari).id }, wita('16:00'));
+  // The second check-in of the day goes to the night shift.
+  assert.equal(apply(f.s, f.sari, 'attendance.in', {}, wita('16:01')).id, f.malam.id);
+  assert.throws(() => apply(f.s, f.sari, 'attendance.in', {}, wita('16:02')), /sudah/);
+  apply(f.s, f.budi, 'attendance.in', {}, wita('16:05'));
+  apply(f.s, f.sari, 'attendance.out', { id: open(f.s, f.sari).id }, wita('23:00'));
+  apply(f.s, f.budi, 'attendance.out', { id: open(f.s, f.budi).id }, wita('23:00'));
+  assert.equal(f.pagi.status, 'closed');
+  assert.equal(f.malam.status, 'closed');
+  const sariShifts = [f.pagi, f.malam].filter((sh) =>
+    sh.snapshot.employees.some((e: any) => e.employeeId === f.sari.employeeId),
+  );
+  assert.equal(sariShifts.length, 2);
+});
+
+test('a stand-in chooses the shift and joins its roster', () => {
+  const f = rosterDay();
+  const extra = apply(
+    f.s,
+    owner,
+    'save',
+    {
+      kind: 'employees',
+      data: { name: 'Dewi', role: 'karyawan', status: 'aktif', joinedAt: '2026-10-08' },
+    },
+    morning,
+  );
+  const dewi = {
+    id: 'dewi',
+    employeeId: extra.id,
+    name: 'Dewi',
+    email: '',
+    role: 'karyawan',
+  } as Actor;
+  assert.throws(
+    () => apply(f.s, dewi, 'attendance.in', {}, wita('08:00')),
+    (e: any) => e.code === 'not-rostered',
+  );
+  assert.throws(() => apply(f.s, dewi, 'attendance.in', { shiftId: f.pagi.id }, wita('08:00')));
+  apply(f.s, dewi, 'attendance.in', { shiftId: f.pagi.id, standIn: true }, wita('08:00'));
+  assert.ok(f.pagi.employeeIds.includes(dewi.employeeId));
+  assert.match(open(f.s, dewi).notes, /Pengganti/);
+});
+
+test('a night shift past midnight still belongs to the day it started', () => {
+  const f = rosterDay();
+  apply(
+    f.s,
+    owner,
+    'save',
+    {
+      kind: 'shifts',
+      data: {
+        name: 'Pagi',
+        startAt: '2026-10-09T08:00:00+08:00',
+        endAt: '2026-10-09T16:00:00+08:00',
+        employeeIds: [f.budi.employeeId],
+      },
+    },
+    morning,
+  );
+  // Budi is late for the night shift and arrives after midnight.
+  assert.equal(apply(f.s, f.budi, 'attendance.in', {}, wita('00:40', '2026-10-09')).id, f.malam.id);
+  apply(f.s, f.budi, 'attendance.out', { id: open(f.s, f.budi).id }, wita('02:00', '2026-10-09'));
 });

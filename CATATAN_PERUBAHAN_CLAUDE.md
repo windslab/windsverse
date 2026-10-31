@@ -781,3 +781,31 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   (`cloudflare.json` → `domains`).
 - Dicek: halaman utama dengan scene 3D dan tombol Explore, menu dengan foto, login, tanpa error
   konsol, di domain asli.
+
+## 39. Absensi fleksibel: kehadiran per shift, bukan jam kerja (1 Nov 2026)
+
+- **Cek in kapan saja** dan otomatis masuk ke shift karyawan hari itu dari kalender (tanpa memilih
+  shift, tanpa batas jam). Hari usaha berganti pukul 05.00 WITA, jadi shift malam yang lewat tengah
+  malam tetap terhitung tanggal mulainya.
+- **Transaksi ikut akun**: pesanan yang diinput karyawan masuk ke shift tempat ia cek in, jam
+  berapa pun diinput (misalnya karyawan pagi menginput catatan bukunya malam hari). Beberapa shift
+  boleh berjalan bersamaan.
+- **Cek out kapan saja**; shift selesai setelah semua yang hadir cek out dan pesanannya selesai.
+  **Admin bisa menutup shift kapan saja** (yang masih cek in otomatis dicek out). Cek out yang
+  terlupa ditutup otomatis saat karyawan itu cek in di shift berikutnya.
+- **Full day**: tombol baru di kalender; karyawan yang dipilih masuk ke semua shift tanggal itu dan
+  dibayar untuk setiap shift. Di halaman pertama ada tombol "Cek out & lanjut shift malam".
+- **Pengganti**: karyawan yang tidak dijadwalkan bisa cek in sebagai pengganti dengan memilih
+  shift hari itu; ia masuk roster shift tersebut dan tercatat "Pengganti".
+- **Tombol Cek in / Cek out di halaman pertama** (Ringkasan), satu ketukan. Kasir menunjukkan
+  pengingat bila karyawan belum cek in.
+- **Tidak ada lagi "Data telah berubah di perangkat lain"** saat menekan tombol: aplikasi mengambil
+  data terbaru dan mencoba sekali lagi otomatis.
+- **Karyawan tidak keluar otomatis setelah 1 jam** tidak dipakai (tetap masuk sampai 12 jam).
+  Admin tetap keluar setelah 1 jam tidak dipakai.
+- Gaji tetap dihitung dari **laba shift** dengan tier gaji (keputusan pemilik: dicoba dari laba).
+- Tes baru (6) di `tests/engine.test.ts`; tes "admin tidak bisa menutup shift sebelum semua cek out"
+  disesuaikan dengan aturan baru. `engine.test` 27 lulus, 4 gagal yang sama seperti sebelumnya;
+  `barista.test` 6/6; `typecheck`, `format:check`, `build` lulus. Dicek di browser (ukuran HP) dengan
+  database uji lokal: cek in pukul 00.12, cek out saat data berubah dari perangkat lain (otomatis
+  dicoba ulang), shift tertutup dengan gaji tier, tombol Full day di kalender.

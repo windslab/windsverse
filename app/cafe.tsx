@@ -102,6 +102,7 @@ import {
   blank,
   money,
   localDate,
+  businessDay,
   dateTime,
   labels,
   shiftTotals,
@@ -280,7 +281,24 @@ export default function Cafe({ name }: { name: string }) {
   const admin = actor?.role === 'admin';
   const canEditKind = (kind: Kind) =>
     admin || ['ingredients', 'recipes', 'expenses', 'books'].includes(kind);
-  const openShiftNow = s.shifts.find((sh) => sh.status === 'open');
+  // Several shifts may run at once (a morning employee entering sales in the evening); each
+  // person works in the shift they are checked into.
+  const myAttendance = s.attendance.find(
+    (at) => at.employeeId === actor?.employeeId && at.status === 'hadir' && !at.checkOut,
+  );
+  const myShift = myAttendance
+    ? s.shifts.find((sh) => sh.id === myAttendance.shiftId && sh.status === 'open')
+    : undefined;
+  const openShiftNow = myShift || (admin ? s.shifts.find((sh) => sh.status === 'open') : undefined);
+  const workDay = businessDay();
+  const myShiftsToday = s.shifts
+    .filter((sh) => sh.date === workDay && sh.employeeIds.includes(actor?.employeeId))
+    .sort((a, b) => a.startAt.localeCompare(b.startAt));
+  const myNextShift = myShiftsToday.find(
+    (sh) =>
+      sh.status !== 'closed' &&
+      !s.attendance.some((at) => at.shiftId === sh.id && at.employeeId === actor?.employeeId),
+  );
   const isHistoricalShift = (sh: Row) =>
     sh.status === 'closed' || (sh.status === 'planned' && new Date(sh.endAt) <= new Date());
   const historicalPosShift =
@@ -296,7 +314,7 @@ export default function Cafe({ name }: { name: string }) {
   const today = localDate();
   const attendanceShifts = s.shifts.filter(
     (sh) =>
-      (sh.date === today || (sh.date < today && localDate(new Date(sh.endAt)) === today)) &&
+      (sh.date === today || sh.date === workDay) &&
       (admin || sh.employeeIds.includes(actor?.employeeId)),
   );
   const missingRecipeProducts = s.products.filter(
@@ -388,8 +406,21 @@ export default function Cafe({ name }: { name: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, payload, revision: revision.current, key }),
       });
-      const d: any = await r.json();
-      if (!r.ok) {
+      let d: any = await r.json();
+      if (!r.ok && d.code === 'stale') {
+        // Someone else changed something meanwhile (e.g. the cashier): take the latest revision
+        // and try once more. The server checks the action again against the current data.
+        const fresh: any = await fetch('/api/cafe', { cache: 'no-store' }).then((x) => x.json());
+        if (typeof fresh.revision === 'number') revision.current = fresh.revision;
+        const again = await fetch('/api/cafe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, payload, revision: revision.current, key }),
+        });
+        d = await again.json();
+        if (again.ok) d.ok = true;
+      } else if (r.ok) d.ok = true;
+      if (!d.ok) {
         pending.current = null;
         throw Error(d.error);
       }
@@ -1024,6 +1055,133 @@ export default function Cafe({ name }: { name: string }) {
   const days = Array.from({ length: 7 }, (_, i) =>
     localDate(new Date(startOfWeek.getTime() + i * 86400000)),
   );
+  const hours = (sh: Row) =>
+    [sh.startAt, sh.endAt]
+      .map((v) =>
+        new Date(v).toLocaleTimeString('id-ID', {
+          timeZone: CAFE_TIMEZONE,
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+      )
+      .join('–');
+  const standIn = () => {
+    const options = s.shifts
+      .filter((sh) => sh.date === workDay && sh.status !== 'closed')
+      .sort((a, b) => a.startAt.localeCompare(b.startAt))
+      .map((sh) => ({
+        value: sh.id,
+        label: `${sh.name} · ${hours(sh)} · ${sh.employeeIds.map(employee).join(', ')}`,
+      }));
+    if (!options.length) {
+      toast.error('Belum ada shift hari ini di kalender. Hubungi admin.');
+      return;
+    }
+    setModal({
+      title: 'Cek in sebagai pengganti',
+      description:
+        'Kamu tidak dijadwalkan hari ini. Pilih shift yang kamu gantikan; kamu akan tercatat sebagai pengganti di shift itu.',
+      fields: [{ key: 'shiftId', label: 'Shift', type: 'select', options, required: true }],
+      initial: { shiftId: options[0].value },
+      submit: (data: any) =>
+        act(
+          'attendance.in',
+          { shiftId: data.shiftId, standIn: true },
+          'Cek in sebagai pengganti tercatat',
+        ),
+    });
+  };
+  // One card on the first page: check in, check out, or move on to the next shift of a full day.
+  const checkInCard = () => (
+    <section className="panel">
+      <div className="section-head">
+        {myAttendance ? (
+          <>
+            <div>
+              <p className="eyebrow">SEDANG BERTUGAS</p>
+              <h2>{s.shifts.find((sh) => sh.id === myAttendance.shiftId)?.name || 'Shift'}</h2>
+              <small>
+                Cek in {dateTime(myAttendance.checkIn)}. Semua transaksi dari akunmu masuk ke shift
+                ini sampai kamu cek out.
+              </small>
+            </div>
+            <div className="row">
+              {myNextShift && (
+                <button
+                  className="button"
+                  disabled={busy}
+                  onClick={() => act('attendance.in', {}, 'Lanjut ke ' + myNextShift.name)}
+                >
+                  Cek out & lanjut {myNextShift.name}
+                </button>
+              )}
+              <button
+                className="button primary"
+                disabled={busy}
+                onClick={() => act('attendance.out', { id: myAttendance.id }, 'Cek out tercatat')}
+              >
+                <Clock size={18} />
+                Cek out
+              </button>
+            </div>
+          </>
+        ) : myNextShift ? (
+          <>
+            <div>
+              <p className="eyebrow">SHIFT KAMU HARI INI</p>
+              <h2>{myNextShift.name}</h2>
+              <small>Jadwal {hours(myNextShift)}. Cek in bisa kapan saja.</small>
+            </div>
+            <button
+              className="button primary"
+              disabled={busy}
+              onClick={() => act('attendance.in', {}, 'Cek in tercatat')}
+            >
+              <Clock size={18} />
+              Cek in
+            </button>
+          </>
+        ) : myShiftsToday.length ? (
+          <div>
+            <p className="eyebrow">ABSENSI HARI INI</p>
+            <h2>Sudah lengkap.</h2>
+            <small>Terima kasih untuk hari ini.</small>
+          </div>
+        ) : (
+          <>
+            <div>
+              <p className="eyebrow">ABSENSI HARI INI</p>
+              <h2>Kamu tidak dijadwalkan hari ini.</h2>
+              <small>Kalau kamu menggantikan teman, cek in sebagai pengganti.</small>
+            </div>
+            <button className="button" disabled={busy} onClick={standIn}>
+              Cek in sebagai pengganti
+            </button>
+          </>
+        )}
+      </div>
+    </section>
+  );
+  const fullDay = (date: string) =>
+    setModal({
+      title: 'Full day · ' + date,
+      description:
+        'Karyawan yang dipilih masuk ke semua shift tanggal ini (pagi dan malam) dan dibayar untuk setiap shift.',
+      fields: [
+        {
+          key: 'employeeIds',
+          label: 'Karyawan full day',
+          type: 'multi',
+          options: s.employees
+            .filter((e) => e.status === 'aktif')
+            .map((e) => ({ value: e.id, label: e.name })),
+          required: true,
+        },
+      ],
+      initial: { employeeIds: [] },
+      submit: (data: any) =>
+        act('roster.fullday', { date, employeeIds: data.employeeIds }, 'Jadwal full day disimpan'),
+    });
   const quickRoster = () => {
     const employees = s.employees
       .filter((e) => e.status === 'aktif')
@@ -1336,6 +1494,7 @@ export default function Cafe({ name }: { name: string }) {
             Pesanan baru
           </button>
         </div>
+        {(!admin || myShiftsToday.length > 0 || myAttendance) && checkInCard()}
         <div className="metrics">
           <Metric
             label="Pesanan aktif"
@@ -1503,9 +1662,16 @@ export default function Cafe({ name }: { name: string }) {
           ) : (
             <>
               <span>
-                Tidak ada shift berjalan. Pilih shift yang sudah lewat pada pesanan untuk mencatat
-                transaksi terlambat.
+                {admin
+                  ? 'Tidak ada shift berjalan. Pilih shift yang sudah lewat pada pesanan untuk mencatat transaksi terlambat.'
+                  : 'Kamu belum cek in. Cek in dulu di Ringkasan supaya pesanan masuk ke shift-mu.'}
               </span>
+              {!admin && (
+                <button className="button primary" onClick={() => setTab('dashboard')}>
+                  <Clock size={16} />
+                  Ke tombol cek in
+                </button>
+              )}
               {admin && (
                 <button className="button" onClick={() => setTab('roster')}>
                   <CalendarDays size={16} />
@@ -1942,9 +2108,11 @@ export default function Cafe({ name }: { name: string }) {
           </div>,
         )}
         <div className="notice">
-          Semua jam menggunakan WITA (Pangkep). Jadwal menjadi acuan absensi dan alokasi gaji.
-          Karyawan check-in untuk memulai shift; check-out terakhir menyelesaikan shift otomatis
-          setelah pesanan selesai.
+          Semua jam menggunakan WITA (Pangkep). Jadwal menjadi acuan absensi dan gaji: yang dihitung
+          adalah kehadiran per shift, bukan jam kerja. Karyawan bisa cek in kapan saja dan otomatis
+          masuk ke shift-nya hari itu; transaksi dari akunnya masuk ke shift tersebut. Shift selesai
+          setelah semua yang hadir cek out (dan pesanannya selesai), atau ditutup admin. Karyawan
+          full day masuk ke semua shift hari itu dan dibayar untuk setiap shift.
         </div>
         {admin && s.shifts.some((sh) => !sh.scheduleTimezone) && (
           <div className="notice warning">
@@ -2030,6 +2198,12 @@ export default function Cafe({ name }: { name: string }) {
                   Jadwalkan
                 </button>
               )}
+              {admin && s.shifts.some((sh) => sh.date === d && sh.status !== 'closed') && (
+                <button className="calendar-add" onClick={() => fullDay(d)}>
+                  <Users size={16} />
+                  Full day
+                </button>
+              )}
             </section>
           ))}
         </div>
@@ -2075,9 +2249,6 @@ export default function Cafe({ name }: { name: string }) {
                 .filter((id: string) => admin || id === actor?.employeeId)
                 .map((id: string) => {
                   const at = s.attendance.find((x) => x.shiftId === sh.id && x.employeeId === id);
-                  const withinTime =
-                    Date.now() >= new Date(sh.startAt).getTime() &&
-                    Date.now() < new Date(sh.endAt).getTime();
                   return (
                     <div className="staff-card" key={id}>
                       <div className="avatar">{employee(id).slice(0, 2).toUpperCase()}</div>
@@ -2094,7 +2265,7 @@ export default function Cafe({ name }: { name: string }) {
                               : 'Check-in ' + dateTime(at.checkIn)
                           : 'Belum check-in'}
                       </small>
-                      {!at && sh.status !== 'closed' && withinTime ? (
+                      {!at && sh.status !== 'closed' ? (
                         <button
                           className="button primary"
                           disabled={busy}
@@ -2111,11 +2282,7 @@ export default function Cafe({ name }: { name: string }) {
                       ) : at && at.status === 'hadir' && !at.checkOut ? (
                         <button
                           className="button"
-                          disabled={
-                            busy ||
-                            (!admin &&
-                              !(sh.date === today || localDate(new Date(sh.endAt)) === today))
-                          }
+                          disabled={busy}
                           onClick={() => act('attendance.out', { id: at.id }, 'Check-out tercatat')}
                         >
                           Check-out

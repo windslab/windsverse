@@ -47,6 +47,12 @@ export const OPERATIONS_VERSION = 2;
 export const hasMissingHpp = (order: Row) =>
   order.hppComplete === false || order.items?.some((item: any) => item.hppMissing === true);
 export const tracksStock = (ingredient: Row) => ingredient.trackStock === true;
+/**
+ * The business day runs until 05:00 WITA, so a night shift checked into after midnight still
+ * counts for the date it started.
+ */
+export const businessDay = (d: Date = new Date()) =>
+  localDate(new Date(d.getTime() - 5 * 60 * 60 * 1000));
 export const localDate = (d: Date = new Date()) =>
   new Intl.DateTimeFormat('en-CA', {
     timeZone: CAFE_TIMEZONE,

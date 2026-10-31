@@ -5,6 +5,8 @@ import type { Actor } from './model';
 import { digest, randomSecret, verifyPin } from './auth-crypto';
 export const COOKIE = 'winds_session';
 export const SESSION_LIFE = 12 * 60 * 60 * 1000,
+  // Admins are signed out after an hour without use. Staff stay signed in for the whole session
+  // so the end of a shift is a single tap on check-out, not a new sign-in.
   IDLE_LIFE = 60 * 60 * 1000;
 type Credential = {
   employee_id: string;
@@ -36,10 +38,12 @@ export async function authenticate(req: Request): Promise<Actor> {
     .prepare(
       `SELECT s.employee_id,s.last_seen,r.data FROM auth_sessions s JOIN auth_credentials c ON c.employee_id=s.employee_id AND c.version=s.version AND c.enabled=1 JOIN records r ON r.id=s.employee_id AND r.kind='employees' WHERE s.token_hash=? AND s.expires_at>? AND s.last_seen>?`,
     )
-    .bind(await digest(token), now, now - IDLE_LIFE)
+    .bind(await digest(token), now, now - SESSION_LIFE)
     .first<any>();
   if (!found) throw new Fault('Sesi berakhir. Silakan masuk kembali.', 401);
   const e = JSON.parse(found.data);
+  if (e.role === 'admin' && now - found.last_seen > IDLE_LIFE)
+    throw new Fault('Sesi berakhir. Silakan masuk kembali.', 401);
   if (e.status !== 'aktif' || !['admin', 'karyawan'].includes(e.role))
     throw new Fault('Akun tidak aktif. Hubungi admin.', 401);
   if (now - found.last_seen > 60_000)
@@ -132,7 +136,7 @@ export async function createSession(req: Request, c: Credential) {
   await db.batch([
     db
       .prepare('DELETE FROM auth_sessions WHERE expires_at<=? OR last_seen<=?')
-      .bind(now, now - IDLE_LIFE),
+      .bind(now, now - SESSION_LIFE),
     db.prepare('DELETE FROM auth_attempts WHERE expires_at<=?').bind(now),
   ]);
   return sessionCookie(req, token);
