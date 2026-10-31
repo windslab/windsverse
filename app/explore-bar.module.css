@@ -22,7 +22,8 @@
 }
 .ticket,
 .top,
-.dose,
+.ice,
+.shots,
 .swap,
 .finish {
   pointer-events: auto;
@@ -61,7 +62,7 @@
   gap: 6px;
 }
 .top button,
-.dose button,
+.ice,
 .swap button {
   padding: 5px 11px;
   border: 0;
@@ -72,33 +73,6 @@
 }
 .top button:disabled {
   opacity: 0.4;
-}
-.dose {
-  position: absolute;
-  right: max(12px, env(safe-area-inset-right));
-  top: calc(max(12px, env(safe-area-inset-top)) + 34px);
-  display: flex;
-  gap: 4px;
-}
-.dose button[aria-checked='true'] {
-  background: rgba(227, 182, 106, 0.9);
-  color: #2a1c10;
-  font-weight: 700;
-}
-.readout {
-  position: absolute;
-  left: 50%;
-  top: max(12px, env(safe-area-inset-top));
-  transform: translateX(-50%);
-  margin: 0;
-  display: flex;
-  gap: 10px;
-  padding: 5px 12px;
-  border-radius: 999px;
-  background: rgba(20, 30, 24, 0.6);
-  color: #b8f0c8;
-  font-variant-numeric: tabular-nums;
-  backdrop-filter: blur(6px);
 }
 .swap {
   position: absolute;
@@ -126,7 +100,7 @@
   text-align: center;
   backdrop-filter: blur(6px);
 }
-.finish {
+.overlay .finish {
   position: fixed;
   left: 0;
   top: 0;
@@ -142,4 +116,79 @@
   from {
     opacity: 0;
   }
+}
+
+.ticket ol {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+.ticket li {
+  color: #d9ccb8;
+  padding-left: 16px;
+  position: relative;
+  transition: color 0.3s;
+}
+.ticket li::before {
+  content: '○';
+  position: absolute;
+  left: 0;
+  color: #8f8170;
+}
+.ticket li[data-next] {
+  color: #fff;
+  font-weight: 700;
+}
+.ticket li[data-next]::before {
+  content: '●';
+  color: #e3b66a;
+}
+.ticket li[data-done] {
+  color: #9fd4a8;
+  text-decoration: line-through;
+  text-decoration-color: rgba(159, 212, 168, 0.5);
+}
+.ticket li[data-done]::before {
+  content: '✓';
+  color: #9fd4a8;
+}
+.ice {
+  position: absolute;
+  right: max(12px, env(safe-area-inset-right));
+  top: calc(max(12px, env(safe-area-inset-top)) + 34px);
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 999px;
+  color: inherit;
+}
+.shots {
+  position: fixed;
+  left: 0;
+  top: 0;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(30, 20, 12, 0.7);
+  backdrop-filter: blur(6px);
+}
+.shots button {
+  display: grid;
+  gap: 1px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  text-align: left;
+}
+.shots button:active {
+  background: rgba(227, 182, 106, 0.9);
+  color: #2a1c10;
+}
+.shots small {
+  font-size: 10px;
+  color: #d9ccb8;
 }

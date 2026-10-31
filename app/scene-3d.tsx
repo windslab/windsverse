@@ -23,7 +23,7 @@ import { createCafeWorld } from '@/lib/cafe-world';
 import { createCritters } from '@/lib/cafe-critters';
 import { createWeather } from '@/lib/cafe-weather';
 import { createCafeCat } from '@/lib/cafe-cat';
-import { createBarRig, type BarHandlers, type BarRig } from '@/lib/bar-rig';
+import { createBarRig, type BarHandlers, type BarRig, type ShotKind } from '@/lib/bar-rig';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 function objectByModelName(root: THREE.Object3D, name: string) {
@@ -1689,13 +1689,12 @@ export default function CafeScene({
             sound: (name) => playSfx(name),
             add: (id, amount) => barHandlers?.add(id, amount),
             cup: (cup) => barHandlers?.cup(cup),
-            shot: (quality, seconds, ml) => barHandlers?.shot(quality, seconds, ml),
             ice: () => barHandlers?.ice(),
+            chooseShot: () => barHandlers?.chooseShot(),
             hint: (text) => barHandlers?.hint(text),
-            readout: (r) => barHandlers?.readout(r),
             swap: (slot) => barHandlers?.swap(slot),
           });
-          addedMaterials.push(...toonify(bar.group));
+          addedMaterials.push(...toonify(bar.group, (_, m) => !!m.userData.live));
           const crewForDebug = people;
           // Development only (?sceneStats): camera handle for checking views.
           if (debugPerf && process.env.NODE_ENV !== 'production')
@@ -1794,7 +1793,7 @@ export default function CafeScene({
                 },
                 setDrink: (drink) => bar?.setDrink(drink),
                 setSlots: (slots: string[]) => bar?.setSlots(slots),
-                setDose: (grams: number) => bar?.setDose(grams),
+                act: (what: 'freezer' | ShotKind) => bar?.act(what),
                 down: (x: number, y: number) => {
                   if (!bar || !renderer) return;
                   const rect = renderer.domElement.getBoundingClientRect();
@@ -1812,30 +1811,30 @@ export default function CafeScene({
                       break;
                     }
                   }
-                  bar.pointerDown(action, x, y);
-                  if (!action && bar.state.pf !== 'group') barDrag = { x, pan: barPanTarget };
+                  bar.pointerDown(action);
+                  if (!action) barDrag = { x, pan: barPanTarget };
                 },
-                move: (x: number, y: number) => {
+                move: (x: number) => {
                   const width = renderer?.domElement.clientWidth ?? 800;
                   if (barDrag) {
                     // Look along the counter (it is wider than the view on a phone).
                     barPanTarget = THREE.MathUtils.clamp(
                       barDrag.pan - ((x - barDrag.x) / width) * 1.4,
-                      -0.95,
-                      0.85,
+                      -0.5,
+                      0.5,
                     );
-                    return;
                   }
-                  bar?.pointerMove(x, y, width);
                 },
                 up: () => {
                   barDrag = null;
                   bar?.pointerUp();
                 },
-                /** Screen position just above the cup (for the finish button), or null. */
-                anchor: () => {
+                /** Screen position above the cup (finish button) or the machine (shot menu). */
+                anchor: (what: 'cup' | 'machine' = 'cup') => {
                   if (!bar || !renderer) return null;
-                  bar.cupAnchor(barAnchor).project(camera);
+                  if (what === 'machine') bar.machineAnchor(barAnchor);
+                  else bar.cupAnchor(barAnchor);
+                  barAnchor.project(camera);
                   if (barAnchor.z > 1) return null;
                   const rect = renderer.domElement.getBoundingClientRect();
                   return {
@@ -2082,6 +2081,7 @@ export default function CafeScene({
             mesh.material = m;
           });
           toonOutline.addHull(luna.scene);
+          for (const guestModel of people?.guestModels() ?? []) toonOutline.addHull(guestModel);
           assetRoot!.add(people.root);
           assetRoot!.updateMatrixWorld(true);
           people.updateActivity(viewRef.current.activity);
@@ -2160,9 +2160,10 @@ export default function CafeScene({
           (vehicle.userData.roadGlow as THREE.Mesh).visible = false;
         }
         if (disposed) return;
-        // Pond ripples and fish animate every frame, so they (and their parts) stay unfrozen.
+        // Pond ripples, fish and the bar props animate, so they (and their parts) stay unfrozen.
         const moving = new Set<THREE.Object3D>();
         for (const item of [...ripples, ...fish]) item.traverse((n) => moving.add(n));
+        bar?.group.traverse((n) => moving.add(n));
         model.traverse((node) => {
           if (!foliage.some((leaf) => leaf.node === node) && !moving.has(node)) {
             node.updateMatrix();

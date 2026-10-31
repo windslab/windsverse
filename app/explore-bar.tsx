@@ -1,16 +1,21 @@
 'use client';
 // Windstopia bar station: a thin layer over the 3D counter (lib/bar-rig.ts). Taps go to the 3D
-// props; the screen only shows the order, one line of help, the grinder dose and the shot
-// readout while they matter, and a small "selesai" button that floats above the cup.
+// props. The screen shows the order with its recipe steps (ticked as they are done), one line of
+// help, a shot menu by the machine, an ice button for the freezer behind Luna, and a small
+// "selesai" button above the cup once the drink is made.
 import { useEffect, useRef, useState } from 'react';
-import { ingredientById, tasteOf, type Drink, type Order } from '@/lib/barista-game';
-import type { BarReadout } from '@/lib/bar-rig';
+import { ingredientById, recipeFor, type Drink, type Order } from '@/lib/barista-game';
+import type { ShotKind } from '@/lib/bar-rig';
 import type { ExploreApi } from './explore-mode';
 import styles from './explore-bar.module.css';
 
-const SYRUPS = ['gula', 'aren', 'vanila', 'karamel'];
-const SLOT_KEY = 'windstopia-syrups';
-const DOSES = [16, 18, 20];
+const SYRUPS = ['gula', 'aren', 'lemon', 'vanila', 'karamel'];
+const SLOT_KEY = 'windstopia-syrups-v2';
+const SHOTS: { kind: ShotKind; label: string; note: string }[] = [
+  { kind: 'ristretto', label: 'Ristretto', note: '20 ml, pekat' },
+  { kind: 'espresso', label: 'Espresso', note: '30 ml' },
+  { kind: 'lungo', label: 'Lungo', note: '60 ml, ringan' },
+];
 /** One scoop from the freezer is enough ice for a whole glass. */
 const ICE_SCOOP = 3;
 
@@ -22,7 +27,7 @@ function loadSlots(): string[] {
   } catch {
     /* Storage blocked: defaults. */
   }
-  return ['gula', 'aren', 'vanila'];
+  return ['gula', 'aren', 'lemon'];
 }
 
 export default function BarStation({
@@ -42,15 +47,13 @@ export default function BarStation({
   onClose: () => void;
   onFinish: () => void;
 }) {
-  const [hint, setHint] = useState(
-    order.iced ? 'Ambil cup plastik di ujung kiri meja.' : 'Ambil paper cup di ujung kiri meja.',
-  );
-  const [readout, setReadout] = useState<BarReadout | null>(null),
+  const [hint, setHint] = useState(''),
     [slots, setSlots] = useState(loadSlots),
     [swap, setSwap] = useState<number | null>(null),
-    [dose, setDose] = useState(18);
+    [shotMenu, setShotMenu] = useState(false);
   const change = useRef(onChange),
-    finish = useRef<HTMLButtonElement>(null);
+    finish = useRef<HTMLButtonElement>(null),
+    shots = useRef<HTMLDivElement>(null);
   useEffect(() => {
     change.current = onChange;
   });
@@ -69,36 +72,33 @@ export default function BarStation({
           };
         }),
       cup: (cup) => add((d) => ({ ...d, cup })),
-      shot: (quality) =>
-        add((d) => {
-          const shots = Math.min(3, (d.amounts.espresso ?? 0) + 1);
-          return {
-            ...d,
-            amounts: { ...d.amounts, espresso: shots },
-            espressoQuality: (d.espressoQuality * (shots - 1) + quality) / shots,
-          };
-        }),
       ice: () => add((d) => ({ ...d, amounts: { ...d.amounts, es: ICE_SCOOP } })),
-      hint: setHint,
-      readout: setReadout,
+      chooseShot: () => setShotMenu(true),
+      hint: (text) => {
+        setHint(text);
+        window.setTimeout(() => setHint((h) => (h === text ? '' : h)), 3200);
+      },
       swap: setSwap,
     });
     return () => bar.close();
   }, [bar]);
   useEffect(() => bar.setDrink({ cup: drink.cup, amounts: drink.amounts }), [bar, drink]);
   useEffect(() => bar.setSlots(slots), [bar, slots]);
-  useEffect(() => bar.setDose(dose), [bar, dose]);
 
-  // The finish button follows the cup on screen.
-  const { volume } = tasteOf(drink);
-  const ready = !!drink.cup && volume >= 20;
+  const steps = recipeFor(order).map((s) => ({ label: s.label, done: s.done(drink) }));
+  const next = steps.find((s) => !s.done);
+  const ready = !!drink.cup && !next;
+
+  // Buttons that follow the 3D props on screen: "selesai" above the cup, shots above the machine.
   useEffect(() => {
-    if (!ready) return;
     let frame = 0;
     const follow = () => {
-      const at = bar.anchor(),
-        el = finish.current;
-      if (el) {
+      for (const [el, what] of [
+        [finish.current, 'cup'],
+        [shots.current, 'machine'],
+      ] as const) {
+        if (!el) continue;
+        const at = bar.anchor(what);
         el.style.visibility = at ? 'visible' : 'hidden';
         if (at) el.style.transform = `translate(${at.x}px, ${at.y}px) translate(-50%, -100%)`;
       }
@@ -106,7 +106,7 @@ export default function BarStation({
     };
     follow();
     return () => cancelAnimationFrame(frame);
-  }, [bar, ready]);
+  }, [bar]);
 
   return (
     <div className={styles.overlay}>
@@ -114,6 +114,7 @@ export default function BarStation({
         className={styles.touch}
         onPointerDown={(e) => {
           setSwap(null);
+          setShotMenu(false);
           try {
             e.currentTarget.setPointerCapture(e.pointerId);
           } catch {
@@ -121,18 +122,23 @@ export default function BarStation({
           }
           bar.down(e.clientX, e.clientY);
         }}
-        onPointerMove={(e) => bar.move(e.clientX, e.clientY)}
+        onPointerMove={(e) => bar.move(e.clientX)}
         onPointerUp={() => bar.up()}
         onPointerCancel={() => bar.up()}
       />
       <section className={styles.ticket}>
-        <small>{name}</small>
-        <strong>{order.item.name}</strong>
-        <span>
-          {order.iced ? 'dingin' : 'panas'}
+        <small>
+          {name} · {order.iced ? 'dingin' : 'panas'}
           {order.takeaway ? ' · bawa pulang' : ''}
-          {order.coffee ? ' · espresso' : ''}
-        </span>
+        </small>
+        <strong>{order.item.name}</strong>
+        <ol>
+          {steps.map((s) => (
+            <li key={s.label} data-done={s.done || undefined} data-next={s === next || undefined}>
+              {s.label}
+            </li>
+          ))}
+        </ol>
       </section>
       <div className={styles.top}>
         <button
@@ -143,29 +149,27 @@ export default function BarStation({
         </button>
         <button onClick={onClose}>tutup</button>
       </div>
-      {order.coffee && (
-        <div className={styles.dose} role="radiogroup" aria-label="Takaran grinder">
-          {DOSES.map((g) => (
-            <button key={g} role="radio" aria-checked={g === dose} onClick={() => setDose(g)}>
-              {g} g
+      {order.iced && !drink.amounts.es && (
+        <button className={styles.ice} onClick={() => bar.act('freezer')}>
+          🧊 ambil es di freezer
+        </button>
+      )}
+      {shotMenu && (
+        <div ref={shots} className={styles.shots} role="menu" aria-label="Pilih shot">
+          {SHOTS.map((s) => (
+            <button
+              key={s.kind}
+              role="menuitem"
+              onClick={() => {
+                setShotMenu(false);
+                bar.act(s.kind);
+              }}
+            >
+              <strong>{s.label}</strong>
+              <small>{s.note}</small>
             </button>
           ))}
         </div>
-      )}
-      {readout && (
-        <p className={styles.readout} aria-live="polite">
-          <span>
-            dosis {readout.dose.toFixed(1)}/{readout.doseTarget} g
-          </span>
-          {readout.time > 0 && (
-            <>
-              <span>{Math.round(readout.time)} dtk</span>
-              <span>
-                {Math.round(readout.yield)}/{readout.doseTarget * 2} ml
-              </span>
-            </>
-          )}
-        </p>
       )}
       {swap !== null && (
         <div className={styles.swap} role="listbox" aria-label={`Isi botol ${swap + 1}`}>
@@ -175,10 +179,10 @@ export default function BarStation({
               role="option"
               aria-selected={slots[swap] === s}
               onClick={() => {
-                const next = slots.map((x, i) => (i === swap ? s : x));
-                setSlots(next);
+                const nextSlots = slots.map((x, i) => (i === swap ? s : x));
+                setSlots(nextSlots);
                 try {
-                  localStorage.setItem(SLOT_KEY, JSON.stringify(next));
+                  localStorage.setItem(SLOT_KEY, JSON.stringify(nextSlots));
                 } catch {
                   /* Remembered for this visit only. */
                 }
@@ -190,15 +194,12 @@ export default function BarStation({
           ))}
         </div>
       )}
-      <p className={styles.hint}>{hint}</p>
+      <p className={styles.hint}>
+        {hint || (next ? 'Berikutnya: ' + next.label : 'Siap disajikan!')}
+      </p>
       {ready && (
-        <button
-          ref={finish}
-          className={styles.finish}
-          onClick={onFinish}
-          style={{ visibility: 'hidden' }}
-        >
-          selesai
+        <button ref={finish} className={styles.finish} onClick={onFinish}>
+          selesai ✓
         </button>
       )}
     </div>

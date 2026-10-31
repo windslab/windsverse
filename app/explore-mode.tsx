@@ -6,11 +6,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { LogOut } from 'lucide-react';
 import type { CafeVisitor } from '@/lib/cafe-activity';
-import type { BarDrink, BarHandlers } from '@/lib/bar-rig';
+import type { BarDrink, BarHandlers, ShotKind } from '@/lib/bar-rig';
 import {
   DENOMINATIONS,
   crowdFor,
-  drinkMenu,
+  windstopiaMenu,
   GAME_MINUTES_PER_SECOND,
   newCustomer,
   rupiah,
@@ -79,11 +79,11 @@ export type ExploreApi = {
     close: () => void;
     setDrink: (drink: BarDrink) => void;
     setSlots: (slots: string[]) => void;
-    setDose: (grams: number) => void;
+    act: (what: 'freezer' | ShotKind) => void;
     down: (x: number, y: number) => void;
-    move: (x: number, y: number) => void;
+    move: (x: number) => void;
     up: () => void;
-    anchor: () => { x: number; y: number } | null;
+    anchor: (what?: 'cup' | 'machine') => { x: number; y: number } | null;
   };
   /** Story of Winds from Luna's camera. */
   photo: {
@@ -114,6 +114,7 @@ type Stage = 'queue' | 'waiting' | 'served';
 type Customer = {
   key: string;
   name: string;
+  male: boolean;
   order: Order;
   stage: Stage;
   arrivedAt: number;
@@ -238,8 +239,8 @@ export default function ExploreMode({
   useEffect(() => {
     void fetch('/api/public', { cache: 'no-store' })
       .then((r) => (r.ok ? (r.json() as Promise<{ products?: MenuSource[] }>) : Promise.reject()))
-      .then((data) => setMenu(drinkMenu(data.products ?? [])))
-      .catch(() => setMenu(drinkMenu([])));
+      .then((data) => setMenu(windstopiaMenu(data.products ?? [])))
+      .catch(() => setMenu(windstopiaMenu([])));
   }, []);
 
   // Keep the scene's virtual guests in step with the game.
@@ -253,6 +254,7 @@ export default function ExploreMode({
         type: c.order.takeaway ? 'takeaway' : 'dine_in',
         tableNumber: null,
         finishedAt: c.servedAt ?? null,
+        male: c.male,
       })),
     );
   }, [customers, api]);
@@ -339,13 +341,14 @@ export default function ExploreMode({
       const crowd = crowdRef.current,
         waiting = customersRef.current.filter((c) => c.stage !== 'served').length;
       if (waiting >= crowd.max || Math.random() > crowd.chance) return;
-      const { name, order } = newCustomer(menu);
+      const { name, male, order } = newCustomer(menu);
       counter.current += 1;
       setCustomers((list) => [
         ...list,
         {
           key: 'explore-' + Date.now() + '-' + counter.current,
           name,
+          male,
           order,
           stage: 'queue',
           arrivedAt: Date.now(),
@@ -658,10 +661,14 @@ export default function ExploreMode({
     if (id === 'cup' || id === 'prep' || id === 'espresso') {
       if (!ticket) {
         const next = customersRef.current.find((c) => c.stage === 'waiting');
-        if (next) {
-          setTicket(next.key);
-          setDrink(emptyDrink());
+        if (!next) {
+          // Nothing ordered yet: the bar waits for a ticket from the cashier.
+          setNote('Belum ada pesanan · catat dulu di kasir');
+          setTimeout(() => setNote(''), 2200);
+          return;
         }
+        setTicket(next.key);
+        setDrink(emptyDrink());
       }
       setPanel('bar');
     }
@@ -727,7 +734,13 @@ export default function ExploreMode({
       stations: () =>
         Object.fromEntries(Object.entries(api.stations).map(([k, v]) => [k, v.toArray()])),
       customers: () =>
-        customersRef.current.map((c) => ({ key: c.key, stage: c.stage, item: c.order.item.name })),
+        customersRef.current.map((c) => ({
+          key: c.key,
+          name: c.name,
+          male: c.male,
+          stage: c.stage,
+          item: c.order.item.name,
+        })),
       actions: () => actionsRef.current,
     };
   }, [api]);
@@ -736,7 +749,11 @@ export default function ExploreMode({
   const ticketCustomer = customers.find((c) => c.key === ticket);
 
   return (
-    <div className={styles.hud} data-camera={digicam ? '' : undefined}>
+    <div
+      className={styles.hud}
+      data-camera={digicam ? '' : undefined}
+      data-bar={panel === 'bar' ? '' : undefined}
+    >
       <header className={styles.top}>
         <span className={styles.score}>
           {score.points} poin · {score.served} tamu

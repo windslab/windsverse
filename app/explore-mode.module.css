@@ -401,6 +401,12 @@
 .hud[data-camera] > .ticket {
   display: none;
 }
+/* At the bar, its own overlay shows the order and the buttons. */
+.hud[data-bar] > .top,
+.hud[data-bar] > .hint,
+.hud[data-bar] > .ticket {
+  display: none;
+}
 /* The name of a place, shown briefly on arrival. */
 .place {
   position: absolute;

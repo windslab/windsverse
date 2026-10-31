@@ -957,3 +957,37 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Typecheck, format, build, dan tes lulus seperti sebelumnya. Belum diuji langsung di browser
   (panel browser asisten tersembunyi, scene 3D tidak dimuat); posisi benda dihitung dari koordinat
   model kafe dan mungkin perlu disetel setelah dicoba.
+
+## 48. Bar Windstopia: mesin otomatis, alur resep jelas, tamu bergaya Luna (1 Nov 2026)
+
+- **Mesin espresso otomatis** menggantikan mesin kopi buatan pemilik selama game (mesin asli
+  disembunyikan, kembali saat scene ditutup). Tidak ada lagi grinder/portafilter baru: ketuk mesin,
+  pilih **Ristretto (20 ml) / Espresso (30 ml) / Lungo (60 ml)**, cup bergeser ke bawah corong,
+  shot mengalir, lalu cup kembali.
+- **Menu Windstopia hanya 4**: Winds Coffee, Winds Chocolate, Matcha Latte, Lemontea (harga ikut
+  menu kafe bila namanya sama). Resep game buatan sendiri, bukan resep asli kafe. Semua bahan ada
+  di meja: 3 botol sirup (gula, aren, lemon; bisa diganti vanila/karamel lewat tekan lama),
+  toples cokelat & matcha, susu, teko teh, cup plastik & paper cup, es dari freezer.
+- **Alur jelas**: tiket kiri atas berisi langkah resep yang dicentang satu per satu (langkah
+  berikutnya ditebalkan), satu baris "Berikutnya: …" di bawah, tombol "🧊 ambil es di freezer"
+  untuk pesanan dingin, tombol hijau **selesai ✓** di atas cup setelah semua langkah beres.
+- **Pesanan bervariasi**: dingin atau panas acak (Lemontea lebih sering dingin), kalimat tamu ikut.
+- **Tamu bergaya Luna** (`app/luna/guest-look.ts`): salinan model Luna tanpa rompi, pena, dan pita
+  barista; warna kulit, rambut, kaos, celana, sepatu dipilih dari nama. Nama laki-laki (Dimas, Bayu,
+  Yoga, …) berambut pendek, nama perempuan (Rina, Sari, Nadia, …) berambut bob.
+- Perbaikan yang ditemukan saat uji di browser:
+  - Cup, aliran sirup, sendok, dan animasi pompa sebelumnya **tidak terlihat** karena scene
+    membekukan matriks semua objek model kafe; rig bar kini dikecualikan.
+  - Warna isi cup, warna sirup, dan cahaya pompa tidak berubah karena material diganti salinan
+    toon; material yang berubah saat main kini dibiarkan.
+  - Mesin kopi asli bernama `mesin_kopi` di three.js, sehingga dulu tidak ikut tersembunyi.
+  - Cup kini terbuka di atas sehingga minumannya terlihat; pompa turun lebih dalam dan menyala
+    saat ditekan agar jelas dari sudut atas.
+  - Tata letak meja dirapatkan dan sudut kamera dinaikkan supaya semua bahan terlihat sekaligus.
+  - HUD Explore disembunyikan selama di bar; bar tidak terbuka bila belum ada pesanan dari kasir.
+  - Warna tamu dulu tidak berubah (material ditukar toon setelahnya); sekarang dicari saat dipakai,
+    tekstur piksel dibuat abu-abu agar bisa diwarnai tanpa kehilangan detail.
+- Diuji di browser (dev): Winds Chocolate panas, Lemontea dingin (freezer, teh, lemon, gula, tombol
+  selesai), shot Espresso, dan tamu laki-laki/perempuan. `typecheck`, `format:check`, `build`
+  lulus; `barista.test` + `people.test` 19/19, `engine.test` 28/32 (4 gagal lama). 13 error lint di
+  `scene-3d.tsx` sudah ada sebelumnya.

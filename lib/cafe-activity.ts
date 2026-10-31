@@ -6,6 +6,8 @@ export type CafeVisitor = {
   type: string;
   tableNumber: string | number | null;
   finishedAt: number | null;
+  /** Guest's gender from their name (explore mode); otherwise picked from the key. */
+  male?: boolean;
 };
 export type CafeActivity = {
   visitors?: CafeVisitor[];

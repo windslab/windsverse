@@ -1,9 +1,9 @@
-// Windstopia bar station in 3D: the props on the café's real counter (syrup pumps, powder jars,
-// a bean jar, plastic and paper cup stacks, milk, a grinder, a portafilter, a tamper and a knock
-// box), placed beside the café's own espresso machine, freezer and fridge. Everything is built
-// from simple shapes in the café model's own units (metres) and animated like the real thing:
-// the portafilter goes into the grinder fork, gets tamped, rises under the group head turned to
-// the left and twists right until it locks, and the shot runs until the player stops it.
+// Windstopia bar station in 3D, on the café's real counter: an automatic espresso machine (it
+// stands in for the café's own machine model, which is hidden while the game runs), three syrup
+// pumps whose syrup can be swapped, chocolate and matcha jars, milk, a tea pot, plastic and paper
+// cup stacks, and the café's own freezer for ice. Built from simple shapes in the café model's
+// units (metres) and animated softly: cups slide, pumps press and spring back, spoons tip,
+// the machine pours.
 //
 // The rig knows nothing about orders: it reports what went into the cup through callbacks and
 // shows the drink it is given.
@@ -13,28 +13,22 @@ export type BarSound =
   | 'pump'
   | 'scoop'
   | 'ice'
-  | 'lock'
-  | 'knock'
   | 'cup'
   | 'pour'
-  | 'tamp'
-  | 'grind-start'
-  | 'grind-stop'
   | 'brew-start'
   | 'brew-stop'
   | 'click';
 export type BarCup = 'gelas-es' | 'cangkir';
-export type BarReadout = { dose: number; doseTarget: number; time: number; yield: number };
+export type ShotKind = 'ristretto' | 'espresso' | 'lungo';
 export type BarHandlers = {
   sound: (name: BarSound) => void;
   /** An ingredient went into the cup (amount in its own unit). */
   add: (id: string, amount: number) => void;
   cup: (cup: BarCup) => void;
-  /** A shot is done: quality 0–1. */
-  shot: (quality: number, seconds: number, ml: number) => void;
   ice: () => void;
+  /** The machine was tapped: ask which shot to pull. */
+  chooseShot: () => void;
   hint: (text: string) => void;
-  readout: (r: BarReadout | null) => void;
   /** Long press on a syrup bottle: choose what it holds. */
   swap: (slot: number) => void;
 };
@@ -43,85 +37,81 @@ export type BarDrink = { cup: BarCup | 'cup-takeaway' | null; amounts: Record<st
 const Y = 1.25; // counter top
 const P = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const SPOT = {
-  work: P(-3.62, Y, 3.5),
-  machineTray: P(-3.0, Y + 0.02, 3.43),
-  bottle: (i: number) => P(-3.46 + i * 0.1, Y, 3.4),
-  jar: (i: number) => P(-4.3 + i * 0.11, Y, 3.45),
-  milk: P(-3.96, Y, 3.52),
-  skm: P(-3.85, Y, 3.52),
-  plastic: P(-4.36, Y, 3.56),
-  paper: P(-4.24, Y, 3.56),
-  grinder: P(-2.62, Y, 3.36),
-  beans: P(-2.43, Y, 3.5),
-  rest: P(-2.8, Y + 0.012, 3.56),
-  fork: P(-2.62, Y + 0.105, 3.47),
-  mat: P(-2.6, Y + 0.03, 3.56),
-  groupLow: P(-3.0, Y + 0.13, 3.5),
-  group: P(-3.0, Y + 0.165, 3.5),
-  knock: P(-2.38, Y + 0.09, 3.56),
+  machine: P(-3.04, Y, 3.36),
+  spout: P(-3.04, Y + 0.17, 3.47),
+  tray: P(-3.04, Y + 0.012, 3.47),
+  work: P(-3.3, Y, 3.5),
+  bottle: (i: number) => P(-3.6 + i * 0.095, Y, 3.36),
+  plastic: P(-3.6, Y, 3.55),
+  paper: P(-3.48, Y, 3.55),
+  cocoa: P(-2.76, Y, 3.33),
+  matcha: P(-2.67, Y, 3.33),
+  milk: P(-2.82, Y, 3.54),
+  tea: P(-2.72, Y, 3.54),
   freezer: P(-2.65, 1.3, 4.6),
 };
 /** Fixed views for Luna's eyes (model units): the counter, and turned round to the freezer. */
 export const BAR_VIEWS = {
-  counter: { eye: P(-3.3, 1.66, 4.08), target: P(-3.3, 1.22, 3.42) },
+  counter: { eye: P(-3.17, 2.18, 3.84), target: P(-3.17, 1.2, 3.32) },
   freezer: { eye: P(-2.66, 1.62, 3.95), target: P(-2.66, 1.12, 4.62) },
 };
 const COLORS: Record<string, number> = {
   espresso: 0x4a2a18,
   fullcream: 0xf6f1e7,
-  skm: 0xf0e0bd,
   gula: 0xf4e6b6,
   aren: 0x8b4a1c,
+  lemon: 0xf3e06a,
   vanila: 0xf2dfb3,
   karamel: 0xc27a36,
   cokelat: 0x5b3221,
   matcha: 0x8fb65a,
-  taro: 0xab8ccb,
   teh: 0xa8542a,
-  air: 0xdce8ee,
 };
-const TINT: Record<string, number> = {
-  espresso: 3,
-  cokelat: 5,
-  matcha: 5,
-  taro: 5,
-  aren: 1.6,
-  karamel: 1.4,
-};
+const TINT: Record<string, number> = { espresso: 3, cokelat: 5, matcha: 5, aren: 1.6, teh: 1.3 };
 const STEP: Record<string, number> = {
   gula: 10,
   aren: 10,
+  lemon: 10,
   vanila: 10,
   karamel: 10,
   cokelat: 5,
   matcha: 3,
-  taro: 5,
   fullcream: 30,
-  skm: 10,
+  teh: 50,
+};
+/** Seconds each shot pours, and how much of a cup it fills (ml). */
+const SHOTS: Record<ShotKind, { seconds: number; ml: number }> = {
+  ristretto: { seconds: 2.2, ml: 20 },
+  espresso: { seconds: 3, ml: 30 },
+  lungo: { seconds: 4.4, ml: 60 },
 };
 const ease = {
   inOut: (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2),
   out: (t: number) => 1 - (1 - t) ** 3,
-  back: (t: number) => 1 + 2.2 * (t - 1) ** 3 + 1.2 * (t - 1) ** 2,
-  linear: (t: number) => t,
+  back: (t: number) => 1 + 2.4 * (t - 1) ** 3 + 1.4 * (t - 1) ** 2,
 };
 
 export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
   const group = new THREE.Group();
   group.name = 'Bar_Rig';
   model.add(group);
+  // The café's own machine makes way for the automatic one.
+  const ownMachine = model.getObjectByName('mesin kopi') ?? model.getObjectByName('mesin_kopi');
+  if (ownMachine) ownMachine.visible = false;
   const disposables: { dispose: () => void }[] = [];
+  /** Materials the rig changes while playing: the scene keeps them as they are (no toon copy). */
+  const live = <M extends THREE.Material>(m: M) => ((m.userData.live = true), m);
   const mat = (color: number, extra: THREE.MeshStandardMaterialParameters = {}) => {
     const m = new THREE.MeshStandardMaterial({ color, roughness: 0.55, ...extra });
     disposables.push(m);
     return m;
   };
-  const clear = (color = 0xdff0f8, opacity = 0.35) => {
+  const clear = (color: number, opacity: number) => {
     const m = new THREE.MeshStandardMaterial({
       color,
       transparent: true,
       opacity,
-      roughness: 0.1,
+      roughness: 0.15,
       depthWrite: false,
     });
     disposables.push(m);
@@ -141,41 +131,73 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     hits.push(o);
     return o;
   };
-  const metal = mat(0xb9b6b0, { metalness: 0.6, roughness: 0.3 });
-  const black = mat(0x232323);
-  const wood = mat(0x6b4a2f);
+  const metal = mat(0xc4c1bb, { metalness: 0.5, roughness: 0.3 });
+  const black = mat(0x262626);
+  const white = mat(0xf7f5f0);
+
+  // Automatic espresso machine: body, bean hopper, screen, spout and drip tray.
+  const machine = new THREE.Group();
+  machine.position.copy(SPOT.machine);
+  machine.add(mesh(new THREE.BoxGeometry(0.22, 0.3, 0.26), mat(0xe9e4dc), P(0, 0.15, 0)));
+  machine.add(mesh(new THREE.BoxGeometry(0.224, 0.04, 0.264), mat(0x8a7f72), P(0, 0.31, 0)));
+  machine.add(mesh(cyl(0.05, 0.035, 0.06), clear(0x6b4a33, 0.6), P(0.05, 0.35, -0.05)));
+  const screen = mesh(
+    new THREE.BoxGeometry(0.12, 0.05, 0.004),
+    mat(0x16201a, { emissive: 0x1f4a30, emissiveIntensity: 0.6 }),
+    P(0, 0.235, 0.131),
+  );
+  machine.add(screen);
+  for (const [i, color] of [0xe8c47c, 0xd9a066, 0x9c6b48].entries())
+    machine.add(
+      mesh(cyl(0.008, 0.008, 0.006, 16), mat(color), P(-0.03 + i * 0.03, 0.235, 0.135)).rotateX(
+        Math.PI / 2,
+      ),
+    );
+  machine.add(mesh(new THREE.BoxGeometry(0.07, 0.03, 0.07), black, P(0, 0.18, 0.14)));
+  machine.add(mesh(cyl(0.005, 0.004, 0.02, 10), metal, P(-0.012, 0.155, 0.15)));
+  machine.add(mesh(cyl(0.005, 0.004, 0.02, 10), metal, P(0.012, 0.155, 0.15)));
+  machine.add(mesh(new THREE.BoxGeometry(0.16, 0.012, 0.09), metal, P(0, 0.006, 0.12)));
+  hit(machine, 'machine');
+  group.add(machine);
 
   // Syrup bottles with pumps
-  let slots = ['gula', 'aren', 'vanila'];
+  let slots = ['gula', 'aren', 'lemon'];
   const bottles = [0, 1, 2].map((i) => {
     const g = new THREE.Group();
     g.position.copy(SPOT.bottle(i));
-    const syrup = new THREE.MeshStandardMaterial({ color: COLORS[slots[i]], roughness: 0.3 });
+    const syrup = live(new THREE.MeshStandardMaterial({ color: COLORS[slots[i]], roughness: 0.3 }));
     disposables.push(syrup);
-    const fill = mesh(cyl(0.031, 0.031, 0.13), syrup, P(0, 0.07, 0));
-    const glass = mesh(cyl(0.035, 0.035, 0.18), clear(0xffffff, 0.28), P(0, 0.09, 0));
-    const neck = mesh(cyl(0.008, 0.008, 0.06, 12), black, P(0, 0.2, 0));
+    const body = new THREE.Group();
+    body.add(mesh(cyl(0.031, 0.031, 0.13), syrup, P(0, 0.07, 0)));
+    body.add(mesh(cyl(0.035, 0.035, 0.18), clear(0xffffff, 0.3), P(0, 0.09, 0)));
+    body.add(mesh(cyl(0.036, 0.036, 0.045), white, P(0, 0.1, 0)));
+    g.add(body);
+    g.add(mesh(cyl(0.008, 0.008, 0.06, 12), black, P(0, 0.2, 0)));
     const head = new THREE.Group();
-    head.position.set(0, 0.235, 0);
-    head.add(mesh(new THREE.BoxGeometry(0.05, 0.016, 0.03), black));
-    head.add(mesh(cyl(0.005, 0.005, 0.05, 8), black, P(0, -0.004, 0.035)).rotateX(Math.PI / 2));
-    g.add(fill, glass, neck, head);
+    head.position.set(0, 0.24, 0);
+    // Its own material so the head can light up while pressed (easy to see from above).
+    const headMat = live(mat(0x262626, { emissive: 0xe3b66a, emissiveIntensity: 0 }));
+    head.add(mesh(new THREE.BoxGeometry(0.055, 0.02, 0.035), headMat));
+    head.add(mesh(cyl(0.006, 0.006, 0.06, 8), headMat, P(0, -0.004, 0.042)).rotateX(Math.PI / 2));
+    g.add(head);
+    const drip = mesh(cyl(0.003, 0.003, 1, 8), syrup, P(0, 0, 0.07));
+    drip.visible = false;
+    g.add(drip);
     hit(g, 'syrup:' + i);
     group.add(g);
-    return { g, head, syrup };
+    return { g, body, head, headMat, drip, syrup };
   });
   const setSlots = (next: string[]) => {
     slots = next;
     bottles.forEach((b, i) => b.syrup.color.setHex(COLORS[slots[i]] ?? 0xf0e0b0));
   };
 
-  // Powder jars and the bean jar
-  const powders = ['cokelat', 'matcha', 'taro'];
-  const jars = powders.map((id, i) => {
+  // Chocolate and matcha jars
+  const jar = (id: string, at: THREE.Vector3) => {
     const g = new THREE.Group();
-    g.position.copy(SPOT.jar(i));
+    g.position.copy(at);
     g.add(mesh(cyl(0.038, 0.038, 0.055), mat(COLORS[id]), P(0, 0.03, 0)));
-    g.add(mesh(cyl(0.044, 0.044, 0.1), clear(0xffffff, 0.3), P(0, 0.05, 0)));
+    g.add(mesh(cyl(0.044, 0.044, 0.1), clear(0xffffff, 0.32), P(0, 0.05, 0)));
     const lid = new THREE.Group();
     lid.position.set(0, 0.105, 0);
     lid.add(mesh(cyl(0.047, 0.047, 0.014), mat(0xc9a273)));
@@ -183,143 +205,99 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     hit(g, 'powder:' + id);
     group.add(g);
     return { g, lid };
-  });
-  const beanJar = new THREE.Group();
-  beanJar.position.copy(SPOT.beans);
-  beanJar.add(mesh(cyl(0.04, 0.04, 0.085), mat(0x3a2214), P(0, 0.045, 0)));
-  beanJar.add(mesh(cyl(0.046, 0.046, 0.12), clear(0xffffff, 0.3), P(0, 0.06, 0)));
-  const beanLid = mesh(cyl(0.049, 0.049, 0.014), mat(0xc9a273), P(0, 0.126, 0));
-  beanJar.add(beanLid);
-  hit(beanJar, 'beans');
-  group.add(beanJar);
+  };
+  const jars: Record<string, ReturnType<typeof jar>> = {
+    cokelat: jar('cokelat', SPOT.cocoa),
+    matcha: jar('matcha', SPOT.matcha),
+  };
 
-  // Milk carton and condensed milk can
+  // Milk carton and tea pot
   const milk = new THREE.Group();
   milk.position.copy(SPOT.milk);
-  milk.add(mesh(new THREE.BoxGeometry(0.06, 0.12, 0.06), mat(0xfafafa), P(0, 0.06, 0)));
+  milk.add(mesh(new THREE.BoxGeometry(0.06, 0.12, 0.06), white, P(0, 0.06, 0)));
   milk.add(mesh(new THREE.BoxGeometry(0.061, 0.025, 0.061), mat(0x7fb7e6), P(0, 0.08, 0)));
   milk.add(
-    mesh(new THREE.ConeGeometry(0.045, 0.03, 4), mat(0xfafafa), P(0, 0.135, 0)).rotateY(
-      Math.PI / 4,
-    ),
+    mesh(new THREE.ConeGeometry(0.045, 0.03, 4), white, P(0, 0.135, 0)).rotateY(Math.PI / 4),
   );
   hit(milk, 'pour:fullcream');
   group.add(milk);
-  const skm = mesh(cyl(0.034, 0.034, 0.08), mat(0xe7b04a, { metalness: 0.3 }), SPOT.skm.clone());
-  skm.position.y += 0.04;
-  hit(skm, 'pour:skm');
-  group.add(skm);
+  const tea = new THREE.Group();
+  tea.position.copy(SPOT.tea);
+  tea.add(mesh(new THREE.SphereGeometry(0.05, 20, 14), mat(0xf1e6d6), P(0, 0.05, 0)));
+  tea.add(mesh(cyl(0.004, 0.009, 0.06, 10), mat(0xf1e6d6), P(0.05, 0.06, 0)).rotateZ(-0.9));
+  tea.add(
+    mesh(
+      new THREE.TorusGeometry(0.025, 0.006, 8, 16, Math.PI),
+      mat(0xf1e6d6),
+      P(-0.05, 0.06, 0),
+    ).rotateZ(Math.PI / 2),
+  );
+  tea.add(mesh(cyl(0.02, 0.02, 0.012), mat(0xa8542a), P(0, 0.1, 0)));
+  hit(tea, 'pour:teh');
+  group.add(tea);
 
   // Cup stacks: clear plastic for cold drinks, paper for hot ones
-  const plasticMat = clear(0xe6f4fb, 0.42),
-    paperMat = mat(0xe9d3b3),
-    sleeveMat = mat(0xb98a5c);
+  const plasticMat = clear(0xcfe6f2, 0.55),
+    rimMat = white,
+    paperMat = live(mat(0xe9d3b3, { side: THREE.DoubleSide })),
+    sleeveMat = live(mat(0xb98a5c));
   const plasticGeo = geo(cyl(0.045, 0.032, 0.13, 28)),
-    paperGeo = geo(cyl(0.04, 0.03, 0.11, 28));
-  const stack = (spot: THREE.Vector3, cup: BarCup) => {
+    paperGeo = geo(cyl(0.04, 0.03, 0.11, 28)),
+    // The cup in use is open at the top so the drink shows from Luna's eyes.
+    openPlasticGeo = geo(new THREE.CylinderGeometry(0.045, 0.032, 0.13, 28, 1, true)),
+    openPaperGeo = geo(new THREE.CylinderGeometry(0.04, 0.03, 0.11, 28, 1, true)),
+    rimGeo = geo(new THREE.TorusGeometry(0.045, 0.003, 6, 28));
+  const stack = (spot: THREE.Vector3, kind: BarCup) => {
     const g = new THREE.Group();
     g.position.copy(spot);
-    for (let k = 0; k < 5; k++) {
-      const c = new THREE.Mesh(
-        cup === 'gelas-es' ? plasticGeo : paperGeo,
-        cup === 'gelas-es' ? plasticMat : paperMat,
-      );
-      c.position.y = (cup === 'gelas-es' ? 0.065 : 0.055) + k * 0.014;
+    const plastic = kind === 'gelas-es';
+    for (let k = 0; k < 6; k++) {
+      const c = new THREE.Mesh(plastic ? plasticGeo : paperGeo, plastic ? plasticMat : paperMat);
+      c.position.y = (plastic ? 0.065 : 0.055) + k * 0.012;
       g.add(c);
     }
-    hit(g, 'cup:' + cup);
+    const rim = new THREE.Mesh(rimGeo, plastic ? rimMat : sleeveMat);
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = (plastic ? 0.13 : 0.11) + 5 * 0.012;
+    if (!plastic) rim.scale.setScalar(0.9);
+    g.add(rim);
+    hit(g, 'cup:' + kind);
     group.add(g);
     return g;
   };
-  stack(SPOT.plastic, 'gelas-es');
-  stack(SPOT.paper, 'cangkir');
+  const stacks = {
+    'gelas-es': stack(SPOT.plastic, 'gelas-es'),
+    cangkir: stack(SPOT.paper, 'cangkir'),
+  };
 
-  // The cup being made: shell, liquid, crema, ice
+  // The cup being made: shell, rim, liquid, crema, ice
   const cup = new THREE.Group();
   cup.visible = false;
   group.add(cup);
-  const cupShell = new THREE.Mesh(plasticGeo, plasticMat);
-  const liquidMat = new THREE.MeshStandardMaterial({ color: 0x4a2a18, roughness: 0.35 });
+  const cupShell = new THREE.Mesh(openPlasticGeo, plasticMat);
+  const cupRim = new THREE.Mesh(rimGeo, rimMat);
+  cupRim.rotation.x = Math.PI / 2;
+  const liquidMat = live(new THREE.MeshStandardMaterial({ color: 0x4a2a18, roughness: 0.35 }));
   disposables.push(liquidMat);
   const liquid = mesh(cyl(1, 0.72, 1, 28), liquidMat);
   const crema = mesh(cyl(1, 1, 0.004, 28), mat(0xd9a66c));
   const sleeve = mesh(cyl(0.0405, 0.035, 0.035, 28), sleeveMat);
   const ice = new THREE.Group();
-  const iceMat = clear(0xffffff, 0.7);
+  const iceMat = clear(0xffffff, 0.75);
   const iceGeo = geo(new THREE.BoxGeometry(0.018, 0.018, 0.018));
   for (let k = 0; k < 7; k++) {
     const c = new THREE.Mesh(iceGeo, iceMat);
-    c.position.set(Math.cos(k * 2.1) * 0.017, 0.03 + (k % 3) * 0.02, Math.sin(k * 2.1) * 0.017);
+    c.position.set(Math.cos(k * 2.1) * 0.017, 0.03 + (k % 3) * 0.022, Math.sin(k * 2.1) * 0.017);
     c.rotation.set(k, k * 0.7, k * 1.3);
     ice.add(c);
   }
-  cup.add(liquid, crema, ice, sleeve, cupShell);
-  let cupKind: BarDrink['cup'] = null;
+  cup.add(liquid, crema, ice, sleeve, cupShell, cupRim);
+  let cupKind: BarCup | null = null;
 
-  // Grinder: base, body, hopper with beans, spout and the portafilter fork
-  const grinder = new THREE.Group();
-  grinder.position.copy(SPOT.grinder);
-  grinder.add(mesh(new THREE.BoxGeometry(0.12, 0.02, 0.16), black, P(0, 0.01, 0.01)));
-  const grinderBody = mesh(new THREE.BoxGeometry(0.1, 0.2, 0.12), mat(0x2e2e2e), P(0, 0.2, -0.02));
-  grinder.add(grinderBody);
-  grinder.add(mesh(cyl(0.045, 0.02, 0.1), clear(0xf2f8fb, 0.35), P(0, 0.35, -0.02)));
-  const beansInHopper = mesh(cyl(0.038, 0.02, 0.07), mat(0x3a2214), P(0, 0.335, -0.02));
-  grinder.add(beansInHopper);
-  grinder.add(mesh(new THREE.BoxGeometry(0.03, 0.03, 0.03), black, P(0, 0.135, 0.06)));
-  grinder.add(mesh(new THREE.BoxGeometry(0.07, 0.008, 0.03), metal, P(0, 0.095, 0.1)));
-  const grindButton = mesh(cyl(0.012, 0.012, 0.01, 16), mat(0xe8c47c), P(0.035, 0.24, 0.041));
-  grindButton.rotation.x = Math.PI / 2;
-  grinder.add(grindButton);
-  const groundsStream = mesh(cyl(0.004, 0.004, 1, 8), mat(0x4b2c18), P(0, 0.11, 0.075));
-  groundsStream.visible = false;
-  grinder.add(groundsStream);
-  hit(grinder, 'grinder');
-  group.add(grinder);
-
-  // Tamping mat and tamper
-  group.add(
-    mesh(new THREE.BoxGeometry(0.11, 0.012, 0.09), black, SPOT.mat.clone().setY(Y + 0.006)),
-  );
-  const tamper = new THREE.Group();
-  const tamperHome = P(-2.5, Y + 0.012, 3.58);
-  tamper.position.copy(tamperHome);
-  tamper.add(mesh(cyl(0.029, 0.029, 0.012), metal, P(0, 0.006, 0)));
-  tamper.add(mesh(cyl(0.013, 0.02, 0.06), wood, P(0, 0.045, 0)));
-  tamper.add(mesh(new THREE.SphereGeometry(0.02, 16, 12), wood, P(0, 0.08, 0)));
-  hit(tamper, 'tamper');
-  group.add(tamper);
-
-  // Knock box
-  const knockBox = new THREE.Group();
-  knockBox.position.copy(SPOT.knock).setY(Y);
-  knockBox.add(mesh(new THREE.BoxGeometry(0.1, 0.07, 0.09), black, P(0, 0.035, 0)));
-  knockBox.add(mesh(cyl(0.004, 0.004, 0.09, 8), metal, P(0, 0.075, 0)).rotateZ(Math.PI / 2));
-  group.add(knockBox);
-
-  // Portafilter: basket with grounds, two spouts and a wooden handle pointing along +Z
-  const portafilter = new THREE.Group();
-  const basket = mesh(cyl(0.031, 0.026, 0.024, 28), metal);
-  const puck = mesh(cyl(0.027, 0.027, 1, 24), mat(0x4b2c18));
-  puck.visible = false;
-  const spout = mesh(cyl(0.004, 0.002, 0.015, 8), metal, P(0, -0.018, 0));
-  const handle = mesh(cyl(0.008, 0.01, 0.12, 12), wood, P(0, 0, 0.09));
-  handle.rotation.x = Math.PI / 2;
-  portafilter.add(basket, puck, spout, handle);
-  portafilter.position.copy(SPOT.rest);
-  hit(portafilter, 'portafilter');
-  group.add(portafilter);
-
-  // Espresso stream and the machine's tap target
-  const espressoStream = mesh(cyl(0.0025, 0.0018, 1, 8), mat(0x6b3a1c), P(0, 0, 0));
-  espressoStream.visible = false;
-  group.add(espressoStream);
-  const machineHit = mesh(
-    new THREE.BoxGeometry(0.26, 0.3, 0.33),
-    new THREE.MeshBasicMaterial({ visible: false }),
-    P(-3.0, Y + 0.15, 3.35),
-  );
-  hit(machineHit, 'machine');
-  group.add(machineHit);
+  // Streams (machine and syrup), the ice scoop and the powder spoon
+  const stream = mesh(cyl(0.003, 0.002, 1, 8), mat(0x6b3a1c), P(0, 0, 0));
+  stream.visible = false;
+  group.add(stream);
   const freezerHit = mesh(
     new THREE.BoxGeometry(0.72, 0.74, 0.61),
     new THREE.MeshBasicMaterial({ visible: false }),
@@ -334,13 +312,11 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     ),
   );
   scoop.add(mesh(cyl(0.006, 0.006, 0.1, 8), metal, P(0, 0, 0.06)).rotateX(Math.PI / 2));
-  const scoopIce = new THREE.Group();
   for (let k = 0; k < 5; k++) {
     const c = new THREE.Mesh(iceGeo, iceMat);
     c.position.set((k - 2) * 0.012, 0.008, (k % 2) * 0.01);
-    scoopIce.add(c);
+    scoop.add(c);
   }
-  scoop.add(scoopIce);
   scoop.visible = false;
   group.add(scoop);
   const spoon = new THREE.Group();
@@ -366,349 +342,235 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
   const tweens: Tween[] = [];
   const play = (dur: number, step: (k: number) => void, e = ease.inOut) =>
     new Promise<void>((done) => tweens.push({ t: 0, dur, step, ease: e, done }));
-  const moveTo = (o: THREE.Object3D, to: THREE.Vector3, dur: number, lift = 0, e = ease.inOut) => {
+  const moveTo = (o: THREE.Object3D, to: THREE.Vector3, dur: number, lift = 0) => {
     const from = o.position.clone();
-    return play(
-      dur,
-      (k) => {
-        o.position.lerpVectors(from, to, k);
-        o.position.y += Math.sin(Math.PI * k) * lift;
-      },
-      e,
-    );
+    return play(dur, (k) => {
+      o.position.lerpVectors(from, to, k);
+      o.position.y += Math.sin(Math.PI * k) * lift;
+    });
   };
   const wait = (s: number) => play(s, () => {});
+  /** A little hop when something is tapped, so every touch feels answered. */
+  const bounce = (o: THREE.Object3D) =>
+    play(0.32, (k) => o.scale.setScalar(1 + Math.sin(k * Math.PI) * 0.08), ease.out);
+  const streamBetween = (top: THREE.Vector3, bottom: THREE.Vector3, color: number) => {
+    (stream.material as THREE.MeshStandardMaterial).color.setHex(color);
+    stream.position.lerpVectors(top, bottom, 0.5);
+    stream.scale.set(1, Math.max(0.001, top.y - bottom.y), 1);
+    stream.visible = true;
+  };
 
-  // Station state
   const state = {
     busy: false,
-    pf: 'rest' as 'rest' | 'fork' | 'mat' | 'group' | 'locked',
-    dose: 0,
-    doseTarget: 18,
-    tamped: false,
-    spent: false,
-    beans: 1,
-    grinding: false,
-    brewing: false,
-    brewTime: 0,
-    brewMl: 0,
-    yaw: -0.8,
     view: 'counter' as 'counter' | 'freezer',
     cupAt: SPOT.work.clone(),
+    pouring: 0,
   };
-  const drinkState: BarDrink = { cup: null, amounts: {} };
-  const report = () =>
-    on.readout(
-      state.grinding || state.pf !== 'rest' || state.brewing || state.brewTime
-        ? {
-            dose: state.dose,
-            doseTarget: state.doseTarget,
-            time: state.brewTime,
-            yield: state.brewMl,
-          }
-        : null,
-    );
-  const showPuck = () => {
-    puck.visible = state.dose > 0.5;
-    const h = Math.min(0.022, (state.dose / 20) * (state.tamped ? 0.016 : 0.024));
-    puck.scale.y = Math.max(0.001, h);
-    puck.position.y = 0.012 - h / 2 + (state.tamped ? 0 : 0.004);
-    (puck.material as THREE.MeshStandardMaterial).color.setHex(state.spent ? 0x2c1a0f : 0x4b2c18);
-  };
-
+  const drink: BarDrink = { cup: null, amounts: {} };
   const needCup = () => {
-    if (drinkState.cup) return false;
-    on.hint('Ambil cup dulu: plastik untuk dingin, paper cup untuk panas.');
+    if (drink.cup) return false;
+    on.hint('Ambil cup dulu di tumpukan cup, di depan kiri.');
     return true;
   };
   const cupTo = (to: THREE.Vector3, dur = 0.45) => {
     state.cupAt.copy(to);
     return moveTo(cup, to, dur, 0.03);
   };
-
-  const actions: Record<string, () => Promise<void> | void> = {
-    async 'cup:gelas-es'() {
-      await takeCup('gelas-es');
-    },
-    async 'cup:cangkir'() {
-      await takeCup('cangkir');
-    },
-    async beans() {
-      if (state.beans > 0.9) return on.hint('Hopper grinder masih penuh.');
-      on.sound('scoop');
-      await play(0.25, (k) => (beanLid.position.y = 0.126 + k * 0.05), ease.out);
-      state.beans = 1;
-      beansInHopper.scale.y = 1;
-      await play(0.3, (k) => (beanLid.position.y = 0.176 - k * 0.05), ease.back);
-    },
-    async freezer() {
-      if (needCup()) return;
-      if (drinkState.amounts.es) return on.hint('Esnya sudah cukup untuk satu gelas.');
-      state.view = 'freezer';
-      await wait(0.55);
-      scoop.visible = true;
-      scoop.position.copy(SPOT.freezer).add(P(0, -0.12, 0));
-      on.sound('ice');
-      await moveTo(scoop, SPOT.freezer.clone().add(P(0, 0.12, -0.05)), 0.5, 0, ease.out);
-      state.view = 'counter';
-      scoop.visible = false;
-      await wait(0.45);
-      scoop.visible = true;
-      scoop.position.copy(state.cupAt).add(P(0, 0.25, 0.04));
-      await moveTo(scoop, state.cupAt.clone().add(P(0, 0.17, 0)), 0.3, 0, ease.out);
-      await play(0.25, (k) => (scoop.rotation.x = -k * 1.4));
-      on.sound('ice');
-      on.ice();
-      await wait(0.2);
-      scoop.visible = false;
-      scoop.rotation.x = 0;
-    },
-    grinder() {
-      if (state.pf !== 'fork')
-        return on.hint('Taruh portafilter di garpu grinder dulu (ketuk portafilter).');
-      if (state.grinding) return;
-      if (state.dose >= state.doseTarget - 0.2)
-        return on.hint('Sudah penuh. Ketuk portafilter untuk tamping.');
-      if (state.beans <= 0.05) return on.hint('Biji kopi habis. Ketuk toples biji kopi.');
-      state.grinding = true;
-      on.sound('grind-start');
-      grindButton.position.z = 0.037;
-    },
-    async tamper() {
-      if (state.pf !== 'mat') return on.hint('Taruh portafilter di alas tamping dulu.');
-      if (state.tamped) return on.hint('Sudah dipadatkan. Ketuk portafilter untuk memasang.');
-      state.busy = true;
-      const above = SPOT.mat.clone().add(P(0, 0.04, 0));
-      await moveTo(tamper, above, 0.4, 0.05);
-      await play(0.22, (k) => (tamper.position.y = above.y - k * 0.022), ease.inOut);
-      on.sound('tamp');
-      state.tamped = true;
-      showPuck();
-      // A little polish twist, then lift away.
-      await play(0.3, (k) => (tamper.rotation.y = Math.sin(k * Math.PI) * 0.6));
-      await play(0.2, (k) => (tamper.position.y = above.y - 0.022 + k * 0.022), ease.out);
-      await moveTo(tamper, tamperHome, 0.4, 0.05);
+  const run = async (task: () => Promise<void>) => {
+    if (state.busy) return;
+    state.busy = true;
+    try {
+      await task();
+    } finally {
       state.busy = false;
-      on.hint('Ketuk portafilter untuk memasangnya ke mesin.');
-    },
-    async portafilter() {
-      if (state.pf === 'rest') {
-        if (state.spent) return;
-        state.busy = true;
-        await moveTo(portafilter, SPOT.fork, 0.55, 0.05);
-        state.pf = 'fork';
-        state.busy = false;
-        report();
-        on.hint(`Ketuk grinder untuk menggiling ${state.doseTarget} g.`);
-      } else if (state.pf === 'fork') {
-        if (state.grinding) return;
-        if (state.dose < state.doseTarget - 1) return on.hint('Giling dulu sampai takarannya pas.');
-        state.busy = true;
-        await moveTo(portafilter, SPOT.mat, 0.5, 0.04);
-        state.pf = 'mat';
-        state.busy = false;
-        on.hint('Ketuk tamper untuk memadatkan.');
-      } else if (state.pf === 'mat') {
-        if (!state.tamped) return on.hint('Tamp dulu: ketuk tamper.');
-        state.busy = true;
-        // Under the group head, turned to the left, then up into it.
-        await play(0.35, (k) => (portafilter.rotation.y = -0.8 * k));
-        await moveTo(portafilter, SPOT.groupLow, 0.55, 0.06);
-        await moveTo(portafilter, SPOT.group, 0.25, 0, ease.out);
-        state.pf = 'group';
-        state.yaw = -0.8;
-        state.busy = false;
-        on.hint('Geser ke kanan untuk memutar portafilter sampai terkunci.');
-      } else if (state.pf === 'locked' && state.spent && !state.brewing) {
-        state.busy = true;
-        await play(0.3, (k) => (portafilter.rotation.y = -0.8 * k));
-        on.sound('click');
-        await moveTo(portafilter, SPOT.groupLow, 0.2);
-        await play(0.25, (k) => (portafilter.rotation.y = -0.8 * (1 - k)));
-        await moveTo(portafilter, SPOT.knock, 0.5, 0.06);
-        for (let i = 0; i < 2; i++) {
-          await play(0.08, (k) => (portafilter.position.y = SPOT.knock.y - k * 0.02));
-          on.sound('knock');
-          await play(
-            0.12,
-            (k) => (portafilter.position.y = SPOT.knock.y - 0.02 + k * 0.02),
-            ease.out,
-          );
-        }
-        state.dose = 0;
-        state.tamped = false;
-        state.spent = false;
-        state.brewTime = 0;
-        state.brewMl = 0;
-        showPuck();
-        await moveTo(portafilter, SPOT.rest, 0.45, 0.04);
-        state.pf = 'rest';
-        state.busy = false;
-        report();
-        on.hint('Bersih. Mau shot lagi? Ketuk portafilter.');
-      }
-    },
-    machine() {
-      if (state.brewing) return stopBrew();
-      if (state.pf !== 'locked') return on.hint('Pasang dan kunci portafilter di mesin dulu.');
-      if (state.spent) return on.hint('Buang ampasnya dulu: ketuk portafilter.');
-      if (needCup()) return;
-      void startBrew();
-    },
+    }
   };
-  for (const id of powders) actions['powder:' + id] = () => spoonPowder(id);
-  for (const id of ['fullcream', 'skm']) actions['pour:' + id] = () => pour(id);
-  for (const i of [0, 1, 2]) actions['syrup:' + i] = () => pump(i);
 
   async function takeCup(kind: BarCup) {
-    if (drinkState.cup) return on.hint('Sudah ada cup di meja.');
+    if (drink.cup) return on.hint('Cup sudah ada di tengah meja. Tekan "buang" kalau mau ganti.');
+    void bounce(stacks[kind]);
     on.sound('cup');
     cupKind = kind;
     styleCup();
     cup.visible = true;
-    const from = (kind === 'gelas-es' ? SPOT.plastic : SPOT.paper).clone().add(P(0, 0.1, 0));
-    cup.position.copy(from);
+    cup.position.copy((kind === 'gelas-es' ? SPOT.plastic : SPOT.paper).clone().add(P(0, 0.12, 0)));
     on.cup(kind);
     await cupTo(SPOT.work, 0.55);
   }
   async function pump(i: number) {
-    const id = slots[i];
     if (needCup()) return;
-    const b = bottles[i];
-    const under = SPOT.bottle(i)
-      .clone()
-      .add(P(0, 0, 0.065));
-    await cupTo(under, 0.4);
+    const id = slots[i],
+      b = bottles[i];
+    await cupTo(
+      SPOT.bottle(i)
+        .clone()
+        .add(P(0, 0, 0.075)),
+      0.4,
+    );
     on.sound('pump');
-    await play(0.12, (k) => (b.head.position.y = 0.235 - k * 0.018), ease.inOut);
+    // Press: the head sinks, the bottle squashes a touch, syrup runs into the cup.
+    await play(0.2, (k) => {
+      b.head.position.y = 0.24 - k * 0.05;
+      b.head.scale.set(1 + k * 0.18, 1 - k * 0.3, 1 + k * 0.18);
+      b.headMat.emissiveIntensity = k * 0.6;
+      b.body.scale.set(1 + k * 0.04, 1 - k * 0.03, 1 + k * 0.04);
+    });
+    const nozzle = SPOT.bottle(i)
+        .clone()
+        .add(P(0, 0.185, 0.07)),
+      mouth = state.cupAt.clone().add(P(0, 0.11, 0));
+    streamBetween(nozzle, mouth, COLORS[id] ?? 0xf0e0b0);
     on.add(id, STEP[id]);
-    await play(0.35, (k) => (b.head.position.y = 0.217 + k * 0.018), ease.back);
+    await wait(0.28);
+    stream.visible = false;
+    await play(
+      0.45,
+      (k) => {
+        b.head.position.y = 0.19 + k * 0.05;
+        b.head.scale.set(1.18 - k * 0.18, 0.7 + k * 0.3, 1.18 - k * 0.18);
+        b.headMat.emissiveIntensity = 0.6 * (1 - k);
+        b.body.scale.set(1.04 - k * 0.04, 0.97 + k * 0.03, 1.04 - k * 0.04);
+      },
+      ease.back,
+    );
     await cupTo(SPOT.work, 0.4);
   }
   async function spoonPowder(id: string) {
     if (needCup()) return;
-    const jar = jars[powders.indexOf(id)];
+    const j = jars[id];
     on.sound('scoop');
     await play(
-      0.22,
+      0.25,
       (k) => {
-        jar.lid.position.y = 0.105 + k * 0.05;
-        jar.lid.rotation.z = k * 0.5;
+        j.lid.position.y = 0.105 + k * 0.06;
+        j.lid.rotation.z = k * 0.6;
       },
       ease.out,
     );
     (spoonLoad.material as THREE.MeshStandardMaterial).color.setHex(COLORS[id]);
-    spoon.visible = true;
+    spoon.visible = spoonLoad.visible = true;
     spoon.rotation.set(0, 0, 0);
-    spoon.position.copy(jar.g.position).add(P(0, 0.06, 0));
-    spoonLoad.visible = true;
+    spoon.position.copy(j.g.position).add(P(0, 0.07, 0));
+    await play(0.18, (k) => (spoon.position.y = j.g.position.y + 0.07 - k * 0.04));
     await moveTo(spoon, state.cupAt.clone().add(P(0, 0.17, 0)), 0.5, 0.06);
     await play(0.22, (k) => (spoon.rotation.z = k * 1.8));
     spoonLoad.visible = false;
     on.add(id, STEP[id]);
-    await wait(0.1);
+    await wait(0.12);
     spoon.visible = false;
     await play(
-      0.25,
+      0.3,
       (k) => {
-        jar.lid.position.y = 0.155 - k * 0.05;
-        jar.lid.rotation.z = 0.5 * (1 - k);
+        j.lid.position.y = 0.165 - k * 0.06;
+        j.lid.rotation.z = 0.6 * (1 - k);
       },
       ease.back,
     );
   }
   async function pour(id: string) {
     if (needCup()) return;
-    const box = id === 'skm' ? skm : milk;
-    const home = box.position.clone(),
-      above = state.cupAt.clone().add(P(0.05, 0.12, 0));
+    const box = id === 'teh' ? tea : milk,
+      home = box.position.clone(),
+      above = state.cupAt.clone().add(P(0.06, 0.13, 0));
     await moveTo(box, above, 0.45, 0.05);
     on.sound('pour');
-    await play(0.3, (k) => (box.rotation.z = k * 1.2));
+    await play(0.3, (k) => (box.rotation.z = k * 1.1));
+    streamBetween(
+      above.clone().add(P(-0.04, -0.01, 0)),
+      state.cupAt.clone().add(P(0, 0.1, 0)),
+      COLORS[id],
+    );
     on.add(id, STEP[id]);
-    await wait(0.25);
-    await play(0.25, (k) => (box.rotation.z = 1.2 * (1 - k)));
+    await wait(0.35);
+    stream.visible = false;
+    await play(0.25, (k) => (box.rotation.z = 1.1 * (1 - k)));
     await moveTo(box, home, 0.45, 0.05);
   }
-  async function startBrew() {
-    state.busy = true;
-    await cupTo(SPOT.machineTray, 0.5);
-    state.busy = false;
+  async function scoopIce() {
+    if (needCup()) return;
+    if (drink.amounts.es) return on.hint('Esnya sudah cukup untuk satu gelas.');
+    state.view = 'freezer';
+    await wait(0.6);
+    scoop.visible = true;
+    scoop.position.copy(SPOT.freezer).add(P(0, -0.12, 0));
+    on.sound('ice');
+    await moveTo(scoop, SPOT.freezer.clone().add(P(0, 0.12, -0.05)), 0.5);
+    state.view = 'counter';
+    scoop.visible = false;
+    await wait(0.5);
+    scoop.visible = true;
+    scoop.position.copy(state.cupAt).add(P(0, 0.26, 0.04));
+    await moveTo(scoop, state.cupAt.clone().add(P(0, 0.17, 0)), 0.3);
+    await play(0.25, (k) => (scoop.rotation.x = -k * 1.4));
+    on.sound('ice');
+    on.ice();
+    await wait(0.2);
+    scoop.visible = false;
+    scoop.rotation.x = 0;
+  }
+  async function brew(kind: ShotKind) {
+    if (needCup()) return;
+    const shot = SHOTS[kind];
+    await cupTo(SPOT.tray, 0.5);
     on.sound('brew-start');
-    state.brewing = true;
-    state.brewTime = 0;
-    state.brewMl = 0;
-    on.hint('Hentikan saat volume pas (ketuk mesin). Target sekitar 25–30 detik.');
-  }
-  function stopBrew() {
-    state.brewing = false;
-    espressoStream.visible = false;
-    on.sound('brew-stop');
-    state.spent = true;
-    showPuck();
-    const t = state.brewTime,
-      target = state.doseTarget * 2;
-    // Good shots: 24–31 s and close to a 1:2 ratio.
-    const timeScore = 1 - Math.max(0, Math.abs(t - 27.5) - 3.5) / 12,
-      ratioScore = 1 - Math.max(0, Math.abs(state.brewMl - target) - 6) / 30;
-    const quality = Math.max(0.2, Math.min(1, timeScore * 0.6 + ratioScore * 0.4));
-    on.shot(quality, t, state.brewMl);
-    on.hint(
-      quality > 0.85
-        ? `Shot sempurna: ${Math.round(t)} dtk, ${Math.round(state.brewMl)} ml.`
-        : t > 31
-          ? `Kelamaan (${Math.round(t)} dtk), agak pahit.`
-          : `Kecepetan (${Math.round(t)} dtk), agak asam.`,
+    (screen.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.4;
+    state.pouring = 0;
+    const start = drink.amounts.espresso ?? 0;
+    await play(
+      shot.seconds,
+      (k) => {
+        state.pouring = k * shot.ml;
+        const flow = k < 0.12 ? 0 : 1;
+        if (flow) streamBetween(SPOT.spout, state.cupAt.clone().add(P(0, 0.03, 0)), 0x6b3a1c);
+        showDrink();
+      },
+      (t) => t,
     );
-    void cupTo(SPOT.work, 0.55);
-    report();
+    stream.visible = false;
+    state.pouring = 0;
+    (screen.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.6;
+    on.sound('brew-stop');
+    on.add('espresso', 1);
+    on.hint(`${kind[0].toUpperCase() + kind.slice(1)} siap (${start + 1} shot di cup).`);
+    await wait(0.3);
+    await cupTo(SPOT.work, 0.5);
   }
-
-  // Twisting into the group head: drag sideways while the portafilter hangs there.
-  let twist: { x: number; yaw: number } | null = null;
-  let press: { action: string; at: number; x: number; y: number } | null = null;
 
   function styleCup() {
-    const plastic = cupKind === 'gelas-es';
-    cupShell.geometry = plastic ? plasticGeo : paperGeo;
+    const plastic = cupKind !== 'cangkir';
+    cupShell.geometry = plastic ? openPlasticGeo : openPaperGeo;
     cupShell.material = plastic ? plasticMat : paperMat;
     cupShell.position.y = plastic ? 0.065 : 0.055;
+    cupRim.position.y = plastic ? 0.13 : 0.11;
+    cupRim.material = plastic ? rimMat : sleeveMat;
+    cupRim.scale.setScalar(plastic ? 1 : 0.9);
     sleeve.visible = !plastic;
     sleeve.position.y = 0.06;
   }
   function showDrink() {
-    const a = drinkState.amounts;
+    const a = drink.amounts;
     let volume = 0,
       r = 0,
       g = 0,
       b = 0,
       total = 0;
+    const take = (id: string, ml: number) => {
+      const c = new THREE.Color(COLORS[id] ?? 0xdddddd),
+        w = ml * (TINT[id] ?? 1);
+      volume += ml;
+      r += c.r * w;
+      g += c.g * w;
+      b += c.b * w;
+      total += w;
+    };
     for (const [id, amount] of Object.entries(a)) {
       if (!amount || id === 'es') continue;
-      const ml =
-        id === 'espresso'
-          ? amount * 30
-          : ['cokelat', 'matcha', 'taro'].includes(id)
-            ? amount * 2
-            : amount;
-      volume += ml;
-      const c = new THREE.Color(COLORS[id] ?? 0xdddddd);
-      const w = ml * (TINT[id] ?? 1);
-      r += c.r * w;
-      g += c.g * w;
-      b += c.b * w;
-      total += w;
+      take(
+        id,
+        id === 'espresso' ? amount * 30 : id === 'cokelat' || id === 'matcha' ? amount * 2 : amount,
+      );
     }
-    // Shot in progress: what has run so far.
-    if (state.brewing) {
-      const c = new THREE.Color(COLORS.espresso),
-        w = state.brewMl * 3;
-      volume += state.brewMl;
-      r += c.r * w;
-      g += c.g * w;
-      b += c.b * w;
-      total += w;
-    }
+    if (state.pouring) take('espresso', state.pouring);
     const plastic = cupKind !== 'cangkir';
     const height = plastic ? 0.12 : 0.1,
       capacity = plastic ? 360 : 240,
@@ -720,12 +582,29 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
       rTop = rBottom + (plastic ? 0.012 : 0.01) * fill;
     liquid.scale.set(rTop, h, rTop);
     liquid.position.y = 0.004 + h / 2;
-    crema.visible = !!a.espresso || state.brewing;
+    crema.visible = !!a.espresso || !!state.pouring;
     crema.scale.set(rTop * 0.98, 1, rTop * 0.98);
     crema.position.y = 0.004 + h + 0.002;
     ice.visible = !!a.es;
   }
 
+  const actions: Record<string, () => Promise<void> | void> = {
+    'cup:gelas-es': () => run(() => takeCup('gelas-es')),
+    'cup:cangkir': () => run(() => takeCup('cangkir')),
+    'powder:cokelat': () => run(() => spoonPowder('cokelat')),
+    'powder:matcha': () => run(() => spoonPowder('matcha')),
+    'pour:fullcream': () => run(() => pour('fullcream')),
+    'pour:teh': () => run(() => pour('teh')),
+    freezer: () => run(scoopIce),
+    machine: () => {
+      if (state.busy) return;
+      void bounce(machine);
+      if (!needCup()) on.chooseShot();
+    },
+  };
+  for (const i of [0, 1, 2]) actions['syrup:' + i] = () => run(() => pump(i));
+
+  let press: { action: string; at: number } | null = null;
   return {
     group,
     hits,
@@ -733,50 +612,36 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     view: () => state.view,
     state,
     setSlots,
-    setDose(g: number) {
-      state.doseTarget = g;
-      report();
-    },
     /** The drink as the game sees it (cup kind and amounts), for the cup's look. */
     setDrink(d: BarDrink) {
-      drinkState.cup = d.cup;
-      drinkState.amounts = d.amounts;
+      drink.cup = d.cup;
+      drink.amounts = d.amounts;
       if (!d.cup) {
         cup.visible = false;
         cupKind = null;
-      } else if (d.cup !== cupKind) {
-        cupKind = d.cup === 'cup-takeaway' ? 'cangkir' : d.cup;
+      } else if ((d.cup === 'gelas-es' ? 'gelas-es' : 'cangkir') !== cupKind) {
+        cupKind = d.cup === 'gelas-es' ? 'gelas-es' : 'cangkir';
         styleCup();
         cup.visible = true;
         cup.position.copy(state.cupAt);
       }
       showDrink();
     },
+    /** Actions started from the screen: 'freezer', or a shot kind. */
+    act(what: 'freezer' | ShotKind) {
+      if (what === 'freezer') void actions.freezer();
+      else void run(() => brew(what));
+    },
     /** Where the finish button goes (world position above the cup). */
     cupAnchor: (out: THREE.Vector3) => cup.localToWorld(out.set(0, 0.17, 0)),
-    pointerDown(action: string | null, x: number, y: number) {
-      if (state.pf === 'group' && (action === 'portafilter' || action === null)) {
-        twist = { x, yaw: state.yaw };
-        return;
-      }
-      if (action) press = { action, at: performance.now(), x, y };
-    },
-    pointerMove(x: number, _y: number, width: number) {
-      if (!twist) return;
-      state.yaw = Math.min(0, Math.max(-0.8, twist.yaw + ((x - twist.x) / width) * 2.4));
-      portafilter.rotation.y = state.yaw;
-      if (state.yaw > -0.05) lock();
+    machineAnchor: (out: THREE.Vector3) => machine.localToWorld(out.set(0, 0.4, 0.1)),
+    pointerDown(action: string | null) {
+      press = action ? { action, at: performance.now() } : null;
     },
     pointerUp() {
-      if (twist) {
-        twist = null;
-        // Let go close to the middle and it clicks home by itself.
-        if (state.pf === 'group' && state.yaw > -0.25) lock();
-        return;
-      }
       const p = press;
       press = null;
-      if (!p || state.busy) return;
+      if (!p) return;
       if (p.action.startsWith('syrup:') && performance.now() - p.at > 450) {
         on.swap(Number(p.action.slice(6)));
         return;
@@ -793,63 +658,12 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
           tw.done();
         }
       }
-      if (state.grinding) {
-        // About 3.5 g a second, like a quick on-demand grinder.
-        state.dose = Math.min(state.doseTarget, state.dose + dt * 3.5);
-        state.beans = Math.max(0, state.beans - dt * 0.05);
-        beansInHopper.scale.y = Math.max(0.05, state.beans);
-        grinderBody.position.x = Math.sin(performance.now() * 0.09) * 0.0008;
-        groundsStream.visible = true;
-        groundsStream.scale.y = 0.03;
-        groundsStream.position.y = 0.095;
-        showPuck();
-        report();
-        if (state.dose >= state.doseTarget || state.beans <= 0) {
-          state.grinding = false;
-          groundsStream.visible = false;
-          grindButton.position.z = 0.041;
-          on.sound('grind-stop');
-          on.hint(
-            state.beans <= 0
-              ? 'Biji kopi habis. Ketuk toples biji kopi.'
-              : `${state.doseTarget} g siap. Ketuk portafilter untuk tamping.`,
-          );
-        }
-      }
-      if (state.brewing) {
-        // Game speed: a 27-second shot takes about 4.5 real seconds.
-        state.brewTime += dt * 6;
-        const flow = state.brewTime < 5 ? 0 : 1.35 + Math.sin(state.brewTime * 0.4) * 0.1;
-        state.brewMl += flow * dt * 6 * 0.95;
-        espressoStream.visible = flow > 0;
-        const top = SPOT.group.clone().add(P(0, -0.02, 0)),
-          bottom = state.cupAt.clone().add(P(0, 0.03, 0));
-        espressoStream.position.lerpVectors(top, bottom, 0.5);
-        espressoStream.scale.set(1, top.y - bottom.y, 1);
-        showDrink();
-        report();
-        if (state.brewTime > 60) stopBrew();
-      }
     },
     dispose() {
       model.remove(group);
+      if (ownMachine) ownMachine.visible = true;
       disposables.forEach((d) => d.dispose());
     },
   };
-
-  function lock() {
-    if (state.pf !== 'group') return;
-    twist = null;
-    state.yaw = 0;
-    portafilter.rotation.y = 0;
-    state.pf = 'locked';
-    on.sound('lock');
-    on.hint('Terkunci! Ketuk mesin untuk mulai brew.');
-    void play(
-      0.2,
-      (k) => (portafilter.position.y = SPOT.group.y + Math.sin(k * Math.PI) * 0.004),
-      ease.out,
-    );
-  }
 }
 export type BarRig = ReturnType<typeof createBarRig>;
