@@ -103,30 +103,40 @@ export const FILMS: Film[] = [
 export const filmById = (id: string) => FILMS.find((f) => f.id === id) ?? FILMS[0];
 
 /** Photo area aspect: portrait 35 mm (2:3). */
+/** Portrait print (2:3); a landscape print is 3:2. */
 export const PRINT_ASPECT = 2 / 3;
+export const LANDSCAPE_ASPECT = 3 / 2;
 
 /**
  * Develops `source` (a video frame or image) into a JPEG print.
- * `mirror` flips selfies so the print matches what the guest saw.
+ * `mirror` flips selfies so the print matches what the guest saw; `aspect` is the print's
+ * width / height (portrait 2:3 by default, 3:2 for landscape); `exposure` is in stops.
  */
 export async function develop(
   source: CanvasImageSource & { videoWidth?: number; videoHeight?: number },
   film: Film,
-  { mirror = false, maxSide = 1500, now = new Date(), zoom = 1 } = {},
+  {
+    mirror = false,
+    maxSide = 1500,
+    now = new Date(),
+    zoom = 1,
+    aspect = PRINT_ASPECT,
+    exposure = 0,
+  } = {},
 ) {
   const sw = source.videoWidth || (source as HTMLImageElement).naturalWidth || 1,
     sh = source.videoHeight || (source as HTMLImageElement).naturalHeight || 1;
-  // Crop the centre of the frame to 2:3 portrait.
+  // Crop the centre of the frame to the print's shape.
   let cw = sw,
-    ch = sw / PRINT_ASPECT;
+    ch = sw / aspect;
   if (ch > sh) {
     ch = sh;
-    cw = sh * PRINT_ASPECT;
+    cw = sh * aspect;
   }
   // Digital zoom crops further into the centre.
   cw /= zoom;
   ch /= zoom;
-  const scale = Math.min(1, maxSide / ch),
+  const scale = Math.min(1, maxSide / Math.max(cw, ch)),
     w = Math.round(cw * scale),
     h = Math.round(ch * scale);
   const photo = document.createElement('canvas');
@@ -142,7 +152,7 @@ export async function develop(
   ctx.restore();
 
   if (film.lut) applyLut(ctx, w, h, film.lut);
-  grade(ctx, w, h, film);
+  grade(ctx, w, h, film, exposure);
   if (film.leak) leak(ctx, w, h, film.leak);
   vignette(ctx, w, h, film.vignette);
   if (film.date) stamp(ctx, w, h, now);
@@ -150,7 +160,7 @@ export async function develop(
   return print(photo, film, now);
 }
 
-function grade(ctx: CanvasRenderingContext2D, w: number, h: number, film: Film) {
+function grade(ctx: CanvasRenderingContext2D, w: number, h: number, film: Film, exposure = 0) {
   const img = ctx.getImageData(0, 0, w, h),
     d = img.data,
     { gain, lift, contrast, saturation, mono } = film.grade,
@@ -166,10 +176,12 @@ function grade(ctx: CanvasRenderingContext2D, w: number, h: number, film: Film) 
   const curves = film.grade.curves,
     master = curves?.rgb ? curveTable(curves.rgb) : null,
     own = [curves?.r, curves?.g, curves?.b].map((c) => (c ? curveTable(c) : null));
+  // Exposure compensation scales the light coming in, before the film's response.
+  const light = Math.pow(2, exposure);
   const lut = [0, 1, 2].map((ch) => {
     const t = new Float32Array(256);
     for (let i = 0; i < 256; i++) {
-      let v = lift[ch] + (curve(i) * gain[ch] * (255 - lift[ch])) / 255;
+      let v = lift[ch] + (curve(clamp(i * light)) * gain[ch] * (255 - lift[ch])) / 255;
       if (master) v = master[clamp(v)];
       if (own[ch]) v = own[ch]![clamp(v)];
       t[i] = v;
@@ -289,7 +301,7 @@ function stamp(ctx: CanvasRenderingContext2D, w: number, h: number, now: Date) {
   }).formatToParts(now);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
   const text = `'${get('year')} ${get('month')} ${get('day')}`;
-  const size = Math.round(w * 0.045);
+  const size = Math.round(Math.min(w, h) * 0.045);
   ctx.save();
   ctx.font = `bold ${size}px "Courier New", ui-monospace, monospace`;
   ctx.textAlign = 'right';
@@ -303,10 +315,12 @@ function stamp(ctx: CanvasRenderingContext2D, w: number, h: number, now: Date) {
 
 /** Cream border with a caption, like a lab print. */
 function print(photo: HTMLCanvasElement, film: Film, now: Date) {
+  // Border and caption follow the short side, so portrait and landscape prints match.
   const w = photo.width,
     h = photo.height,
-    pad = Math.round(w * 0.05),
-    foot = Math.round(w * 0.14);
+    side = Math.min(w, h),
+    pad = Math.round(side * 0.05),
+    foot = Math.round(side * 0.14);
   const out = document.createElement('canvas');
   out.width = w + pad * 2;
   out.height = h + pad + foot;
@@ -317,10 +331,10 @@ function print(photo: HTMLCanvasElement, film: Film, now: Date) {
   ctx.fillStyle = '#6b5644';
   ctx.textBaseline = 'middle';
   const y = pad + h + foot / 2;
-  ctx.font = `italic ${Math.round(w * 0.05)}px Georgia, serif`;
+  ctx.font = `italic ${Math.round(side * 0.05)}px Georgia, serif`;
   ctx.textAlign = 'left';
   ctx.fillText('Story of Winds', pad, y);
-  ctx.font = `${Math.round(w * 0.028)}px "Courier New", ui-monospace, monospace`;
+  ctx.font = `${Math.round(side * 0.028)}px "Courier New", ui-monospace, monospace`;
   ctx.textAlign = 'right';
   const day = now.toLocaleDateString('id-ID', {
     timeZone: 'Asia/Makassar',

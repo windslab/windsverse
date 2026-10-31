@@ -9,7 +9,7 @@ import { Reflector } from 'three/addons/objects/Reflector.js';
 import { CSS3DObject, CSS3DRenderer } from 'three/addons/renderers/CSS3DRenderer.js';
 import DriveTV, { type TVProgram } from './drive-tv';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { BookOpen, Coffee, Gamepad2, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { BookOpen, Coffee, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import { createCafeSound, playSfx, type Surface } from '@/lib/cafe-sound';
 import { cafePaths, type CafePathData } from '@/lib/cafe-paths';
 import { prepareCafeBarWorkspace } from '@/lib/cafe-bar-workspace';
@@ -247,6 +247,7 @@ export default function CafeScene({
   libraryRequest = 0,
   tvRequest = 0,
   tvExpandRequest = 0,
+  exploreRequest = 0,
   telescopeRequest = 0,
   cafeReturnRequest = 0,
   paused = false,
@@ -258,6 +259,8 @@ export default function CafeScene({
   libraryRequest?: number;
   tvRequest?: number;
   tvExpandRequest?: number;
+  /** Bumped by the Windstopia button: opens Explore mode. */
+  exploreRequest?: number;
   paused?: boolean;
   telescopeRequest?: number;
   /** Bumped when the telescope zooms into the Winds Space illustration to come back here. */
@@ -337,6 +340,13 @@ export default function CafeScene({
     setExploring(on);
     if (!on) viewRef.current.reset += 1;
   };
+  const lastExplore = useRef(0);
+  useEffect(() => {
+    if (exploreRequest === lastExplore.current) return;
+    lastExplore.current = exploreRequest;
+    toggleExplore(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per button press
+  }, [exploreRequest]);
   // Explore opened before Luna had loaded: hand her the controls once she's ready.
   useEffect(() => {
     if (exploring && exploreApi) exploreApi.setManual(true);
@@ -411,7 +421,14 @@ export default function CafeScene({
       lastTvVisibilityAt = 0;
     const tvNormal = new THREE.Vector3(-1, 0, 0),
       tvSight = new THREE.Raycaster(),
-      tvDirection = new THREE.Vector3();
+      tvDirection = new THREE.Vector3(),
+      // The HTML screen always draws on top of the 3D view, so it is only shown while the centre
+      // and all four corners of the TV can be seen; otherwise the plain 3D screen shows instead.
+      tvSamples: THREE.Vector3[] = [],
+      tvSample = new THREE.Vector3(),
+      tvLastView = new THREE.Matrix4();
+    let tvPaint: ((photo: HTMLImageElement) => void) | undefined,
+      tvPainted = '';
     const ripples: THREE.Mesh[] = [];
     const leafMeshes: THREE.Mesh[] = [],
       windTime = { value: 0 };
@@ -1523,6 +1540,17 @@ export default function CafeScene({
           }
           const texture = new THREE.CanvasTexture(canvas);
           texture.colorSpace = THREE.SRGBColorSpace;
+          // While the HTML screen is hidden, the 3D screen shows the same photo (cover-fit).
+          tvPaint = (photo) => {
+            if (!context || !photo.naturalWidth) return;
+            const scale = Math.max(360 / photo.naturalWidth, 640 / photo.naturalHeight),
+              w = photo.naturalWidth * scale,
+              h = photo.naturalHeight * scale;
+            context.fillStyle = '#111';
+            context.fillRect(0, 0, 360, 640);
+            context.drawImage(photo, (360 - w) / 2, (640 - h) / 2, w, h);
+            texture.needsUpdate = true;
+          };
           tvSurface = new THREE.Mesh(
             new THREE.PlaneGeometry(size.z * 0.96, size.y * 0.98),
             new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }),
@@ -1534,6 +1562,16 @@ export default function CafeScene({
           element.className = 'scene-tv-screen';
           element.style.width = '360px';
           element.style.height = '640px';
+          const halfZ = size.z * 0.96 * 0.45,
+            halfY = size.y * 0.98 * 0.45;
+          tvSamples.push(tvTarget.clone());
+          for (const [dz, dy] of [
+            [-1, -1],
+            [1, -1],
+            [-1, 1],
+            [1, 1],
+          ])
+            tvSamples.push(tvTarget.clone().add(new THREE.Vector3(0, dy * halfY, dz * halfZ)));
           tvLayer = new CSS3DObject(element);
           tvLayer.position.copy(tvTarget).addScaledVector(tvNormal, 0.002);
           tvLayer.rotation.y = -Math.PI / 2;
@@ -2864,8 +2902,12 @@ export default function CafeScene({
             }
           }
           if (tvLayer && tvTarget && cssRenderer) {
-            if (t - lastTvVisibilityAt > 0.35) {
+            // Check every frame while the camera moves (so nothing passes in front unnoticed),
+            // and a few times a second otherwise (people walking past).
+            const moved = !tvLastView.equals(camera.matrixWorld);
+            if (moved || t - lastTvVisibilityAt > 0.35) {
               lastTvVisibilityAt = t;
+              tvLastView.copy(camera.matrixWorld);
               tvDirection.subVectors(camera.position, tvTarget);
               tvProjected.copy(tvTarget).project(camera);
               let visible =
@@ -2874,11 +2916,12 @@ export default function CafeScene({
                 Math.abs(tvProjected.y) < 1.2 &&
                 tvProjected.z > -1 &&
                 tvProjected.z < 1;
-              if (visible) {
-                const distance = tvDirection.length();
-                tvSight.set(camera.position, tvDirection.negate().normalize());
+              for (const point of visible ? tvSamples : []) {
+                tvSample.subVectors(point, camera.position);
+                const distance = tvSample.length();
+                tvSight.set(camera.position, tvSample.normalize());
                 tvSight.far = Math.max(0, distance - 0.025);
-                visible = !tvSight.intersectObject(assetRoot!, true).some((hit) => {
+                const blocked = tvSight.intersectObject(assetRoot!, true).some((hit) => {
                   const mesh = hit.object as THREE.Mesh;
                   return (
                     mesh.isMesh &&
@@ -2888,6 +2931,18 @@ export default function CafeScene({
                     )
                   );
                 });
+                if (blocked) {
+                  visible = false;
+                  break;
+                }
+              }
+              if (!visible && tvPaint) {
+                const photo =
+                  tvLayer.element.querySelector<HTMLImageElement>('img.tv-photo-visible');
+                if (photo?.complete && photo.src !== tvPainted) {
+                  tvPainted = photo.src;
+                  tvPaint(photo);
+                }
               }
               tvLayer.element.style.visibility = visible ? 'visible' : 'hidden';
               tvLayer.element.style.pointerEvents = visible ? 'auto' : 'none';
@@ -3096,16 +3151,6 @@ export default function CafeScene({
             sound={soundEnabled}
             onToggleSound={() => void toggleSound()}
           />
-        )}
-        {!exploring && exploreApi && (
-          <button
-            type="button"
-            className="scene-explore-toggle"
-            onClick={() => toggleExplore(true)}
-          >
-            <Gamepad2 size={14} />
-            <span>Explore</span>
-          </button>
         )}
         <button
           type="button"

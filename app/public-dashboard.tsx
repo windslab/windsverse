@@ -14,6 +14,7 @@ import {
   Telescope,
   Camera,
   Radio,
+  Gamepad2,
 } from 'lucide-react';
 import { BrandMark } from '@/components/brand-mark';
 import PublicLibrary from './public-library';
@@ -62,7 +63,8 @@ export default function PublicDashboard() {
     [radioOpen, setRadioOpen] = useState(false),
     [cafeReturn, setCafeReturn] = useState(0),
     [libraryRequest, setLibraryRequest] = useState(0),
-    [tvRequest, setTvRequest] = useState(0);
+    [tvRequest, setTvRequest] = useState(0),
+    [exploreRequest, setExploreRequest] = useState(0);
   const [telescopeOpen, setTelescopeOpen] = useState(false),
     [telescopeRequest, setTelescopeRequest] = useState(0),
     [telescopeEntering, setTelescopeEntering] = useState(false);
@@ -112,6 +114,15 @@ export default function PublicDashboard() {
     warmTelescope();
     setTelescopeEntering(true);
     setTelescopeRequest((value) => value + 1);
+    sceneSection.current?.scrollIntoView({
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ? 'instant'
+        : 'smooth',
+      block: 'start',
+    });
+  };
+  const visitWindstopia = () => {
+    setExploreRequest((value) => value + 1);
     sceneSection.current?.scrollIntoView({
       behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
         ? 'instant'
@@ -221,6 +232,7 @@ export default function PublicDashboard() {
               onTelescopeReady={telescopeArrived}
               onTelescopeClick={visitTelescope}
               tvRequest={tvRequest}
+              exploreRequest={exploreRequest}
               libraryRequest={libraryRequest}
               onBookshelfClick={() => setLibraryOpen(true)}
             />
@@ -228,11 +240,11 @@ export default function PublicDashboard() {
           <div className="landing-destinations">
             <a href="#menu" className="button primary landing-cta">
               <Coffee size={18} />
-              Jelajahi Menu <ArrowRight size={18} />
+              Menu <ArrowRight size={18} />
             </a>
             <button type="button" className="button landing-library-cta" onClick={visitLibrary}>
               <BookOpen size={18} />
-              Menuju Perpustakaan <ArrowRight size={18} />
+              Library <ArrowRight size={18} />
             </button>
             <div className="landing-tv-actions">
               <button type="button" className="button landing-library-cta" onClick={visitTV}>
@@ -255,6 +267,10 @@ export default function PublicDashboard() {
             >
               <Radio size={18} />
               Noisegasm <ArrowRight size={18} />
+            </button>
+            <button type="button" className="button landing-library-cta" onClick={visitWindstopia}>
+              <Gamepad2 size={18} />
+              Windstopia <ArrowRight size={18} />
             </button>
             <button
               type="button"
