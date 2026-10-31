@@ -872,3 +872,31 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Dicek di browser dengan database uji lokal: label dan susunan tombol, tombol Explore di 3D hilang,
   Windstopia membuka mode jelajah. Uji putar kamera di depan Memoirs belum dilakukan di browser.
   `typecheck`, `format:check`, `build` lulus; jumlah masalah lint tidak bertambah.
+
+## 45. Story of Winds: bodi kamera rangefinder, knob yang bisa diputar, dan unggah foto (1 Nov 2026)
+
+- **Tampilan baru** (tanpa merek): bodi kamera landscape dengan pelat atas perak dan bodi hitam
+  bertekstur kulit, seperti kamera rangefinder dilihat dari belakang. Semua ukuran mengikuti lebar
+  bodi, jadi pas di HP maupun komputer.
+- **Kontrol dan fungsinya**:
+  - Atas: knob **FILM** (putar = ganti film), **tombol rana** (jepret), knob **EV** (kompensasi
+    cahaya −2 sampai +2, per ⅓ stop; berlaku di pratinjau dan hasil cetak), **roda ZOOM** (1–3×),
+    **VIEW MODE** (lensa depan/belakang), **FLASH** (lampu kilat).
+  - Belakang: **tuas fokus** (garis bantu), **▶** (lihat foto), **🗑** (hapus foto), **DISP/BACK**
+    (sembunyikan info layar / kembali), **Q** (menu cepat: unggah foto, timer, kilat, garis bantu,
+    lensa), **D-pad** (atas DRIVE = timer, bawah = kilat, kiri/kanan = ganti film atau foto) dan
+    **MENU/OK** (menu film / pilih / unduh foto saat melihat foto).
+  - Knob diputar dengan menyeret ke samping (berbunyi "klik" per takik), menggulir, tombol panah,
+    atau mengetuk sisi kiri/kanannya. Di komputer: spasi = jepret, panah = D-pad, Enter = OK.
+- **Orientasi**: bawaan landscape (cetak 3:2). Di HP yang dipegang berdiri, bodi berputar menjadi
+  kamera tegak dan hasilnya portrait (2:3); isi layar LCD tetap tegak. Mengikuti orientasi layar HP
+  (rotasi otomatis harus aktif agar landscape terdeteksi saat HP dimiringkan).
+- **Unggah foto** (Q → Unggah foto dari galeri): foto dari galeri dicetak dengan film dan EV yang
+  dipilih, mengikuti orientasi fotonya, lalu tersimpan di album seperti jepretan biasa (memakai satu
+  jatah harian).
+- `develop` kini menerima `aspect` dan `exposure`; bingkai dan teks cetakan mengikuti sisi pendek,
+  jadi cetakan portrait tetap sama seperti sebelumnya.
+- Dicek di browser dengan database uji lokal: knob FILM dan EV diputar dengan seret mouse, menu Q,
+  unggah foto landscape (tersimpan 1280×952, jatah 15 → 14), tombol ▶, dan tampilan HP berdiri.
+  Kamera asli tidak bisa diuji di browser uji (akses kamera diblokir). `typecheck`,
+  `format:check`, `build` lulus; masalah lint lama di file kamera tidak bertambah.
