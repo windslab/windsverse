@@ -1,0 +1,71 @@
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.channels {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.channel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #354459;
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: #1c2838;
+  color: #ccd6e4;
+  font-size: 0.8rem;
+}
+.channel::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+.channel[aria-selected='true'] {
+  border-color: var(--dot);
+  color: #f5f6f8;
+  font-weight: 600;
+}
+.channel i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c4ec81;
+}
+.graph {
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 1;
+  background: #0c121b;
+  border: 1px solid #293447;
+  border-radius: 10px;
+  touch-action: none;
+  cursor: crosshair;
+  overflow: visible;
+}
+.grid line {
+  stroke: #1f2a3a;
+  stroke-width: 1;
+}
+.diagonal {
+  stroke: #344052;
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+.curve {
+  fill: none;
+  stroke-width: 2.2;
+}
+.point {
+  stroke-width: 2;
+}
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
