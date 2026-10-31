@@ -4503,9 +4503,12 @@ td {
 .landing-scene-column .landing-tv-actions {
   grid-column: auto;
 }
-/* Six destinations: three rows of two. */
+/* Seven destinations: Menu across the top, then three rows of two. */
 .landing-scene-column .landing-telescope-cta {
   grid-column: auto;
+}
+.landing-scene-column .landing-destinations > .landing-cta {
+  grid-column: 1 / -1;
 }
 
 /* Windstronout: controls follow the eyepiece on phones; object details have their own space. */
@@ -5415,25 +5418,6 @@ html:has(.cafe-scene-shell.exploring) .noisegasm-mini {
 .cafe-scene-shell.exploring .scene-sound-toggle,
 .cafe-scene-shell.exploring .scene-time-switch {
   display: none;
-}
-.scene-explore-toggle {
-  position: absolute;
-  z-index: 3;
-  left: 50%;
-  top: 14px;
-  transform: translateX(-50%);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 34px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 0;
-  background: #e39a3b;
-  color: #2a1c10;
-  font-size: 12px;
-  font-weight: 700;
-  box-shadow: 0 4px 12px rgba(30, 15, 5, 0.25);
 }
 /* Dialogs opened from explore mode (Windstronout, Story of Winds) sit above the full-screen scene. */
 html:has(.cafe-scene-shell.exploring) [data-slot='dialog-overlay'],

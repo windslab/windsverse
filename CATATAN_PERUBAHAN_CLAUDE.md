@@ -857,3 +857,18 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Dicek: hitungan kurva (lurus = tidak berubah, kurva S, pudar), dan di browser dengan database uji
   lokal (menambah dan menggeser titik dengan mouse, pratinjau berubah, preset tersimpan dan kurvanya
   muncul lagi saat diedit). `typecheck`, `format:check`, `build` lulus.
+
+## 44. Tombol Windstopia, nama tombol baru, dan layar Memoirs tidak menembus benda (1 Nov 2026)
+
+- Tombol **Explore** di dalam layar 3D dihapus. Gantinya tombol **Windstopia** di deretan tombol fitur
+  di bawah layar 3D; menekannya menggulir ke layar 3D dan membuka mode jelajah.
+- Nama tombol: **Jelajahi Menu → Menu**, **Menuju Perpustakaan → Library**. Karena kini ada 7 tombol,
+  Menu dibuat selebar penuh di atas dan enam tombol lain tersusun berpasangan.
+- **Layar Memoirs** (lapisan web yang ditempel di atas 3D) kadang terlihat menembus benda saat kamera
+  diputar, karena penghalang hanya diperiksa tiap 0,35 detik dan hanya di titik tengah layar. Kini
+  diperiksa setiap gambar selama kamera bergerak, di tengah dan keempat sudut layar; bila ada yang
+  tertutup, lapisan web disembunyikan dan layar 3D di belakangnya menampilkan foto yang sama (bukan
+  lagi gambar pengganti "Winds Space").
+- Dicek di browser dengan database uji lokal: label dan susunan tombol, tombol Explore di 3D hilang,
+  Windstopia membuka mode jelajah. Uji putar kamera di depan Memoirs belum dilakukan di browser.
+  `typecheck`, `format:check`, `build` lulus; jumlah masalah lint tidak bertambah.
