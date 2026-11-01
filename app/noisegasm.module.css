@@ -169,6 +169,14 @@
     0 1px 0 #a99572,
     0 2px 4px rgba(0, 0, 0, 0.3);
 }
+/* Shuffle: a narrower key that stays down (and glows amber) while it is on. */
+.keys .shuffle {
+  width: 42px;
+}
+.keys .shuffle[aria-pressed='true'] {
+  color: #b8661d;
+  background: linear-gradient(180deg, #ffe7bf, #f1c98a);
+}
 .dragHint {
   text-align: center;
   font-size: 11px;

@@ -1141,3 +1141,45 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   menghalangi. Dicek beberapa kali per detik dengan dua garis pandang (dada dan lutut Luna). Kaca dan
   perlengkapan bar tidak ikut.
 - Diuji di browser (dev): Luna di bawah lantai 2, lantai atas dan dinding di depannya memudar.
+
+## 56. Noisegasm: pemutar YouTube lebih tangguh (1 Nov 2026)
+
+- Di situs live (Chrome di panel asisten) Noisegasm bisa diputar/dijeda, dan ke-21 video playlist
+  bisa diputar di windsverse.com. Masalah belum bisa direproduksi, jadi pemutar dibuat lebih tangguh:
+  - Video yang tidak bisa diputar (dihapus, privat, atau tidak boleh di-embed) dilewati otomatis,
+    bukan menghentikan musik.
+  - Tombol play yang ditekan sebelum pemutar YouTube siap tidak lagi error; pemutar mulai begitu siap,
+    dan suara dinyalakan bila YouTube memulai dalam keadaan bisu.
+  - Bila dalam 3 detik musik tetap tidak jalan (beberapa browser, terutama iPhone/iPad, hanya mengizinkan
+    YouTube mulai dari ketukan langsung pada videonya), pemutar mini menulis "Ketuk video kecil untuk
+    memutar".
+
+## 57. Langit lebih lembut, kucing tidak menembus dinding, gunung dan laut ditukar (1 Nov 2026)
+
+- **Langit siang** kembali ke warna lama yang lembut, hanya sedikit lebih biru dan segar (atas
+  sedikit lebih biru, cakrawala sedikit lebih bersih, awan sedikit lebih terang). Kabut jauh ikut.
+- **Kucing menembus dinding**: pemeriksaan langkah (dipakai kucing dan langkah bebas Luna) hanya
+  menembakkan sinar ke depan, sehingga dinding satu sisi yang terlihat dari belakang tidak terdeteksi.
+  Kini ada sinar balik dari arah sebaliknya, jadi dinding dari sisi mana pun menghalangi.
+- **Gunung dan laut ditukar**: laut dan pantai (beserta dermaga dan perahu) kini di belakang kafe,
+  di balik bukit menara; pegunungan di seberang jalan depan. **Sungai** ikut ke belakang, mengalir di
+  antara kafe dan menara, dengan danau hati di sisi lautnya. **Menara tetap** di tempatnya. Jembatan
+  kayu kini di belakang kafe: jalan tanah dari belakang kafe ke jembatan, lalu batu pijakan dari
+  ujung jembatan ke tangga menara.
+- Diuji di browser (dev): tinggi tanah (laut di belakang, gunung di depan), sungai + jembatan + batu
+  pijakan ke menara terlihat dari kamera Explore. `typecheck`, `format:check`, `build` lulus; tes
+  19/19, `engine.test` 28/32 (4 gagal lama).
+
+## 58. Noisegasm shuffle; kontrol HP: joystick jalan/lari, jari kedua memutar kamera (1 Nov 2026)
+
+- **Noisegasm**: tombol **putar acak** (ikon shuffle) di samping tombol lagu berikutnya. Menyala
+  kuning saat aktif dan diingat selama sesi. Untuk playlist YouTube memakai acak bawaan YouTube;
+  untuk lagu unggahan, lagu berikutnya/sebelumnya dipilih acak (tidak mengulang lagu yang sama).
+- **HP — jalan dan lari dengan satu jempol**: dorong joystick sedikit untuk jalan, dorong lebih jauh
+  (lebih dari 80 % jangkauan, jangkauan diperbesar jadi 60 px) untuk lari. Cara lama (menahan jari
+  kedua untuk lari) dihapus.
+- **HP — jari kedua memutar kamera**: sambil jalan dengan joystick, jari lain bebas menggeser layar
+  untuk memutar kamera (multitouch).
+- **Tidak ada lagi seleksi layar**: selama mode Explore, menahan jari di layar tidak menyeleksi teks
+  halaman dan tidak memunculkan menu tekan-lama (kolom ketik tetap bisa diseleksi).
+- `typecheck`, `format:check`, `build` lulus; tes 19/19. Belum diuji di HP sungguhan.

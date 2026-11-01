@@ -7,7 +7,15 @@
 // the music starts on the first tap, click or key press anywhere on the page.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { ChevronLeft, ChevronRight, Pause, Play, SkipBack, SkipForward } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Pause,
+  Play,
+  Shuffle,
+  SkipBack,
+  SkipForward,
+} from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import styles from './noisegasm.module.css';
 
@@ -25,6 +33,10 @@ type YTPlayer = {
   nextVideo(): void;
   previousVideo(): void;
   setVolume(v: number): void;
+  isMuted?(): boolean;
+  unMute?(): void;
+  getPlayerState?(): number;
+  setShuffle?(on: boolean): void;
   getVideoData(): { title?: string; author?: string };
   destroy(): void;
 };
@@ -39,6 +51,7 @@ type YTNamespace = {
       events: {
         onReady?: () => void;
         onStateChange?: (e: { data: number }) => void;
+        onError?: (e: { data: number }) => void;
       };
     },
   ) => YTPlayer;
@@ -68,7 +81,8 @@ function loadYouTube() {
 
 const PAUSED_KEY = 'noisegasm-paused',
   VOLUME_KEY = 'noisegasm-volume',
-  TUCKED_KEY = 'noisegasm-tucked';
+  TUCKED_KEY = 'noisegasm-tucked',
+  SHUFFLE_KEY = 'noisegasm-shuffle';
 const session = {
   get(key: string) {
     try {
@@ -100,11 +114,16 @@ export default function Noisegasm({
     [volume, setVolumeState] = useState(0.5),
     [nowPlaying, setNowPlaying] = useState({ title: '', artist: '' }),
     [waiting, setWaiting] = useState(false),
+    // The browser would not let the page start YouTube: a tap on the little video does.
+    [stuck, setStuck] = useState(false),
     // Tucked to the screen edge so it covers nothing; the music keeps playing.
-    [tucked, setTucked] = useState(() => session.get(TUCKED_KEY) === '1');
+    [tucked, setTucked] = useState(() => session.get(TUCKED_KEY) === '1'),
+    // Songs in random order (the playlist or the uploaded songs).
+    [shuffle, setShuffleState] = useState(() => session.get(SHUFFLE_KEY) === '1');
   const audio = useRef<HTMLAudioElement>(null),
     graph = useRef<{ ctx: AudioContext; gain: GainNode } | null>(null),
     yt = useRef<YTPlayer | null>(null),
+    skipped = useRef(0),
     ytHost = useRef<HTMLDivElement>(null),
     wantPlay = useRef(false),
     volumeRef = useRef(0.5);
@@ -156,7 +175,17 @@ export default function Noisegasm({
   const start = useCallback(async () => {
     wantPlay.current = true;
     if (youtube) {
-      yt.current?.playVideo();
+      const player = yt.current;
+      // Before the player is ready its methods do not exist yet; onReady starts it instead.
+      if (typeof player?.playVideo === 'function') {
+        player.playVideo();
+        if (player.isMuted?.()) player.unMute?.();
+      }
+      // Some browsers (iPhone and iPad above all) only let YouTube start from a tap on the video
+      // itself: if nothing plays in a moment, say so.
+      window.setTimeout(() => {
+        if (wantPlay.current && yt.current?.getPlayerState?.() !== 1) setStuck(true);
+      }, 3000);
       return true;
     }
     const el = audio.current;
@@ -191,8 +220,25 @@ export default function Noisegasm({
     if (!tracks.length) return;
     wantPlay.current = true;
     ensureGraph();
-    setIndex((i) => (i + dir + tracks.length) % tracks.length);
+    setIndex((i) => {
+      // Shuffled: any other song next (going back too, like a shuffled radio).
+      if (shuffle && tracks.length > 1) {
+        const pick = Math.floor(Math.random() * (tracks.length - 1));
+        return pick >= i ? pick + 1 : pick;
+      }
+      return (i + dir + tracks.length) % tracks.length;
+    });
   };
+  const toggleShuffle = () => {
+    const on = !shuffle;
+    setShuffleState(on);
+    session.set(SHUFFLE_KEY, on ? '1' : '');
+    yt.current?.setShuffle?.(on);
+  };
+  const shuffleRef = useRef(shuffle);
+  useEffect(() => {
+    shuffleRef.current = shuffle;
+  }, [shuffle]);
 
   // Uploaded songs: load the current track and keep playing if music was on.
   useEffect(() => {
@@ -226,7 +272,15 @@ export default function Noisegasm({
         events: {
           onReady: () => {
             yt.current?.setVolume(Math.round(volumeRef.current * 100));
+            if (shuffleRef.current) yt.current?.setShuffle?.(true);
             if (wantPlay.current) yt.current?.playVideo();
+          },
+          // A song that can't play here (removed, private, or not allowed outside YouTube) is
+          // skipped instead of stopping the music; a whole playlist of those gives up.
+          onError: () => {
+            skipped.current += 1;
+            if (skipped.current < 25) yt.current?.nextVideo();
+            else setStuck(true);
           },
           onStateChange: (e) => {
             const data = yt.current?.getVideoData();
@@ -234,6 +288,8 @@ export default function Noisegasm({
             if (e.data === YT.PlayerState.PLAYING) {
               setPlaying(true);
               setWaiting(false);
+              setStuck(false);
+              skipped.current = 0;
             } else if (e.data === YT.PlayerState.PAUSED) setPlaying(false);
           },
         },
@@ -304,7 +360,13 @@ export default function Noisegasm({
           </span>
           <span className={styles.miniText}>
             <small>NOISEGASM</small>
-            <span>{waiting && !playing ? 'Ketuk di mana saja untuk musik' : title}</span>
+            <span>
+              {stuck && !playing
+                ? 'Ketuk video kecil untuk memutar'
+                : waiting && !playing
+                  ? 'Ketuk di mana saja untuk musik'
+                  : title}
+            </span>
           </span>
         </button>
         <button
@@ -363,6 +425,14 @@ export default function Noisegasm({
                 </button>
                 <button aria-label="Lagu berikutnya" onClick={() => step(1)}>
                   <SkipForward size={16} />
+                </button>
+                <button
+                  aria-label={shuffle ? 'Matikan putar acak' : 'Putar acak'}
+                  aria-pressed={shuffle}
+                  className={styles.shuffle}
+                  onClick={toggleShuffle}
+                >
+                  <Shuffle size={15} />
                 </button>
               </div>
             </div>

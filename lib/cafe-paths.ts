@@ -202,6 +202,18 @@ export function cafePaths(cafe: THREE.Object3D, data: CafePathData) {
       sideRay.set(new THREE.Vector3(from.x, from.y + h * scale, from.z), sideDir);
       sideRay.far = length + 0.22 * scale;
       if (sideRay.intersectObjects(solid, false).length) return true;
+      // And back the other way: a one-sided wall only shows its front to one of the two rays,
+      // so a wall seen from behind is caught too.
+      const back = sideDir.clone().negate();
+      sideRay.set(
+        new THREE.Vector3(
+          from.x + sideDir.x * (length + 0.22 * scale),
+          from.y + h * scale,
+          from.z + sideDir.z * (length + 0.22 * scale),
+        ),
+        back,
+      );
+      if (sideRay.intersectObjects(solid, false).length) return true;
     }
     return false;
   }

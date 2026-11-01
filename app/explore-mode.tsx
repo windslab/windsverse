@@ -220,7 +220,6 @@ export default function ExploreMode({
     keyRun = useRef(false),
     touchRun = useRef(false),
     stickHeld = useRef(false),
-    touchIds = useRef(new Set<number>()),
     minutesRef = useRef(8 * 60),
     openRef = useRef(false),
     crowdHour = useRef(-1),
@@ -405,6 +404,21 @@ export default function ExploreMode({
     actionsRef.current = actions;
   }, [actions]);
   const runRef = useRef<(id: string) => void>(() => {});
+  // On a phone, holding a finger on the screen (to walk or turn the camera) must not select the
+  // page's text or pop up the long-press menu while exploring.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.add('explore-noselect');
+    const menu = (e: Event) => {
+      if (!(e.target as HTMLElement).closest('input, textarea, [contenteditable]'))
+        e.preventDefault();
+    };
+    window.addEventListener('contextmenu', menu);
+    return () => {
+      root.classList.remove('explore-noselect');
+      window.removeEventListener('contextmenu', menu);
+    };
+  }, []);
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (panel) return;
@@ -437,17 +451,11 @@ export default function ExploreMode({
       }
       applyStick();
     };
-    // Phone: one thumb on the (invisible) stick, the other held anywhere on the screen to run.
-    const touches = touchIds.current;
-    const touchUpdate = () => {
-      touchRun.current = stickHeld.current && touches.size >= 2;
-      api.setRun(keyRun.current || touchRun.current);
-    };
+    // Phone: one thumb on the (invisible) stick (pushed a little to walk, further to run); the
+    // other finger is free to turn the camera.
     let lastTap = { at: 0, x: 0, y: 0 };
     const pointerDown = (e: PointerEvent) => {
       if (e.pointerType !== 'touch') return;
-      touches.add(e.pointerId);
-      touchUpdate();
       // Double tap (on the scene, not on a button) → hop.
       const now = performance.now();
       if (
@@ -460,21 +468,13 @@ export default function ExploreMode({
         lastTap = { at: 0, x: 0, y: 0 };
       } else lastTap = { at: now, x: e.clientX, y: e.clientY };
     };
-    const pointerUp = (e: PointerEvent) => {
-      touches.delete(e.pointerId);
-      touchUpdate();
-    };
     window.addEventListener('pointerdown', pointerDown, true);
-    window.addEventListener('pointerup', pointerUp, true);
-    window.addEventListener('pointercancel', pointerUp, true);
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     return () => {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
       window.removeEventListener('pointerdown', pointerDown, true);
-      window.removeEventListener('pointerup', pointerUp, true);
-      window.removeEventListener('pointercancel', pointerUp, true);
       api.setStick(0, 0);
       api.setRun(false);
     };
@@ -797,12 +797,20 @@ export default function ExploreMode({
       <TouchStick
         onMove={(x, y) => {
           stick.current = { x, y };
+          // Pushed most of the way out: run; a gentler push walks.
+          const running = Math.hypot(x, y) > 0.8;
+          if (running !== touchRun.current) {
+            touchRun.current = running;
+            api.setRun(keyRun.current || running);
+          }
           applyStick();
         }}
         onHold={(held) => {
           stickHeld.current = held;
-          touchRun.current = held && touchIds.current.size >= 2;
-          api.setRun(keyRun.current || touchRun.current);
+          if (!held && touchRun.current) {
+            touchRun.current = false;
+            api.setRun(keyRun.current);
+          }
         }}
       />
       {!panel && !photoOpen && actions.length > 0 && (
@@ -923,7 +931,8 @@ function TouchStick({
   onHold: (held: boolean) => void;
 }) {
   const origin = useRef<{ id: number; x: number; y: number } | null>(null);
-  const RADIUS = 48;
+  // Room for two speeds: a short push walks, pushing past 80 % of this runs.
+  const RADIUS = 60;
   const move = (e: React.PointerEvent) => {
     const o = origin.current;
     if (!o || o.id !== e.pointerId) return;
