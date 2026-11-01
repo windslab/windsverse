@@ -1183,3 +1183,68 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - **Tidak ada lagi seleksi layar**: selama mode Explore, menahan jari di layar tidak menyeleksi teks
   halaman dan tidak memunculkan menu tekan-lama (kolom ketik tetap bisa diseleksi).
 - `typecheck`, `format:check`, `build` lulus; tes 19/19. Belum diuji di HP sungguhan.
+
+## 59. Noisegasm di HP: video membesar untuk diketuk (1 Nov 2026)
+
+- Di HP (terutama iPhone), YouTube sering hanya mau mulai dari ketukan langsung pada videonya,
+  bukan dari tombol play halaman; video mini 96×54 px gampang terlewat.
+- Kini bila 1,5 detik setelah play musik belum jalan, video YouTube **membesar di atas pemutar mini**
+  (lebar hingga 300 px, berbingkai kuning) dengan tulisan berdenyut "Ketuk video untuk memutar ↓".
+  Begitu musik berputar, video kembali kecil. Pemutar yang disembunyikan ke tepi ikut muncul saat itu.
+- Di emulasi HP (Chrome Android) Noisegasm bisa diputar; perilaku iPhone belum bisa diuji langsung.
+
+## 60. Sistem kartu member, tahap 1 (1 Nov 2026)
+
+Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
+
+- **Stamp**: 1 transaksi = 1 stamp bila ada minimal 1 minuman berbayar seharga ≥ Rp15.000.
+  10 stamp per kartu, lalu lanjut ke kartu baru. Stamp ke-5 memberi minuman **non-kopi** gratis,
+  stamp ke-10 minuman **kopi** gratis. Minuman gratis hangus 6 bulan bila tidak dipakai dan tidak
+  menghasilkan stamp atau poin.
+- **Poin**: bawaan 1 poin per Rp1.000 harga menu (setelah diskon), semua item berbayar dihitung.
+  Admin bisa mengisi poin sendiri per menu (kolom "Poin member" di Produk). Poin terkumpul lintas
+  kartu dan hangus bila 12 bulan tanpa transaksi yang memenuhi syarat.
+- **Hadiah tahunan**: koleksi per tahun (poin + minimal kartu penuh). Tiap hadiah hanya bisa ditukar
+  sekali per tahun per member. Kartu penuh dihitung sejak penukaran terakhir jenis yang sama, jadi
+  T-shirt tahun depan butuh 5 kartu baru. Menukar hadiah mengurangi poin.
+- **Pendaftaran**: di kasir (langsung aktif) atau sendiri lewat QR `windsverse.com/member/daftar`
+  (aktif setelah transaksi pertama yang memenuhi syarat; dibatasi 3 pendaftaran per jam per
+  perangkat). Gratis, tanggal lahir opsional, kartu digital saja.
+- **Kasir POS**: kotak Member untuk mencari (HP/kode/nama), mendaftarkan, melihat kartu, memakai
+  minuman gratis (langsung jadi potongan), melihat stamp/poin yang akan didapat, dan mengirim
+  tautan kartu lewat WhatsApp.
+- **Menu Member** (Operasional): daftar member + detail (stamp, minuman gratis, tukar hadiah,
+  riwayat), hadiah tahunan, aturan, dan poster QR pendaftaran yang bisa dicetak.
+- **Kartu pelanggan** `/member/<tautan rahasia>`: stamp, poin, minuman gratis, progres hadiah,
+  QR kode member, riwayat penukaran. Tanpa nomor HP.
+- Semua dihitung ulang dari pesanan, jadi pembatalan atau koreksi pesanan otomatis menyesuaikan kartu.
+- Diuji di server lokal: daftar mandiri, aktivasi, 5 stamp → voucher non-kopi, pakai voucher di
+  kasir (total Rp0, stamp tidak bertambah), tukar hadiah (poin berkurang). `typecheck`,
+  `format:check`, `build` lulus; tes member 8/8, tes lain 19/19, `engine.test` 28/32 (4 gagal lama).
+
+## 61. Kartu member 3D, animasi stempel, katalog hadiah geser (1 Nov 2026)
+
+- **Kartu 3D seukuran kartu ATM** (85,6 × 54 mm, landscape) di halaman kartu member: mengilap,
+  bertepi tipis, bisa diputar dengan menggeser ke samping (berhenti di sisi terdekat), diketuk
+  untuk membalik, atau tombol "Lihat depan / Lihat stamp".
+- **Animasi stempel**: saat kartu dibuka, kartu berbalik ke belakang lalu tiap stamp dicap satu per
+  satu. Stamp baru sejak kunjungan terakhir dicap lebih keras (kartu bergetar, ada cincin tinta).
+- **Desain sendiri**: Member → **Tampilan kartu** (admin) untuk mengunggah desain depan dan belakang
+  (PNG/JPEG/WebP maks 5 MB), memilih warna nama, tinta stempel, dan lingkaran stamp, dengan pratinjau
+  3D langsung. Tombol **Template depan/belakang** mengunduh gambar 2048 × 1291 px yang menandai area
+  yang diisi otomatis (nama, kode, nomor kartu, 10 stamp). Tanpa unggahan, kartu memakai desain
+  bawaan Winds Space.
+- **Katalog hadiah eksklusif** di bawah kartu: satu hadiah per layar, digeser kiri-kanan (ada panah
+  dan titik). Hadiah yang belum cukup poin/kartu tampil abu-abu dengan gembok dan progresnya; begitu
+  cukup, gembok terbuka dengan animasi dan muncul tombol **Klaim hadiah**.
+- **Klaim oleh pelanggan**: poin langsung terpakai, hadiah berstatus "menunggu diserahkan". Staf
+  melihatnya di menu Member (pemberitahuan di atas) dan di kotak member Kasir POS, lalu menekan
+  **Serahkan**; klaim yang belum diserahkan bisa dibatalkan (poin kembali).
+- **Mockup hadiah**: di Hadiah tahunan, tiap hadiah kini punya keterangan singkat, unggah gambar
+  mockup (persegi 1:1), dan unggah model 3D `.glb` (maks 20 MB) yang bisa diputar di katalog.
+- **Akses dari 3D**: tombol **Kartu Member** di halaman utama (bersama Menu, Library, Windstopia, …)
+  dan tombol **kartu** di Windstopia membuka kartu 3D yang terakhir dibuka di perangkat itu, atau
+  ajakan mendaftar.
+- Diuji di server lokal: animasi stempel, desain unggahan tampil di kartu dan pratinjau admin, klaim
+  dari kartu, hadiah terkunci, tombol Kartu Member di halaman 3D. `typecheck`, `format:check`,
+  `build` lulus; tes member 10/10, tes lain 19/19, `engine.test` 28/32 (4 gagal lama).

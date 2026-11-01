@@ -24,6 +24,7 @@ import styles from './explore-mode.module.css';
 import VintageCamera from './vintage-camera';
 import { Bag, Notebook, Reader, type BagItem } from './explore-bag';
 import BarStation from './explore-bar';
+import MemberDialog from './member/member-dialog';
 
 export type ExploreApi = {
   setManual: (on: boolean) => void;
@@ -189,6 +190,7 @@ export default function ExploreMode({
     [panel, setPanel] = useState<Panel>(null),
     /** Luna's bag and what's open from it. */
     [bagOpen, setBagOpen] = useState(false),
+    [memberOpen, setMemberOpen] = useState(false),
     [notebookOpen, setNotebookOpen] = useState(false),
     [readerOpen, setReaderOpen] = useState(false),
     /** The Story of Winds camera: in Luna's hand or on the tripod. */
@@ -421,7 +423,8 @@ export default function ExploreMode({
   }, []);
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (panel) return;
+      // Not while a sheet such as the member card is open over the game.
+      if (panel || document.querySelector('[role=dialog][aria-modal=true]')) return;
       const key = e.key.toLowerCase();
       if (key === 'shift') {
         keyRun.current = true;
@@ -828,6 +831,7 @@ export default function ExploreMode({
           <button onClick={() => setBagOpen(true)}>tas</button>
           <button onClick={() => run('photo')}>kamera</button>
           <button onClick={() => run('sweep')}>sapu</button>
+          <button onClick={() => setMemberOpen(true)}>kartu</button>
           <button onClick={onToggleSound} aria-pressed={sound}>
             {sound ? 'suara: on' : 'suara: off'}
           </button>
@@ -873,6 +877,7 @@ export default function ExploreMode({
           onClose={() => setBagOpen(false)}
         />
       )}
+      {memberOpen && <MemberDialog onClose={() => setMemberOpen(false)} />}
       {notebookOpen && !panel && <Notebook onClose={() => setNotebookOpen(false)} />}
       {readerOpen && !panel && (
         <Reader

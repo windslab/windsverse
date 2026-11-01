@@ -4,6 +4,7 @@ import {digest} from '@/lib/auth-crypto';
 import {sceneVisitors} from '@/lib/cafe-visitors';
 import {publicBooks} from '@/lib/public-books';
 import {localDate} from '@/lib/model';
+import {publicCard} from '@/lib/member';
 export const dynamic='force-dynamic';
 export async function GET(req:Request){try{
  const url=new URL(req.url),loaded=await read(),s=loaded.state;
@@ -27,6 +28,14 @@ export async function GET(req:Request){try{
   if(!order)return Response.json({found:false},{headers:{'Cache-Control':'no-store'}});
   return Response.json({found:true,status:order.status,orderType:order.orderType},{headers:{'Cache-Control':'no-store'}});
  }
+ // A member's own card, by the secret link in their card's address (no phone number in it).
+ const memberToken=url.searchParams.get('member');
+ if(memberToken!==null){
+  if(!/^[A-Za-z0-9_-]{16,40}$/.test(memberToken))throw new Fault('Kartu member tidak ditemukan.',404);
+  const member=s.members.find(m=>m.token===memberToken);
+  if(!member)throw new Fault('Kartu member tidak ditemukan.',404);
+  return Response.json(publicCard(s,member),{headers:{'Cache-Control':'no-store'}});
+ }
  if(url.searchParams.get('books')==='1')return Response.json({books:publicBooks(s)},{headers:{'Cache-Control':'no-store'}});
  if(url.searchParams.get('scene')==='1'){
   const active=s.orders.filter(o=>o.paid&&!o.historicalEntry&&!['selesai','dibatalkan','menunggu_pembayaran'].includes(o.status));
@@ -43,4 +52,9 @@ export async function GET(req:Request){try{
  }
  return Response.json({settings:s.settings.map(({name,tagline,logo,address,phone,whatsapp})=>({name,tagline,logo,address,phone,whatsapp})),categories:[...s.categories].sort((a,b)=>a.sortOrder-b.sortOrder||a.name.localeCompare(b.name)),products:s.products,tables:s.tables.map(({id,number,zone})=>({id,number,zone})),books:publicBooks(s)},{headers:{'Cache-Control':'no-store'}})
 }catch(e){return errorResponse(e)}}
-export async function POST(req:Request){try{checkMutation(req);const p=await body(req);const loaded=await read();if(!loaded.control)throw new Fault('Kafe belum disiapkan.',503);const ip=req.headers.get('cf-connecting-ip')||'local';const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(ip));const actorId='guest-'+Array.from(new Uint8Array(hash)).map(v=>v.toString(16).padStart(2,'0')).join('');const count=await loaded.db.prepare('SELECT count(*) AS n FROM audit WHERE actor_id=? AND created_at>?').bind(actorId,new Date(Date.now()-60000).toISOString()).first<{n:number}>();if((count?.n||0)>=3)throw new Fault('Tunggu satu menit sebelum mengirim masukan lagi.',429);await commit(loaded,{id:actorId,employeeId:'',name:'Pelanggan',email:'',role:'karyawan'},'feedback.add',p,loaded.control.revision,crypto.randomUUID());return Response.json({ok:true})}catch(e){return errorResponse(e)}}
+export async function POST(req:Request){try{checkMutation(req);const p=await body(req);const loaded=await read();if(!loaded.control)throw new Fault('Kafe belum disiapkan.',503);const ip=req.headers.get('cf-connecting-ip')||'local';const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(ip));const actorId='guest-'+Array.from(new Uint8Array(hash)).map(v=>v.toString(16).padStart(2,'0')).join('');const guest={id:actorId,employeeId:'',name:'Pelanggan',email:'',role:'karyawan' as const};
+ // Signing up for a member card from the QR form: a few per device per hour.
+ if(p?.action==='member.signup'){const recent=await loaded.db.prepare("SELECT count(*) AS n FROM audit WHERE actor_id=? AND action='member.signup' AND created_at>?").bind(actorId,new Date(Date.now()-3600000).toISOString()).first<{n:number}>();if((recent?.n||0)>=3)throw new Fault('Terlalu banyak pendaftaran dari perangkat ini. Coba lagi nanti atau daftar di kasir.',429);const result=await commit(loaded,guest,'member.signup',{name:p.name,phone:p.phone,birthday:p.birthday},loaded.control.revision,crypto.randomUUID());return Response.json(result,{headers:{'Cache-Control':'no-store'}})}
+ // A member asking for a gift on their own card (the card's secret link is the key).
+ if(p?.action==='member.request'){const recent=await loaded.db.prepare("SELECT count(*) AS n FROM audit WHERE actor_id=? AND action='member.request' AND created_at>?").bind(actorId,new Date(Date.now()-3600000).toISOString()).first<{n:number}>();if((recent?.n||0)>=10)throw new Fault('Terlalu banyak permintaan. Coba lagi nanti atau minta di kasir.',429);const result=await commit(loaded,guest,'member.request',{token:p.token,rewardId:p.rewardId},loaded.control.revision,crypto.randomUUID());return Response.json(result,{headers:{'Cache-Control':'no-store'}})}
+ const count=await loaded.db.prepare('SELECT count(*) AS n FROM audit WHERE actor_id=? AND created_at>?').bind(actorId,new Date(Date.now()-60000).toISOString()).first<{n:number}>();if((count?.n||0)>=3)throw new Fault('Tunggu satu menit sebelum mengirim masukan lagi.',429);await commit(loaded,guest,'feedback.add',p,loaded.control.revision,crypto.randomUUID());return Response.json({ok:true})}catch(e){return errorResponse(e)}}

@@ -18,7 +18,12 @@ export const kinds = [
   'books',
   'loans',
   'settings',
+  'members',
+  'memberRewards',
+  'memberClaims',
 ] as const;
+/** Collections added later: an older backup without them restores them as empty. */
+export const laterKinds = new Set<string>(['members', 'memberRewards', 'memberClaims']);
 export type Kind = (typeof kinds)[number];
 export type State = Record<Kind, Row[]>;
 export type Actor = {
