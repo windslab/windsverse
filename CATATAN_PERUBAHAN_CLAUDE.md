@@ -1014,3 +1014,30 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Diuji di browser (dev): tamu antre, duduk di kursi dan bangku teras lantai 2, wajah dan rambut
   dilihat dari dekat. `typecheck`, `format:check`, `build` lulus; `barista.test` + `people.test`
   19/19.
+
+## 50. Windstopia: kamera tak tertutup, kasir otomatis, tuang susu/teh ditahan, tamu naik mobil (1 Nov 2026)
+
+- **Kamera Explore** tidak lagi tertutup atap/dinding: bila pandangan ke Luna terhalang, kamera
+  berputar dan naik/turun pelan ke sudut terdekat yang bersih **dengan jarak yang sama** (tanpa
+  zoom mendadak, tanpa menyembunyikan objek). Baru mendekat bila tidak ada sudut bersih. Kaca tidak
+  dianggap penghalang. Kembali ke sudut pemain setelah sudut itu bersih sebentar.
+- **Kasir**: tidak ada langkah kembalian; pilih menu yang benar → uang langsung diterima.
+- **Bar**:
+  - Cup **tetap di stasiun terakhir**: pump kedua di botol yang sama tidak bergerak lagi; setelah
+    espresso cup tetap di bawah mesin.
+  - **Susu dan teh dituang sambil ditahan**: kotak/teko datang ke atas cup, miring, mengalir selama
+    ditahan. Meteran kecil di samping cup menunjukkan ml dan zona hijau (92–110 % resep). Saat
+    dilepas: "Pas! Takarannya sempurna ✨", "Kurang sedikit", atau "Kebanyakan sedikit".
+  - **Isi cup naik** sesuai bahan yang masuk dan **penuh di langkah terakhir** (volume resep).
+  - Kotak susu dan teko teh digeser agar berdiri di atas meja; tumpukan cup dibuat rendah di tepi
+    depan agar cup di bawah pump tetap terlihat.
+  - **Kamera meracik setinggi mata Luna**, sedikit mundur: semua bahan terlihat dan suasana kafe di
+    depan meja tetap tampak.
+  - **Freezer**: kamera menoleh dan melihat ke bawah, **tutup freezer terbuka**, es diambil, tutup
+    menutup kembali, baru kamera kembali ke meja.
+- **Tamu datang naik mobil** (mode Explore): mobil datang di lajur sisi kafe, berhenti di depan
+  pintu masuk, tamu turun di trotoar lalu berjalan masuk, mobil melaju lagi. Mobil lain di lajur itu
+  menunggu di belakangnya.
+- Diuji di browser (dev): mobil antar tamu, alur Winds Coffee (espresso, 2× pump aren), cokelat
+  dingin (freezer, tuang susu ditahan dengan meteran), kamera berjalan di sekitar kafe.
+  `typecheck`, `format:check`, `build` lulus; `barista.test` + `people.test` 19/19.

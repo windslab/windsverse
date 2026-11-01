@@ -58,8 +58,9 @@ const SPOT = {
   tray: P(-3.04, Y + 0.012, 3.47),
   work: P(-3.3, Y, 3.5),
   bottle: (i: number) => P(-3.6 + i * 0.095, Y, 3.36),
-  plastic: P(-3.6, Y, 3.55),
-  paper: P(-3.48, Y, 3.55),
+  // Low stacks at the front edge, so a cup under a pump behind them stays in sight.
+  plastic: P(-3.6, Y, 3.595),
+  paper: P(-3.485, Y, 3.6),
   cocoa: P(-2.76, Y, 3.33),
   matcha: P(-2.67, Y, 3.33),
   milk: P(-2.84, Y, 3.47),
@@ -70,7 +71,8 @@ const SPOT = {
 export const BAR_VIEWS = {
   // Luna's own eye height: the counter below, the café still in view beyond it.
   counter: { eye: P(-3.17, 1.72, 4.18), target: P(-3.17, 1.27, 3.3) },
-  freezer: { eye: P(-2.66, 1.62, 3.95), target: P(-2.66, 1.12, 4.62) },
+  // Turned round and looking down into the open freezer (the raised lid stays above the view).
+  freezer: { eye: P(-2.66, 2.05, 3.72), target: P(-2.66, 1.22, 4.56) },
 };
 const COLORS: Record<string, number> = {
   espresso: 0x4a2a18,
@@ -268,14 +270,14 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     const g = new THREE.Group();
     g.position.copy(spot);
     const plastic = kind === 'gelas-es';
-    for (let k = 0; k < 6; k++) {
+    for (let k = 0; k < 3; k++) {
       const c = new THREE.Mesh(plastic ? plasticGeo : paperGeo, plastic ? plasticMat : paperMat);
       c.position.y = (plastic ? 0.065 : 0.055) + k * 0.012;
       g.add(c);
     }
     const rim = new THREE.Mesh(rimGeo, plastic ? rimMat : sleeveMat);
     rim.rotation.x = Math.PI / 2;
-    rim.position.y = (plastic ? 0.13 : 0.11) + 5 * 0.012;
+    rim.position.y = (plastic ? 0.13 : 0.11) + 2 * 0.012;
     if (!plastic) rim.scale.setScalar(0.9);
     g.add(rim);
     hit(g, 'cup:' + kind);
@@ -569,14 +571,14 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     // Lid up, scoop in and out, lid down.
     lidHinge.visible = inside.visible = true;
     on.sound('click');
-    await play(0.45, (k) => (lidHinge.rotation.x = k * 1.25), ease.out);
+    await play(0.45, (k) => (lidHinge.rotation.x = k * 1.15), ease.out);
     scoop.visible = true;
     scoop.position.copy(inside.position).add(P(0, 0.2, -0.05));
     await moveTo(scoop, inside.position.clone().add(P(0, 0.03, 0)), 0.3);
     on.sound('ice');
     await moveTo(scoop, inside.position.clone().add(P(0, 0.22, -0.12)), 0.35);
     scoop.visible = false;
-    await play(0.4, (k) => (lidHinge.rotation.x = 1.25 * (1 - k)), ease.inOut);
+    await play(0.4, (k) => (lidHinge.rotation.x = 1.15 * (1 - k)), ease.inOut);
     lidHinge.visible = inside.visible = false;
     on.sound('click');
     state.view = 'counter';
