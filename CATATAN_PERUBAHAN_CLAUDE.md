@@ -1248,3 +1248,17 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
 - Diuji di server lokal: animasi stempel, desain unggahan tampil di kartu dan pratinjau admin, klaim
   dari kartu, hadiah terkunci, tombol Kartu Member di halaman 3D. `typecheck`, `format:check`,
   `build` lulus; tes member 10/10, tes lain 19/19, `engine.test` 28/32 (4 gagal lama).
+
+## 62. Perbaikan: stamp tidak bertambah di menu asli (1 Nov 2026)
+
+- Penyebab: aturan bawaan member menganggap "minuman" hanya kategori demo (`kopi`, `non_kopi`,
+  `mocktail`), sedangkan menu asli memakai kategori lain (Ice Coffee, Hot Coffee, Fresh Drink, …).
+  Akibatnya tidak ada menu yang dihitung sebagai minuman sehingga stamp tidak muncul.
+- Kini, selama admin belum menyimpan aturan, kategori **ditebak dari nama**: semua kategori kecuali
+  makanan/snack dianggap minuman, dan yang bernama coffee/kopi/espresso dianggap kopi ("non kopi"
+  tidak). Di menu asli: Ice Coffee & Hot Coffee = kopi; Fresh Drink, Chocolate Series, Milk Base,
+  Hot Series, Milkshake, Yogurt = non-kopi; Snack & Food = bukan minuman.
+- Tab Aturan menampilkan pemberitahuan bahwa kategori masih tebakan dan perlu diperiksa lalu disimpan.
+- Karena stamp dihitung dari pesanan, transaksi yang sudah lewat langsung mendapat stamp-nya setelah
+  perbaikan ini (atau setelah admin menyimpan kategori yang benar).
+- Tes member 11/11, tes lain 19/19, `engine.test` 28/32 (4 gagal lama).

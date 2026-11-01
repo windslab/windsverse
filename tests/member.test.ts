@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { apply } from '../lib/engine';
 import { initial, type Actor, type Row } from '../lib/model';
-import { memberCard } from '../lib/member';
+import { memberCard, memberRules } from '../lib/member';
 
 const owner: Actor = {
   id: 'owner-identity',
@@ -302,4 +302,35 @@ test('members: the card design keeps safe colours and uploaded artwork only', ()
     apply(s, owner, 'member.design', { design: { back: 'http://x.test/a.png' } }, morning),
   );
   assert.throws(() => apply(s, owner, 'member.design', { design: { inkColor: 'red' } }, morning));
+});
+
+test("members: drinks and coffee follow the café's own category names until the admin sets them", () => {
+  const f = fixture();
+  const cat = (name: string) =>
+    apply(f.s, owner, 'save', { kind: 'categories', data: { name, sortOrder: 9 } }, morning) as Row;
+  const ice = cat('Ice Coffee'),
+    fresh = cat('Fresh Drink'),
+    food = cat('Snack & Food');
+  const rules = memberRules(f.s);
+  assert.ok(rules.drinkCategories.includes(ice.id) && rules.drinkCategories.includes(fresh.id));
+  assert.ok(!rules.drinkCategories.includes(food.id));
+  assert.deepEqual(
+    rules.coffeeCategories.filter((c) => [ice.id, fresh.id, food.id].includes(c)),
+    [ice.id],
+  );
+  assert.ok(!rules.coffeeCategories.includes('non_kopi'));
+  // A latte in a café category earns a stamp right away.
+  const m = join(f.s);
+  const latte = apply(
+    f.s,
+    owner,
+    'save',
+    {
+      kind: 'products',
+      data: { name: 'Es Kopi Susu', price: 20000, category: ice.id, status: 'tersedia' },
+    },
+    morning,
+  ) as Row;
+  f.sell([[latte, 1]], m.id);
+  assert.equal(memberCard(f.s, f.s.members[0]).stampCount, 1);
 });

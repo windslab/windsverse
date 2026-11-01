@@ -683,6 +683,13 @@ function Rules({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
         </label>
       </div>
       <h3>Kategori menu</h3>
+      {!s.settings[0]?.member && (
+        <p className="warning">
+          Kategori minuman dan kopi di bawah ditebak otomatis dari nama kategori menumu (semua
+          kecuali makanan/snack = minuman; yang bernama coffee/kopi = kopi). Periksa lalu tekan
+          Simpan aturan.
+        </p>
+      )}
       <table className="member-categories">
         <thead>
           <tr>

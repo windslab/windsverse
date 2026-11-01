@@ -55,8 +55,25 @@ export const cardDesign = (s: State): CardDesign => ({
 /** A claim the member asked for on their card waits until staff hand the gift over. */
 export const claimStatus = (c: Row): 'menunggu' | 'diserahkan' =>
   c.status === 'menunggu' ? 'menunggu' : 'diserahkan';
+const FOOD = /snack|food|makan|roti|kue|cake|pastry|dessert|camilan|cemilan/i,
+  COFFEE = /coffee|kopi|espresso/i,
+  NOT_COFFEE = /non[\s_-]*(kopi|coffee)/i;
+/**
+ * Until the admin saves the rules, drinks and coffee are guessed from the café's own category
+ * names: every category but food is a drink, and coffee is the one named so.
+ */
+export function guessCategories(s: State) {
+  const drinks = s.categories.filter((c) => !FOOD.test(c.name));
+  return {
+    drinkCategories: drinks.map((c) => c.id as string),
+    coffeeCategories: drinks
+      .filter((c) => COFFEE.test(c.name) && !NOT_COFFEE.test(c.name))
+      .map((c) => c.id as string),
+  };
+}
 export const memberRules = (s: State): MemberRules => ({
   ...DEFAULT_RULES,
+  ...(s.categories.length ? guessCategories(s) : {}),
   ...(s.settings[0]?.member ?? {}),
 });
 
