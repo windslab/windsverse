@@ -249,7 +249,7 @@ const NAMES: { name: string; male: boolean }[] = [
   { name: 'Adit', male: true },
   { name: 'Acca', male: false },
   { name: 'Mamat', male: true },
-  { name: 'Novy', male: false },
+  { name: 'Novy', male: true },
   { name: 'Ifnul', male: true },
   { name: 'Giffari', male: true },
   { name: 'Aris', male: true },

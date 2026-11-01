@@ -537,7 +537,10 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     if (needCup()) return;
     const box = id === 'teh' ? tea : milk,
       home = box.position.clone(),
-      above = state.cupAt.clone().add(P(0.06, 0.15, 0));
+      // The tea pot tips its spout (+x) down, the milk carton its top corner (-x): each stands to
+      // the side so that the pouring end is over the cup.
+      tilt = id === 'teh' ? -1.15 : 1.15,
+      above = state.cupAt.clone().add(P(id === 'teh' ? -0.095 : 0.06, 0.15, 0));
     Object.assign(hold, {
       id,
       box,
@@ -549,7 +552,7 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     });
     on.pouring(id);
     await moveTo(box, above, 0.3, 0.04);
-    await play(0.18, (k) => (box.rotation.z = k * 1.15));
+    await play(0.18, (k) => (box.rotation.z = k * tilt));
     on.sound('pour');
     hold.flowing = true;
     // update() pours while held; wait here until let go.
@@ -560,7 +563,7 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     hold.unsent = 0;
     hold.on = false;
     on.pouring(null);
-    await play(0.2, (k) => (box.rotation.z = 1.15 * (1 - k)));
+    await play(0.2, (k) => (box.rotation.z = tilt * (1 - k)));
     await moveTo(box, home, 0.35, 0.04);
   }
   async function scoopIce() {
@@ -740,7 +743,9 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
       if (hold.flowing && !hold.released) {
         hold.unsent += (FLOW[hold.id] ?? 40) * dt;
         hold.sentAt += dt;
-        const lip = hold.box.localToWorld(P(-0.045, 0.12, 0)),
+        const lip = hold.box.localToWorld(
+            hold.id === 'teh' ? P(0.085, 0.085, 0) : P(-0.045, 0.12, 0),
+          ),
           surface = state.cupAt.clone().add(P(0, 0.05, 0));
         group.worldToLocal(lip);
         streamBetween(lip, surface, COLORS[hold.id]);

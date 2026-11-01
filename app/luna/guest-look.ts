@@ -427,40 +427,6 @@ function sameSettings<T extends THREE.Texture>(texture: T, source: THREE.Texture
   return texture;
 }
 
-/**
- * Luna's legs are one piece; grown-ups sitting on a chair need a knee. The trouser leg is split
- * in two and everything below the knee (shin, cuff, shoes) hangs from a new knee joint.
- */
-function addKnees(model: THREE.Object3D) {
-  const KNEE = 0.065;
-  const knees: THREE.Group[] = [];
-  for (const side of ['L', 'R']) {
-    const leg = model.getObjectByName('Luna_Leg_' + side),
-      pants = model.getObjectByName(`Luna_Leg_${side}_pants`) as THREE.Mesh | undefined;
-    if (!leg || !pants) continue;
-    // The trousers run from the hip (0) down to -0.2; the knee sits a third of the way down.
-    const knee = new THREE.Group();
-    knee.name = 'Guest_Knee_' + side;
-    knee.position.set(pants.position.x, -KNEE, 0);
-    leg.add(knee);
-    const shin = pants.clone();
-    shin.name = `Guest_Leg_${side}_shin`;
-    shin.scale.y = (0.2 - KNEE) / 0.2 + 0.05;
-    shin.position.set(0, -(0.2 - KNEE) / 2 + 0.005, pants.position.z);
-    knee.add(shin);
-    pants.scale.y = KNEE / 0.2 + 0.05;
-    pants.position.y = -KNEE / 2;
-    for (const child of [...leg.children])
-      if (/cuff|sneaker|midsole|sole/i.test(child.name)) {
-        child.position.x -= knee.position.x;
-        child.position.y += KNEE;
-        knee.add(child);
-      }
-    knees.push(knee);
-  }
-  return knees;
-}
-
 /** Grown-up proportions: legs, torso and arms longer, head a little smaller. */
 function growUp(model: THREE.Object3D) {
   const LEGS = 1.4,
@@ -536,7 +502,17 @@ export function guestRig(luna: THREE.Group, height: number) {
     }
   }
   growUp(model);
-  const knees = addKnees(model);
+  // Upper arms and forearms get a skin of their own: shirt-coloured long sleeves with a hijab.
+  let armSkin: THREE.Material | null = null;
+  model.traverse((node) => {
+    if (!(node instanceof THREE.Mesh) || !/Arm_[LR]_upper|Elbow_[LR]_forearm/.test(node.name))
+      return;
+    if (!armSkin) {
+      armSkin = (node.material as THREE.Material).clone();
+      armSkin.name = 'Guest arm skin';
+    }
+    node.material = armSkin;
+  });
   // The ears in a group of their own, so their outline hides with them under a hijab.
   const ears = new THREE.Group();
   const earMesh = model.getObjectByName('Luna_Head_ear');
@@ -592,15 +568,9 @@ export function guestRig(luna: THREE.Group, height: number) {
   let size = 1;
   return {
     rig,
-    /** Luna's rig, plus the knees: bent on a chair, a little with each step when walking. */
+    /** Luna's rig (knees included). */
     update(age: number, stride: number, task: string, reduced: boolean, climb = 0, phase = 0) {
       rig.update(age, stride, task, reduced, climb, { phase, run: false });
-      knees.forEach((knee, i) => {
-        knee.rotation.x =
-          task === 'sitting'
-            ? 1.45
-            : Math.max(0, stride * (i ? 1 : -1)) * 0.5 + Math.abs(climb) * 0.3;
-      });
     },
     materials: [...own.values(), hairMat, accentMat],
     geometries,
@@ -636,7 +606,12 @@ export function guestRig(luna: THREE.Group, height: number) {
           m.color.setHex(0xffffff);
           return;
         }
-        const key = PARTS.find(([, pattern]) => pattern.test(m.name))?.[0];
+        const key =
+          m.name === 'Guest arm skin'
+            ? look.style === 'hijab'
+              ? 'shirt'
+              : 'skin'
+            : PARTS.find(([, pattern]) => pattern.test(m.name))?.[0];
         if (!key) return;
         if (m.map && !m.userData.grey) {
           m.map = greyOf(m.map);

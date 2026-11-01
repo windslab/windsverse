@@ -101,6 +101,8 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     signature = '',
     /** Explore mode: new guests arrive by car (see `release`). */
     arrivals = false,
+    /** Where the car stops at the kerb (guests leave to here and are picked up). */
+    kerb: THREE.Vector3 | null = null,
     posActive = false;
   const servedAt = (key: string) => {
     try {
@@ -296,12 +298,35 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       delivered: false,
       /** Explore mode: still in the car that brings them (hidden until dropped off). */
       arriving: false,
+      /** Explore mode: leaving by car (walks to the kerb and waits to be picked up). */
+      pickup: false,
       serveAge: 0,
       drinkPhase: Math.random() * DRINK_CYCLE,
       guest,
     };
   }
   const seats = findCafeSeats(cafe);
+  // Which seats have a roof over them (for rainy days): look straight up from each.
+  const covered = new Set<string>();
+  {
+    const up = new THREE.Raycaster(),
+      roofs: THREE.Object3D[] = [];
+    cafe.updateWorldMatrix(true, true);
+    cafe.traverse((node) => {
+      if ((node as THREE.Mesh).isMesh && !/kursi|meja|leaf|daun|cable|bulb|socket/i.test(node.name))
+        roofs.push(node);
+    });
+    for (const seat of seats) {
+      up.set(
+        seat.surface.clone().add(new THREE.Vector3(0, 0.9 * scale, 0)),
+        new THREE.Vector3(0, 1, 0),
+      );
+      up.far = 6 * scale;
+      if (up.intersectObjects(roofs, false).length) covered.add(seat.id);
+    }
+  }
+  /** Raining: guests look for a seat under a roof. */
+  let raining = false;
   // Barista + MAX_SCENE_GUESTS (lib/cafe-visitors.ts) guests.
   const people = Array.from({ length: 9 }, (_, i) => person(i));
   type Person = (typeof people)[number];
@@ -721,13 +746,16 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     const candidates = seats.filter(
       (s) => !occupied.has(s.id) && (visitor.type === 'takeaway' ? s.takeaway : !s.takeaway),
     );
+    const dry = (seat: CafeSeat) => (raining && !covered.has(seat.id) ? 50 : 0);
     candidates.sort(
       (a, b) =>
         (a.id === actor.seat?.id ? -100 : 0) +
         (a.table === tableKey(visitor.tableNumber) ? -20 : 0) +
+        dry(a) +
         a.surface.distanceTo(reference) -
         (b.id === actor.seat?.id ? -100 : 0) -
         (b.table === tableKey(visitor.tableNumber) ? -20 : 0) -
+        dry(b) -
         b.surface.distanceTo(reference),
     );
     for (const seat of candidates) {
@@ -757,10 +785,14 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     return false;
   }
   function exit(actor: Person) {
+    const wasArriving = actor.arriving;
     actor.arriving = false;
     actor.seated = false;
     actor.seat = null;
-    if (!travel(actor, anchors.entrance, 'leaving')) actor.phase = 'leaving';
+    // In explore mode guests walk out through the gate to the kerb and wait for a car.
+    const out = arrivals && kerb && !wasArriving ? (paths.snap(kerb) ?? anchors.entrance) : null;
+    actor.pickup = !!out;
+    if (!travel(actor, out ?? anchors.entrance, 'leaving')) actor.phase = 'leaving';
   }
   function updateActivity(activity: CafeActivity) {
     posActive = activity.posActive;
@@ -778,7 +810,13 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     // Luna may be sitting somewhere in explore mode.
     if (barista.seat) occupied.add(barista.seat.id);
     for (const actor of people.slice(1))
-      if (actor.key && !present.has(actor.key) && actor.phase !== 'leaving') exit(actor);
+      if (
+        actor.key &&
+        !present.has(actor.key) &&
+        actor.phase !== 'leaving' &&
+        actor.phase !== 'waiting-car'
+      )
+        exit(actor);
     for (const visitor of visitors) {
       if (retired.has(visitor.key)) continue;
       let actor = people.slice(1).find((p) => p.key === visitor.key);
@@ -1247,6 +1285,12 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       return true;
     },
     stand: () => standUp(),
+    /** On a chair (explore mode): read a book there without getting up. */
+    readSeated() {
+      if (barista.phase !== 'sitting' || !barista.seat || activity) return false;
+      activity = 'reading';
+      return true;
+    },
     /**
      * Settle at a spot (explore mode): `activity` is piano, guitar, cello, reading, lying, dangling
      * or resting. `position` is the seat (or, lying, where her body rests); `instrument` is the
@@ -1326,7 +1370,35 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     /** Explore mode: new guests wait in a car until `release` drops them off. */
     setArrivals(on: boolean) {
       arrivals = on;
-      if (!on) this.release(this.arriving(), anchors.entrance);
+      if (!on) {
+        this.release(this.arriving(), anchors.entrance);
+        this.board(this.pickups());
+      }
+    },
+    /** Rain: new guests pick seats under a roof. */
+    setRaining(on: boolean) {
+      raining = on;
+    },
+    /** The kerb where the car stops (explore mode). */
+    setKerb(point: THREE.Vector3) {
+      kerb = point.clone();
+    },
+    /** Keys of guests waiting at the kerb to be picked up. */
+    pickups: () => people.filter((p) => p.phase === 'waiting-car' && p.key).map((p) => p.key),
+    /** The car came: these guests get in and are gone. */
+    board(keys: string[]) {
+      for (const guest of people) {
+        if (!guest.key || !keys.includes(guest.key)) continue;
+        guest.visual.visible = guest.shadow.visible = false;
+        retired.add(guest.key);
+        guest.key = '';
+        guest.group = '';
+        guest.status = '';
+        guest.seat = null;
+        guest.waypoints = [];
+        guest.pickup = false;
+        guest.phase = 'hidden';
+      }
     },
     /** Keys of guests still on their way by car. */
     arriving: () => people.filter((p) => p.arriving && p.key).map((p) => p.key),
@@ -1515,6 +1587,11 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
           guest.phase !== 'leaving'
         )
           exit(guest);
+        if (guest.phase === 'leaving' && arrived && guest.pickup) {
+          // At the kerb: wait there for the car (it takes them away, see `board`).
+          guest.phase = 'waiting-car';
+          continue;
+        }
         if (guest.phase === 'leaving' && arrived) {
           guest.visual.visible = guest.shadow.visible = false;
           retired.add(guest.key);

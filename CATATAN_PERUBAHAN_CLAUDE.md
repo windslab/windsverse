@@ -1041,3 +1041,32 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Diuji di browser (dev): mobil antar tamu, alur Winds Coffee (espresso, 2× pump aren), cokelat
   dingin (freezer, tuang susu ditahan dengan meteran), kamera berjalan di sekitar kafe.
   `typecheck`, `format:check`, `build` lulus; `barista.test` + `people.test` 19/19.
+
+## 51. Windstopia: kamera halus, rupiah, lutut Luna, lampu bercahaya, tamu dijemput mobil (1 Nov 2026)
+
+- **Teko teh** kini menuang dari corongnya: teko berdiri di sisi kiri cup dan miring ke kanan.
+- **Kamera lebih halus**: putaran pemain langsung diikuti setiap frame (tidak lagi diperlambat dan
+  diperbarui 10× per detik, penyebab patah-patah). Hanya ayunan otomatis menghindari dinding yang
+  diperhalus. Pencarian sudut bersih memakai paling banyak 32 sinar dan paling sering tiap 0,3 dtk;
+  saat pemain sedang memutar, kamera mengikuti pemain.
+- **Novy** laki-laki.
+- **Hijab berlengan panjang**: lengan atas dan bawah memakai warna baju.
+- **Lutut** kini bagian dari rig Luna sendiri: Luna dan tamu menekuk lutut saat duduk, saat bermain
+  piano/gitar/cello, membaca, kaki berayun di dermaga, melompat, dan sedikit saat berjalan.
+- **Rupiah**: skor diganti uang. Tiap pembelian di kasir menambah harga menu ("+Rp18.000"), tampil
+  di kiri atas ("Rp36.000 · 2 tamu"). Tugas bersih-bersih tidak lagi memberi poin.
+- **Lampu**:
+  - Kabel lampu gantung di area duduk luar tetap terlihat sebagai garis gelap utuh (kabel tinggi
+    di langit tetap samar).
+  - Bola lampu kafe menyala juga di siang hari (lembut), terang saat sore/malam.
+  - Setiap bola lampu (lampu gantung dan lampu peri) dan papan neon punya **halo cahaya** yang
+    berkedip halus seperti nyala lilin.
+  - Dua lampu pengisi lembut di dalam kafe (lantai 1 dan 2), menyala siang dan malam, agar sudut
+    tidak gelap.
+- **Tamu pulang dijemput mobil**: tamu berjalan keluar pagar ke trotoar, menunggu, mobil berhenti,
+  tamu masuk, mobil melaju. Mobil yang sama juga mengantar tamu baru bila ada.
+- **Luna membaca di kursi**: saat duduk di kursi muncul tombol "Baca buku" (atau buku dari tas);
+  Luna membaca tanpa berdiri.
+- **Hujan**: tamu baru memilih kursi yang beratap (dicek dengan sinar ke atas dari tiap kursi).
+- Diuji di browser (dev): lampu malam, halo, kabel. Bagian lain lulus typecheck/tes tapi belum dicoba
+  langsung. `typecheck`, `format:check`, `build` lulus; `barista.test` + `people.test` 19/19.

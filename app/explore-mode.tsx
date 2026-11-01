@@ -199,8 +199,8 @@ export default function ExploreMode({
     [ticket, setTicket] = useState<string | null>(null),
     [drink, setDrink] = useState<Drink>(emptyDrink()),
     [holding, setHolding] = useState(false),
-    [score, setScore] = useState({ points: 0, served: 0 }),
-    [toast, setToast] = useState<{ name: string; line: string; points: number } | null>(null),
+    [score, setScore] = useState({ money: 0, served: 0 }),
+    [toast, setToast] = useState<{ name: string; line: string } | null>(null),
     [hint, setHint] = useState('Jalan ke kasir untuk menyambut tamu.'),
     [goals, setGoals] = useState<{ id: string; label: string }[]>([]),
     [photoOpen, setPhotoOpen] = useState(false),
@@ -523,6 +523,8 @@ export default function ExploreMode({
         list.push({ id: 'hang', label: 'Pasang foto di bingkai' });
       if (api.sitting()) {
         const doing = api.activity();
+        // On a chair (not playing or lying down): a book can come out right there.
+        if (!doing) list.push({ id: 'read', label: 'Baca buku' });
         list.push({
           id: 'stand',
           label: ['piano', 'guitar', 'cello'].includes(doing)
@@ -617,14 +619,18 @@ export default function ExploreMode({
     const cut = id.indexOf(':'),
       verb = cut < 0 ? id : id.slice(0, cut),
       arg = cut < 0 ? '' : id.slice(cut + 1);
-    const reward = (text: string, points: number, seconds: number) =>
+    // Chores earn no money, just a small "done" once they are finished.
+    const reward = (text: string, seconds: number) =>
       setTimeout(() => {
-        setScore((s) => ({ ...s, points: s.points + points }));
-        setNote(`${text} · +${points}`);
+        setNote(`${text} ✓`);
         setTimeout(() => setNote(''), 2200);
       }, seconds * 1000);
     if (verb === 'telescope') api.telescope();
     if (verb === 'stand') api.stand();
+    if (verb === 'read') {
+      api.settle('read-here');
+      setReaderOpen(true);
+    }
     if (verb === 'sit' && api.sit(arg)) playSfx('sit');
     if (verb === 'settle' && api.settle(arg)) playSfx('sit');
     if (verb === 'tripod-pack') {
@@ -643,12 +649,12 @@ export default function ExploreMode({
           3,
           spot.box.getCenter(new THREE.Vector3()),
         );
-        reward(verb === 'water' ? 'Tanaman segar' : 'Meja bersih', 5, 3);
+        reward(verb === 'water' ? 'Tanaman segar' : 'Meja bersih', 3);
       }
     }
     if (verb === 'sweep') {
       api.chore('sweeping', 4);
-      reward('Lantai disapu', 2, 4);
+      reward('Lantai disapu', 4);
     }
     if (verb === 'photo') setPhotoOpen(true);
     if (verb === 'hang' && lastPhoto.current) {
@@ -679,16 +685,15 @@ export default function ExploreMode({
     if (id === 'serve' && ticket) {
       const c = customersRef.current.find((x) => x.key === ticket);
       if (!c) return;
-      // Every guest loves what Luna makes: a thank-you and a few points, no ratings.
+      // Every guest loves what Luna makes: a thank-you, no ratings (the money came at the till).
       const thanks = THANKS[Math.floor(Math.random() * THANKS.length)];
-      const points = 20 + Math.round(c.order.item.price / 1000);
       api.deliver(c.key);
       playSfx('serve');
       setCustomers((list) =>
         list.map((x) => (x.key === c.key ? { ...x, stage: 'served', servedAt: Date.now() } : x)),
       );
-      setScore((s) => ({ points: s.points + points, served: s.served + 1 }));
-      setToast({ name: c.name, line: thanks, points });
+      setScore((s) => ({ ...s, served: s.served + 1 }));
+      setToast({ name: c.name, line: thanks });
       setTimeout(() => setToast(null), 5500);
       setHolding(false);
       setTicket(null);
@@ -703,7 +708,10 @@ export default function ExploreMode({
       // On the sofa if she's beside it, otherwise right where she is.
       const sofa = api.restSpots.find((s) => s.name === 'sofa');
       const at = api.luna();
-      api.settle(sofa && flat(at, sofa.position) < 1.2 ? 'sofa:read' : 'read-here');
+      // Already on a chair: read there; otherwise on the sofa if it is close, or right here.
+      api.settle(
+        !api.sitting() && sofa && flat(at, sofa.position) < 1.2 ? 'sofa:read' : 'read-here',
+      );
       setReaderOpen(true);
     }
     if (item === 'digicam') setDigicam('hand');
@@ -760,7 +768,7 @@ export default function ExploreMode({
     >
       <header className={styles.top}>
         <span className={styles.score}>
-          {score.points} poin · {score.served} tamu
+          {rupiah(score.money)} · {score.served} tamu
         </span>
         <span className={styles.clock}>
           {String(hour).padStart(2, '0')}.{String(Math.floor(minutes % 60)).padStart(2, '0')}
@@ -842,7 +850,6 @@ export default function ExploreMode({
         <div className={styles.toast} role="status">
           <strong>{toast.name} ♡</strong>
           <span>“{toast.line}”</span>
-          <small>+{toast.points} poin</small>
         </div>
       )}
       {bagOpen && !panel && (
@@ -884,6 +891,11 @@ export default function ExploreMode({
           menu={menu}
           onClose={() => setPanel(null)}
           onDone={(wrongItem, change) => {
+            // Every purchase goes into the till.
+            const price = queueCustomer.order.item.price;
+            setScore((s) => ({ ...s, money: s.money + price }));
+            setNote(`+${rupiah(price)}`);
+            setTimeout(() => setNote(''), 2200);
             setCustomers((list) =>
               list.map((c) =>
                 c.key === queueCustomer.key ? { ...c, stage: 'waiting', wrongItem, change } : c,
