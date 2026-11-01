@@ -1169,3 +1169,17 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Diuji di browser (dev): tinggi tanah (laut di belakang, gunung di depan), sungai + jembatan + batu
   pijakan ke menara terlihat dari kamera Explore. `typecheck`, `format:check`, `build` lulus; tes
   19/19, `engine.test` 28/32 (4 gagal lama).
+
+## 58. Noisegasm shuffle; kontrol HP: joystick jalan/lari, jari kedua memutar kamera (1 Nov 2026)
+
+- **Noisegasm**: tombol **putar acak** (ikon shuffle) di samping tombol lagu berikutnya. Menyala
+  kuning saat aktif dan diingat selama sesi. Untuk playlist YouTube memakai acak bawaan YouTube;
+  untuk lagu unggahan, lagu berikutnya/sebelumnya dipilih acak (tidak mengulang lagu yang sama).
+- **HP — jalan dan lari dengan satu jempol**: dorong joystick sedikit untuk jalan, dorong lebih jauh
+  (lebih dari 80 % jangkauan, jangkauan diperbesar jadi 60 px) untuk lari. Cara lama (menahan jari
+  kedua untuk lari) dihapus.
+- **HP — jari kedua memutar kamera**: sambil jalan dengan joystick, jari lain bebas menggeser layar
+  untuk memutar kamera (multitouch).
+- **Tidak ada lagi seleksi layar**: selama mode Explore, menahan jari di layar tidak menyeleksi teks
+  halaman dan tidak memunculkan menu tekan-lama (kolom ketik tetap bisa diseleksi).
+- `typecheck`, `format:check`, `build` lulus; tes 19/19. Belum diuji di HP sungguhan.

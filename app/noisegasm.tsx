@@ -7,7 +7,15 @@
 // the music starts on the first tap, click or key press anywhere on the page.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { ChevronLeft, ChevronRight, Pause, Play, SkipBack, SkipForward } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Pause,
+  Play,
+  Shuffle,
+  SkipBack,
+  SkipForward,
+} from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import styles from './noisegasm.module.css';
 
@@ -28,6 +36,7 @@ type YTPlayer = {
   isMuted?(): boolean;
   unMute?(): void;
   getPlayerState?(): number;
+  setShuffle?(on: boolean): void;
   getVideoData(): { title?: string; author?: string };
   destroy(): void;
 };
@@ -72,7 +81,8 @@ function loadYouTube() {
 
 const PAUSED_KEY = 'noisegasm-paused',
   VOLUME_KEY = 'noisegasm-volume',
-  TUCKED_KEY = 'noisegasm-tucked';
+  TUCKED_KEY = 'noisegasm-tucked',
+  SHUFFLE_KEY = 'noisegasm-shuffle';
 const session = {
   get(key: string) {
     try {
@@ -107,7 +117,9 @@ export default function Noisegasm({
     // The browser would not let the page start YouTube: a tap on the little video does.
     [stuck, setStuck] = useState(false),
     // Tucked to the screen edge so it covers nothing; the music keeps playing.
-    [tucked, setTucked] = useState(() => session.get(TUCKED_KEY) === '1');
+    [tucked, setTucked] = useState(() => session.get(TUCKED_KEY) === '1'),
+    // Songs in random order (the playlist or the uploaded songs).
+    [shuffle, setShuffleState] = useState(() => session.get(SHUFFLE_KEY) === '1');
   const audio = useRef<HTMLAudioElement>(null),
     graph = useRef<{ ctx: AudioContext; gain: GainNode } | null>(null),
     yt = useRef<YTPlayer | null>(null),
@@ -208,8 +220,25 @@ export default function Noisegasm({
     if (!tracks.length) return;
     wantPlay.current = true;
     ensureGraph();
-    setIndex((i) => (i + dir + tracks.length) % tracks.length);
+    setIndex((i) => {
+      // Shuffled: any other song next (going back too, like a shuffled radio).
+      if (shuffle && tracks.length > 1) {
+        const pick = Math.floor(Math.random() * (tracks.length - 1));
+        return pick >= i ? pick + 1 : pick;
+      }
+      return (i + dir + tracks.length) % tracks.length;
+    });
   };
+  const toggleShuffle = () => {
+    const on = !shuffle;
+    setShuffleState(on);
+    session.set(SHUFFLE_KEY, on ? '1' : '');
+    yt.current?.setShuffle?.(on);
+  };
+  const shuffleRef = useRef(shuffle);
+  useEffect(() => {
+    shuffleRef.current = shuffle;
+  }, [shuffle]);
 
   // Uploaded songs: load the current track and keep playing if music was on.
   useEffect(() => {
@@ -243,6 +272,7 @@ export default function Noisegasm({
         events: {
           onReady: () => {
             yt.current?.setVolume(Math.round(volumeRef.current * 100));
+            if (shuffleRef.current) yt.current?.setShuffle?.(true);
             if (wantPlay.current) yt.current?.playVideo();
           },
           // A song that can't play here (removed, private, or not allowed outside YouTube) is
@@ -395,6 +425,14 @@ export default function Noisegasm({
                 </button>
                 <button aria-label="Lagu berikutnya" onClick={() => step(1)}>
                   <SkipForward size={16} />
+                </button>
+                <button
+                  aria-label={shuffle ? 'Matikan putar acak' : 'Putar acak'}
+                  aria-pressed={shuffle}
+                  className={styles.shuffle}
+                  onClick={toggleShuffle}
+                >
+                  <Shuffle size={15} />
                 </button>
               </div>
             </div>
