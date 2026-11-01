@@ -37,6 +37,9 @@ type YTPlayer = {
   unMute?(): void;
   getPlayerState?(): number;
   setShuffle?(on: boolean): void;
+  getPlaylist?(): string[] | null;
+  cuePlaylist?(o: { listType: 'playlist'; list: string; index?: number }): void;
+  loadPlaylist?(o: { listType: 'playlist'; list: string; index?: number }): void;
   getVideoData(): { title?: string; author?: string };
   destroy(): void;
 };
@@ -262,8 +265,9 @@ export default function Noisegasm({
       yt.current = new YT.Player(el, {
         width: 160,
         height: 90,
-        // The current API rejects an explicit `videoId: undefined`, so a playlist leaves it out.
-        ...(kind === 'video' ? { videoId: id } : {}),
+        // A playlist plays as the "videoseries" video: without it the embed address has no video
+        // at all, which iPhone shows as "This video is unavailable".
+        videoId: kind === 'video' ? id : 'videoseries',
         playerVars: {
           playsinline: 1,
           rel: 0,
@@ -279,8 +283,15 @@ export default function Noisegasm({
           // skipped instead of stopping the music; a whole playlist of those gives up.
           onError: () => {
             skipped.current += 1;
-            if (skipped.current < 25) yt.current?.nextVideo();
-            else setStuck(true);
+            const player = yt.current;
+            if (skipped.current >= 25 || !player) return setStuck(true);
+            // Before the playlist is known (iPhone, nothing played yet) next does nothing: jump
+            // to the following song by its place in the playlist instead.
+            if (kind === 'list' && !player.getPlaylist?.()?.length) {
+              const o = { listType: 'playlist' as const, list: id, index: skipped.current };
+              if (wantPlay.current) player.loadPlaylist?.(o);
+              else player.cuePlaylist?.(o);
+            } else player.nextVideo();
           },
           onStateChange: (e) => {
             const data = yt.current?.getVideoData();
