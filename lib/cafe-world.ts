@@ -125,12 +125,17 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   /** Signed side of the road: the café is on the positive side. */
   const sideOfCafe = Math.sign(roadSide.dot(center.clone().sub(road.origin))) || 1;
 
-  // River: a meandering line beyond the road (the panorama's valley in front of the café).
+  // The sea (and the river with it) lies behind the café, past the observatory's hill; the
+  // mountains rise across the road in front. How far the café reaches back from the road:
+  const cafeSize = bounds.getSize(new THREE.Vector3()),
+    cafeHalfAcross = (cafeSize.x * Math.abs(roadSide.x) + cafeSize.z * Math.abs(roadSide.z)) / 2,
+    cafeBack = Math.abs(roadSide.dot(center.clone().sub(road.origin))) + cafeHalfAcross;
+  // River: a meandering line behind the café, between it and the tower.
   const riverPoints: THREE.Vector3[] = [];
   // Long enough to run off both edges of the land.
   for (let i = -9; i <= 9; i++) {
     const along = i * 16,
-      across = -sideOfCafe * (19 + Math.sin(i * 0.9) * 5 + i * i * 0.35);
+      across = sideOfCafe * (cafeBack + 10 + Math.sin(i * 0.9) * 3 + i * i * 0.35);
     riverPoints.push(
       road.origin
         .clone()
@@ -143,7 +148,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   const riverSamples = river.getSpacedPoints(240);
   // Toward the left end of the land, between the river and the sea: a small heart-shaped lake
   // (loose, wobbly natural shores) fed by a few little branching streams from the river.
-  const away = roadSide.clone().multiplyScalar(-sideOfCafe),
+  // Seaward: behind the café.
+  const away = roadSide.clone().multiplyScalar(sideOfCafe),
     lakeAcross = new THREE.Vector3(-away.z, 0, away.x),
     alongOf = (p: THREE.Vector3) => p.clone().sub(road.origin).dot(roadDir),
     riverNear = (along: number) =>
@@ -215,11 +221,11 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     }
     return main;
   };
-  // The open sea beyond the river, in front of the café: the land slopes down to a beach.
-  // Windstopia is an island: a long beach in front (the sea past the river), the mountains
-  // behind, and a coast all the way round. `seaOut` is the distance past the shore (SEA at the
+  // The open sea beyond the river, behind the café and the tower: the land slopes down to a beach.
+  // Windstopia is an island: a long beach behind (the sea past the river), the mountains across
+  // the road in front, and a coast all the way round. `seaOut` is the distance past the shore (SEA at the
   // waterline, growing out to sea), measured from the island's rounded-rectangle outline.
-  const SEA = 56,
+  const SEA = 82,
     ISLAND = { halfAlong: 165, back: 280, radius: 60 },
     seaLevel = groundY - 0.55;
   /** Along the road (0 at the café's road point) and inland from the road (negative = seaward). */
@@ -249,7 +255,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   };
 
   // A small wooden footbridge where the river passes closest to the café, with a dirt path
-  // from the road down to it and on beyond.
+  // from the back of the café down to it; the stepping stones carry on from it to the tower.
   const bridgeMid = riverSamples.reduce((best, p) =>
     p.distanceToSquared(center) < best.distanceToSquared(center) ? p : best,
   );
@@ -261,15 +267,13 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   const bridgeHalf = 3.9,
     bridgeNear = bridgeMid.clone().addScaledVector(bridgeAcross, bridgeHalf),
     bridgeFar = bridgeMid.clone().addScaledVector(bridgeAcross, -bridgeHalf);
-  const roadEdge = (() => {
-    const rel = bridgeNear.clone().sub(road.origin),
-      along = rel.dot(roadDir);
+  const pathStart = (() => {
+    const along = bridgeNear.clone().sub(road.origin).dot(roadDir);
     return road.origin
       .clone()
       .addScaledVector(roadDir, along)
-      .addScaledVector(roadSide, -sideOfCafe * (road.halfWidth + 0.4));
+      .addScaledVector(roadSide, sideOfCafe * (cafeBack + 0.8));
   })();
-  const pathEnd = bridgeFar.clone().addScaledVector(bridgeAcross, -7);
   const segmentDistance = (x: number, z: number, a: THREE.Vector3, b: THREE.Vector3) => {
     const abx = b.x - a.x,
       abz = b.z - a.z,
@@ -280,11 +284,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       );
     return Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t));
   };
-  const pathDistance = (x: number, z: number) =>
-    Math.min(
-      segmentDistance(x, z, roadEdge, bridgeNear),
-      segmentDistance(x, z, bridgeFar, pathEnd),
-    );
+  const pathDistance = (x: number, z: number) => segmentDistance(x, z, pathStart, bridgeNear);
 
   // The observatory sits on a hill behind the café, away from the road.
   const towerAt = center
@@ -294,8 +294,6 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
 
   // Marble stepping stones from behind Winds Space, winding across the land to the tower's
   // door (which faces the last stretch of the path). Trees keep clear of it.
-  const cafeSize = bounds.getSize(new THREE.Vector3()),
-    cafeHalfAcross = (cafeSize.x * Math.abs(roadSide.x) + cafeSize.z * Math.abs(roadSide.z)) / 2;
   const towerPathStart = center
     .clone()
     .addScaledVector(roadSide, sideOfCafe * (cafeHalfAcross + 2.2))
@@ -321,7 +319,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       const t = k / 8,
         wiggle =
           k === 0 || k === 8 ? 0 : Math.sin(t * Math.PI * 2.6 + 0.6) * 4.2 * Math.sin(t * Math.PI);
-      points.push(towerPathStart.clone().lerp(towerPathEnd, t).addScaledVector(across, wiggle));
+      // From the far end of the footbridge over the river to the tower's stairs.
+      points.push(bridgeFar.clone().lerp(towerPathEnd, t).addScaledVector(across, wiggle));
     }
     return new THREE.CatmullRomCurve3(points, false, 'centripetal');
   })();
@@ -597,7 +596,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     sea.position.set(islandCentre.x, seaLevel, islandCentre.z);
     group.add(sea);
   }
-  // Pier: from the beach in front of the café straight out to sea.
+  // Pier: from the beach behind the café straight out to sea.
   const pierAlong = 14,
     pierFrom = road.origin
       .clone()
@@ -2437,9 +2436,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     /** Points along the footpaths and the bridge, where fireflies like to gather at night. */
     fireflyTrails: [
       ...towerPathPoints.filter((_, i) => i % 3 === 0),
-      ...Array.from({ length: 14 }, (_, i) => roadEdge.clone().lerp(bridgeNear, i / 13)),
+      ...Array.from({ length: 14 }, (_, i) => pathStart.clone().lerp(bridgeNear, i / 13)),
       ...Array.from({ length: 8 }, (_, i) => bridgeNear.clone().lerp(bridgeFar, i / 7)),
-      ...Array.from({ length: 10 }, (_, i) => bridgeFar.clone().lerp(pathEnd, i / 9)),
     ].map((p) => new THREE.Vector3(p.x, height(p.x, p.z), p.z)),
     /** Ground height under a point (for placing things on the world). */
     heightAt: height,

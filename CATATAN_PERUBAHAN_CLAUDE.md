@@ -1153,3 +1153,19 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   - Bila dalam 3 detik musik tetap tidak jalan (beberapa browser, terutama iPhone/iPad, hanya mengizinkan
     YouTube mulai dari ketukan langsung pada videonya), pemutar mini menulis "Ketuk video kecil untuk
     memutar".
+
+## 57. Langit lebih lembut, kucing tidak menembus dinding, gunung dan laut ditukar (1 Nov 2026)
+
+- **Langit siang** kembali ke warna lama yang lembut, hanya sedikit lebih biru dan segar (atas
+  sedikit lebih biru, cakrawala sedikit lebih bersih, awan sedikit lebih terang). Kabut jauh ikut.
+- **Kucing menembus dinding**: pemeriksaan langkah (dipakai kucing dan langkah bebas Luna) hanya
+  menembakkan sinar ke depan, sehingga dinding satu sisi yang terlihat dari belakang tidak terdeteksi.
+  Kini ada sinar balik dari arah sebaliknya, jadi dinding dari sisi mana pun menghalangi.
+- **Gunung dan laut ditukar**: laut dan pantai (beserta dermaga dan perahu) kini di belakang kafe,
+  di balik bukit menara; pegunungan di seberang jalan depan. **Sungai** ikut ke belakang, mengalir di
+  antara kafe dan menara, dengan danau hati di sisi lautnya. **Menara tetap** di tempatnya. Jembatan
+  kayu kini di belakang kafe: jalan tanah dari belakang kafe ke jembatan, lalu batu pijakan dari
+  ujung jembatan ke tangga menara.
+- Diuji di browser (dev): tinggi tanah (laut di belakang, gunung di depan), sungai + jembatan + batu
+  pijakan ke menara terlihat dari kamera Explore. `typecheck`, `format:check`, `build` lulus; tes
+  19/19, `engine.test` 28/32 (4 gagal lama).
