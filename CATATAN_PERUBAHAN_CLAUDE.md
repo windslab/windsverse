@@ -1183,3 +1183,12 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - **Tidak ada lagi seleksi layar**: selama mode Explore, menahan jari di layar tidak menyeleksi teks
   halaman dan tidak memunculkan menu tekan-lama (kolom ketik tetap bisa diseleksi).
 - `typecheck`, `format:check`, `build` lulus; tes 19/19. Belum diuji di HP sungguhan.
+
+## 59. Noisegasm di HP: video membesar untuk diketuk (1 Nov 2026)
+
+- Di HP (terutama iPhone), YouTube sering hanya mau mulai dari ketukan langsung pada videonya,
+  bukan dari tombol play halaman; video mini 96×54 px gampang terlewat.
+- Kini bila 1,5 detik setelah play musik belum jalan, video YouTube **membesar di atas pemutar mini**
+  (lebar hingga 300 px, berbingkai kuning) dengan tulisan berdenyut "Ketuk video untuk memutar ↓".
+  Begitu musik berputar, video kembali kecil. Pemutar yang disembunyikan ke tepi ikut muncul saat itu.
+- Di emulasi HP (Chrome Android) Noisegasm bisa diputar; perilaku iPhone belum bisa diuji langsung.

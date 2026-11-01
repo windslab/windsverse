@@ -222,9 +222,41 @@
   background: #000;
 }
 .miniVideo iframe {
-  width: 96px;
-  height: 54px;
+  width: 100%;
+  height: 100%;
   display: block;
+}
+/* Waiting for a tap on the video itself: it grows above the pill so it is easy to hit. */
+.mini[data-stuck] .miniVideo {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 34px);
+  width: min(300px, calc(100vw - 24px));
+  height: calc(min(300px, calc(100vw - 24px)) * 0.5625);
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 3px #f1c98a,
+    0 10px 30px rgba(0, 0, 0, 0.45);
+  z-index: 2;
+}
+.tapHint {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f1c98a;
+  color: #3a2614;
+  font:
+    700 12px/1.3 system-ui,
+    sans-serif;
+  white-space: nowrap;
+  animation: tapPulse 1.2s ease-in-out infinite;
+}
+@keyframes tapPulse {
+  50% {
+    transform: translateY(-3px);
+  }
 }
 .miniMain {
   display: flex;

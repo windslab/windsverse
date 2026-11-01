@@ -185,7 +185,7 @@ export default function Noisegasm({
       // itself: if nothing plays in a moment, say so.
       window.setTimeout(() => {
         if (wantPlay.current && yt.current?.getPlayerState?.() !== 1) setStuck(true);
-      }, 3000);
+      }, 1500);
       return true;
     }
     const el = audio.current;
@@ -349,9 +349,15 @@ export default function Noisegasm({
         className={styles.mini + ' noisegasm-mini'}
         data-on={playing || undefined}
         data-youtube={youtube || undefined}
-        data-tucked={tucked || undefined}
+        data-tucked={(tucked && !stuck) || undefined}
+        data-stuck={(stuck && !playing) || undefined}
       >
         <div className={styles.miniVideo} ref={ytHost} hidden={!youtube} />
+        {/* Phones that only let YouTube start from a tap on the video: it grows above the
+            pill with a hint, and shrinks back once the music plays. */}
+        {stuck && !playing && youtube && (
+          <span className={styles.tapHint}>Ketuk video untuk memutar ↓</span>
+        )}
         <button className={styles.miniMain} onClick={() => onOpenChange(true)}>
           <span className={styles.bars} aria-hidden>
             <i />
