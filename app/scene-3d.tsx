@@ -18,6 +18,7 @@ import { placeCafePeople } from './scene-people';
 import { EMPTY_CAFE_ACTIVITY, type CafeActivity, type CafeVisitor } from '@/lib/cafe-activity';
 import ExploreMode, { type ExploreApi } from './explore-mode';
 import { createToonOutline, toonGradient, toonify } from '@/lib/toon';
+import { retextureCafe } from '@/lib/cafe-retexture';
 import { createCafeSky, SKY_PHASES, type SkyPhase } from '@/lib/cafe-sky';
 import { createCafeWorld } from '@/lib/cafe-world';
 import { createCritters } from '@/lib/cafe-critters';
@@ -540,6 +541,10 @@ export default function CafeScene({
       barHandlers: BarHandlers | null = null,
       barPan = 0,
       barPanTarget = 0,
+      /** Counter x the bar view is centred on (eased toward the cup). */
+      barFocus = -3.95,
+      barLastFocus = -3.95,
+      barLastView = 'counter',
       barDrag: { x: number; pan: number } | null = null;
     const barRay = new THREE.Raycaster(),
       barNdc = new THREE.Vector2(),
@@ -854,6 +859,41 @@ export default function CafeScene({
         if (disposed) return;
         const model = gltf.scene;
         addedMaterials.push(...toonify(model));
+        // Seamless textures instead of the small baked ones that stretch on big surfaces.
+        addedTextures.push(...retextureCafe(model));
+        // Glass in the bar box's corner windows (model metres; the frame's own bars): the front
+        // corners either side of the order window, and the two short side windows by the counter.
+        // The middle stays open: that is where guests order.
+        {
+          const glass = new THREE.MeshStandardMaterial({
+            color: '#d9eef4',
+            transparent: true,
+            opacity: 0.2,
+            roughness: 0.05,
+            metalness: 0.1,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          });
+          glass.name = 'WS_Bar_Glass';
+          addedMaterials.push(glass);
+          const pane = (x0: number, x1: number, z0: number, z1: number) => {
+            const width = Math.hypot(x1 - x0, z1 - z0),
+              mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, 0.66), glass);
+            mesh.name = 'WS_Bar_Glass_Pane';
+            mesh.position.set((x0 + x1) / 2, 1.605, (z0 + z1) / 2);
+            mesh.rotation.y = Math.atan2(-(z1 - z0), x1 - x0);
+            mesh.renderOrder = 3;
+            model.add(mesh);
+          };
+          pane(-4.43, -3.965, 3.02, 3.02);
+          pane(-2.765, -2.22, 3.02, 3.02);
+          pane(-4.465, -4.465, 3.06, 3.7);
+          pane(-2.19, -2.19, 3.06, 3.7);
+        }
+        // The row of ceramic cups on the bar counter goes (the Windstopia bar has its own cups).
+        model.traverse((node) => {
+          if (/^WS_Cup(\d{3})?$/.test(node.name)) node.visible = false;
+        });
         // The string-light cables strung from the pole: faint and broken into dashes, so they
         // read as soft lines instead of black wires across the sky.
         {
@@ -1899,6 +1939,7 @@ export default function CafeScene({
                 open: (handlers: BarHandlers) => {
                   barHandlers = handlers;
                   barPan = barPanTarget = 0;
+                  barFocus = bar?.focus() ?? barFocus;
                   people?.setBaristaVisible(false);
                 },
                 close: () => {
@@ -1935,8 +1976,8 @@ export default function CafeScene({
                     // Look along the counter (it is wider than the view on a phone).
                     barPanTarget = THREE.MathUtils.clamp(
                       barDrag.pan - ((x - barDrag.x) / width) * 1.4,
-                      -0.5,
-                      0.5,
+                      -1.1,
+                      1.1,
                     );
                   }
                 },
@@ -2759,17 +2800,30 @@ export default function CafeScene({
             const view = bar && cafeModel ? bar.views[bar.view()] : null;
             if (view && bar && cafeModel) {
               barPan += (barPanTarget - barPan) * (1 - Math.exp(-delta * 8));
+              // Along the counter the view follows the cup (and the player's drag on top). When the
+              // cup moves, or Luna turns back from the freezer, the view comes back to it.
+              const focus = bar.focus(),
+                turned = bar.view();
+              if (
+                Math.abs(focus - barLastFocus) > 0.05 ||
+                (turned !== barLastView && turned === 'counter')
+              ) {
+                barPanTarget = 0;
+                barLastFocus = focus;
+              }
+              barLastView = turned;
+              barFocus += (focus - barFocus) * (1 - Math.exp(-delta * 3));
               const counter = bar.view() === 'counter',
-                pan = counter ? barPan : 0,
+                x = counter ? THREE.MathUtils.clamp(barFocus + barPan, -4.0, -2.55) : view.eye.x,
                 portrait = camera.aspect < 1;
               pov.eye.copy(view.eye);
-              pov.eye.x += pan;
+              pov.eye.x = x;
               if (portrait && counter) {
                 pov.eye.z += 0.25;
                 pov.eye.y += 0.12;
               }
               pov.look.copy(view.target);
-              pov.look.x += pan;
+              if (counter) pov.look.x = x;
               cafeModel.localToWorld(pov.eye);
               cafeModel.localToWorld(pov.look);
             } else {

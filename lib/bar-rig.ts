@@ -52,25 +52,30 @@ export const mlOf = (id: string, amount: number) =>
 
 const Y = 1.25; // counter top
 const P = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+// Left corner by the glass: cups, then the syrups and powders. Right end: the ice scoop, milk,
+// tea and the machine. The middle (the order window) stays clear.
 const SPOT = {
-  machine: P(-3.04, Y, 3.36),
-  spout: P(-3.04, Y + 0.17, 3.47),
-  tray: P(-3.04, Y + 0.012, 3.47),
-  work: P(-3.3, Y, 3.5),
-  bottle: (i: number) => P(-3.6 + i * 0.095, Y, 3.36),
-  // Low stacks at the front edge, so a cup under a pump behind them stays in sight.
-  plastic: P(-3.6, Y, 3.595),
-  paper: P(-3.485, Y, 3.6),
-  cocoa: P(-2.76, Y, 3.33),
-  matcha: P(-2.67, Y, 3.33),
-  milk: P(-2.84, Y, 3.47),
-  tea: P(-2.73, Y, 3.47),
+  plastic: P(-4.33, Y, 3.24),
+  paper: P(-4.33, Y, 3.4),
+  bottle: (i: number) => P(-4.19 + i * 0.095, Y, 3.28),
+  cocoa: P(-3.88, Y, 3.29),
+  matcha: P(-3.78, Y, 3.29),
+  work: P(-4.02, Y, 3.52),
+  scoop: P(-2.97, Y, 3.47),
+  milk: P(-2.83, Y, 3.4),
+  tea: P(-2.68, Y, 3.4),
+  machine: P(-2.44, Y, 3.34),
+  spout: P(-2.44, Y + 0.17, 3.45),
+  tray: P(-2.44, Y + 0.012, 3.45),
   freezer: P(-2.65, 1.3, 4.6),
 };
+/** Where the counter view centres when there is no cup yet (the cups' corner). */
+const HOME_X = -3.95;
 /** Fixed views for Luna's eyes (model units): the counter, and turned round to the freezer. */
 export const BAR_VIEWS = {
   // Luna's own eye height: the counter below, the café still in view beyond it.
-  counter: { eye: P(-3.17, 1.72, 4.18), target: P(-3.17, 1.27, 3.3) },
+  // Its x follows the cup along the counter (see `focus`).
+  counter: { eye: P(HOME_X, 1.72, 4.18), target: P(HOME_X, 1.27, 3.3) },
   // Turned round and looking down into the open freezer (the raised lid stays above the view).
   freezer: { eye: P(-2.66, 2.05, 3.72), target: P(-2.66, 1.22, 4.56) },
 };
@@ -270,14 +275,14 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     const g = new THREE.Group();
     g.position.copy(spot);
     const plastic = kind === 'gelas-es';
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < 5; k++) {
       const c = new THREE.Mesh(plastic ? plasticGeo : paperGeo, plastic ? plasticMat : paperMat);
       c.position.y = (plastic ? 0.065 : 0.055) + k * 0.012;
       g.add(c);
     }
     const rim = new THREE.Mesh(rimGeo, plastic ? rimMat : sleeveMat);
     rim.rotation.x = Math.PI / 2;
-    rim.position.y = (plastic ? 0.13 : 0.11) + 2 * 0.012;
+    rim.position.y = (plastic ? 0.13 : 0.11) + 4 * 0.012;
     if (!plastic) rim.scale.setScalar(0.9);
     g.add(rim);
     hit(g, 'cup:' + kind);
@@ -373,6 +378,24 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
   }
   scoop.visible = false;
   group.add(scoop);
+  // The ice scoop resting on a little tray at the right end: tap it to fetch ice from the freezer.
+  const scoopRest = new THREE.Group();
+  scoopRest.position.copy(SPOT.scoop);
+  scoopRest.add(mesh(new THREE.BoxGeometry(0.1, 0.008, 0.07), metal, P(0, 0.004, 0)));
+  const restingScoop = new THREE.Group();
+  // Bowl open side up (it reads as a scoop from Luna's eyes), handle along the tray.
+  restingScoop.add(
+    mesh(
+      new THREE.SphereGeometry(0.032, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+      mat(0xd8d6d0, { metalness: 0.4, roughness: 0.3, side: THREE.DoubleSide }),
+    ).rotateX(Math.PI),
+  );
+  restingScoop.add(mesh(cyl(0.007, 0.007, 0.08, 8), metal, P(0, 0, 0.06)).rotateX(Math.PI / 2));
+  restingScoop.position.set(0, 0.04, -0.01);
+  restingScoop.rotation.y = 0.5;
+  scoopRest.add(restingScoop);
+  hit(scoopRest, 'freezer');
+  group.add(scoopRest);
   const spoon = new THREE.Group();
   spoon.add(
     mesh(new THREE.SphereGeometry(0.013, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), metal).rotateX(
@@ -423,13 +446,15 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
   const drink: BarDrink = { cup: null, amounts: {} };
   const needCup = () => {
     if (drink.cup) return false;
-    on.hint('Ambil cup dulu di tumpukan cup, di depan kiri.');
+    on.hint('Ambil cup dulu di tumpukan cup, di sudut kiri dekat kaca.');
     return true;
   };
   const cupTo = async (to: THREE.Vector3, dur = 0.45) => {
     if (state.cupAt.distanceTo(to) < 0.005 && cup.position.distanceTo(to) < 0.005) return;
+    // Longer trips along the counter take a little longer.
+    const far = cup.position.distanceTo(to);
     state.cupAt.copy(to);
-    await moveTo(cup, to, dur, 0.03);
+    await moveTo(cup, to, Math.max(dur, 0.3 + far * 0.45), 0.03);
   };
   const run = async (task: () => Promise<void>) => {
     if (state.busy) return;
@@ -442,7 +467,7 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
   };
 
   async function takeCup(kind: BarCup) {
-    if (drink.cup) return on.hint('Cup sudah ada di tengah meja. Tekan "buang" kalau mau ganti.');
+    if (drink.cup) return on.hint('Cup sudah ada di meja. Tekan "buang" kalau mau ganti.');
     void bounce(stacks[kind]);
     on.sound('cup');
     cupKind = kind;
@@ -551,7 +576,7 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
       sentAt: 0,
     });
     on.pouring(id);
-    await moveTo(box, above, 0.3, 0.04);
+    await moveTo(box, above, 0.3 + box.position.distanceTo(above) * 0.35, 0.04);
     await play(0.18, (k) => (box.rotation.z = k * tilt));
     on.sound('pour');
     hold.flowing = true;
@@ -564,12 +589,13 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     hold.on = false;
     on.pouring(null);
     await play(0.2, (k) => (box.rotation.z = tilt * (1 - k)));
-    await moveTo(box, home, 0.35, 0.04);
+    await moveTo(box, home, 0.3 + box.position.distanceTo(home) * 0.35, 0.04);
   }
   async function scoopIce() {
     if (needCup()) return;
     if (drink.amounts.es) return on.hint('Esnya sudah cukup untuk satu gelas.');
     state.view = 'freezer';
+    restingScoop.visible = false;
     await wait(0.55);
     // Lid up, scoop in and out, lid down.
     lidHinge.visible = inside.visible = true;
@@ -592,6 +618,7 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     await play(0.25, (k) => (scoop.rotation.x = -k * 1.4));
     on.sound('ice');
     on.ice();
+    restingScoop.visible = true;
     await wait(0.2);
     scoop.visible = false;
     scoop.rotation.x = 0;
@@ -693,6 +720,8 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
     group,
     hits,
     views: BAR_VIEWS,
+    /** Counter x the view centres on: the cup as it travels, or the cups' corner. */
+    focus: () => (cup.visible ? THREE.MathUtils.clamp(cup.position.x, HOME_X, -2.6) : HOME_X),
     view: () => state.view,
     state,
     setSlots,

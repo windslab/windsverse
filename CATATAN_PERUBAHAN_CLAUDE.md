@@ -1070,3 +1070,26 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - **Hujan**: tamu baru memilih kursi yang beratap (dicek dengan sinar ke atas dari tiap kursi).
 - Diuji di browser (dev): lampu malam, halo, kabel. Bagian lain lulus typecheck/tes tapi belum dicoba
   langsung. `typecheck`, `format:check`, `build` lulus; `barista.test` + `people.test` 19/19.
+
+## 52. Bar ditata ulang, kaca box bar, tekstur tidak ter-stretch, langit lebih cerah (1 Nov 2026)
+
+- **Cangkir keramik yang berjejer** di meja bar disembunyikan.
+- **Tata letak meja bar** (dilihat dari mata Luna):
+  - Sudut kiri dekat kaca: tumpukan cup plastik dan paper cup, lalu 3 botol sirup, lalu toples
+    cokelat dan matcha.
+  - Ujung kanan: serokan es di atas nampan (diklik → langsung ke freezer ambil es), kotak susu, teko
+    teh, mesin kopi.
+  - Bagian tengah (jendela pesan) dibiarkan kosong.
+  - Kamera meracik mengikuti cup sepanjang meja (perjalanan jauh lebih pelan); geser layar untuk
+    melihat ke ujung lain. Setiap kali cup berpindah, atau Luna kembali dari freezer, kamera kembali
+    ke cup.
+- **Kaca** di jendela sudut box bar: dua sudut depan di kiri-kanan jendela pesan, dan dua jendela
+  samping pendek di ujung meja. Jendela pesan di tengah tetap terbuka.
+- **Tekstur kafe**: tekstur "baked" kecil (256–512 px) yang ter-stretch di permukaan besar diganti
+  tekstur mulus kecil berwarna sama (plester, beton, papan kayu, plywood, kulit pohon, terakota),
+  diproyeksikan dari sisi yang dihadapi dengan ukuran tetap (`lib/cafe-retexture.ts`).
+- **Langit siang** lebih cerah ala Ghibli: biru cerulean di atas, biru muda pucat di cakrawala, awan
+  putih bersih (langit teleskop tidak berubah). Kabut jauh ikut biru muda.
+- Diuji di browser (dev): tampak luar box bar (kaca, meja), sudut kiri dan ujung kanan dari mata
+  Luna, serokan es → freezer, langit siang. `typecheck`, `format:check`, `build` lulus;
+  `barista.test` + `people.test` 19/19.
