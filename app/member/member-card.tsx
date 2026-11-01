@@ -15,7 +15,6 @@ import {
   LockOpen,
   Sparkles,
 } from 'lucide-react';
-import { money } from '@/lib/model';
 import type { CardDesign } from '@/lib/member';
 import MemberCard3D from './card-3d';
 import Gift3D from './gift-3d';
@@ -48,7 +47,12 @@ export type PublicCard = {
   year: number;
   rewards: Reward[];
   history: { at: string; name: string; points: number; status: 'menunggu' | 'diserahkan' }[];
-  rules: { minDrinkPrice: number; voucherMonths: number; pointsExpireMonths: number };
+  rules: {
+    minDrinkPrice: number;
+    stampRule: string;
+    voucherMonths: number;
+    pointsExpireMonths: number;
+  };
   design: CardDesign;
 };
 
@@ -178,8 +182,8 @@ export default function MemberCard({ token }: { token: string }) {
         </div>
       </div>
       <p className={styles.fine}>
-        1 stamp tiap transaksi dengan minimal 1 minuman ≥ {money(card.rules.minDrinkPrice)}. Stamp
-        ke-5: minuman non-kopi gratis · stamp ke-10: minuman kopi gratis.
+        {card.rules.stampRule}. Stamp ke-5: minuman non-kopi gratis · stamp ke-10: minuman kopi
+        gratis.
         {card.pointsExpireAt &&
           card.points > 0 &&
           ` Poin aman selama ada transaksi sebelum ${day(card.pointsExpireAt)}.`}

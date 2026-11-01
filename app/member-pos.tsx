@@ -10,6 +10,7 @@ import {
   memberRules,
   normalizePhone,
   orderEarnings,
+  stampRule,
   voucherFits,
   STAMPS_PER_CARD,
 } from '@/lib/member';
@@ -267,7 +268,7 @@ export default function MemberPos({
             <small className={preview.qualifies ? 'member-earn' : 'muted'}>
               {preview.qualifies
                 ? `Transaksi ini: +1 stamp, +${preview.points} poin`
-                : `Belum dapat stamp: butuh minimal 1 minuman ≥ ${money(rules.minDrinkPrice)} yang dibayar.`}
+                : `Belum dapat stamp: ${stampRule(rules).replace(/^1 stamp tiap transaksi dengan /, 'butuh ')} yang dibayar.`}
             </small>
           )}
           <div className="row">

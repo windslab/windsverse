@@ -1265,3 +1265,15 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
   demo yang tidak terlihat di tabel. Kini kategori yang tidak ada di menu dibuang otomatis, baik saat
   dibaca maupun saat disimpan.
 - Tes member 12/12, tes lain 19/19, `engine.test` 28/32 (4 gagal lama).
+
+## 63. Makanan juga memberi stamp (1 Nov 2026)
+
+- Member → Aturan punya kolom baru **Makanan** dan isian **Harga minimal makanan** (bawaan
+  Rp15.000). Transaksi dengan minimal 1 makanan berbayar dari kategori itu (≥ harga minimal) kini
+  mendapat stamp, walau tanpa minuman.
+- Satu kategori hanya bisa minuman atau makanan (mencentang yang satu melepas yang lain).
+- Tebakan otomatis: kategori bernama makanan/snack/food/roti/kue/dessert = Makanan (di menu asli:
+  Snack & Food).
+- Minuman gratis tetap minuman (stamp ke-5 non-kopi, ke-10 kopi). Teks aturan di kartu, kasir, dan
+  halaman daftar ikut menyebut makanan.
+- Tes member 12/12, tes lain 19/19, `engine.test` 28/32 (4 gagal lama).

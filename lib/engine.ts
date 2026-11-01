@@ -8,7 +8,6 @@ import {
   validPhone,
   voucherFits,
   DEFAULT_DESIGN,
-  DEFAULT_RULES,
 } from './member';
 import { z } from 'zod';
 import {
@@ -1056,17 +1055,24 @@ export function apply(
     const rules = z
       .object({
         minDrinkPrice: amount,
+        minFoodPrice: amount,
         drinkCategories: categories,
         coffeeCategories: categories,
+        foodCategories: categories,
         rupiahPerPoint: z.number().int().min(100).max(1_000_000),
         voucherMonths: z.number().int().min(1).max(60),
         pointsExpireMonths: z.number().int().min(1).max(120),
       })
-      .parse({ ...DEFAULT_RULES, ...p.rules });
+      .parse({ ...memberRules(s), ...p.rules });
     // Categories that no longer exist (e.g. the demo ones) are dropped rather than refused.
     const known = new Set(s.categories.map((c) => c.id));
     rules.drinkCategories = rules.drinkCategories.filter((c) => known.has(c));
     rules.coffeeCategories = rules.coffeeCategories.filter((c) => known.has(c));
+    rules.foodCategories = rules.foodCategories.filter((c) => known.has(c));
+    assert(
+      !rules.foodCategories.some((c) => rules.drinkCategories.includes(c)),
+      'Satu kategori tidak bisa sekaligus minuman dan makanan.',
+    );
     rules.coffeeCategories.forEach((c) =>
       assert(rules.drinkCategories.includes(c), 'Kategori kopi harus termasuk kategori minuman.'),
     );
