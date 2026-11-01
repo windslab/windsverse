@@ -1248,3 +1248,32 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
 - Diuji di server lokal: animasi stempel, desain unggahan tampil di kartu dan pratinjau admin, klaim
   dari kartu, hadiah terkunci, tombol Kartu Member di halaman 3D. `typecheck`, `format:check`,
   `build` lulus; tes member 10/10, tes lain 19/19, `engine.test` 28/32 (4 gagal lama).
+
+## 62. Perbaikan: stamp tidak bertambah di menu asli (1 Nov 2026)
+
+- Penyebab: aturan bawaan member menganggap "minuman" hanya kategori demo (`kopi`, `non_kopi`,
+  `mocktail`), sedangkan menu asli memakai kategori lain (Ice Coffee, Hot Coffee, Fresh Drink, …).
+  Akibatnya tidak ada menu yang dihitung sebagai minuman sehingga stamp tidak muncul.
+- Kini, selama admin belum menyimpan aturan, kategori **ditebak dari nama**: semua kategori kecuali
+  makanan/snack dianggap minuman, dan yang bernama coffee/kopi/espresso dianggap kopi ("non kopi"
+  tidak). Di menu asli: Ice Coffee & Hot Coffee = kopi; Fresh Drink, Chocolate Series, Milk Base,
+  Hot Series, Milkshake, Yogurt = non-kopi; Snack & Food = bukan minuman.
+- Tab Aturan menampilkan pemberitahuan bahwa kategori masih tebakan dan perlu diperiksa lalu disimpan.
+- Karena stamp dihitung dari pesanan, transaksi yang sudah lewat langsung mendapat stamp-nya setelah
+  perbaikan ini (atau setelah admin menyimpan kategori yang benar).
+- **Simpan aturan** sempat gagal dengan "Data tidak ditemukan" karena aturan masih membawa kategori
+  demo yang tidak terlihat di tabel. Kini kategori yang tidak ada di menu dibuang otomatis, baik saat
+  dibaca maupun saat disimpan.
+- Tes member 12/12, tes lain 19/19, `engine.test` 28/32 (4 gagal lama).
+
+## 63. Makanan juga memberi stamp (1 Nov 2026)
+
+- Member → Aturan punya kolom baru **Makanan** dan isian **Harga minimal makanan** (bawaan
+  Rp15.000). Transaksi dengan minimal 1 makanan berbayar dari kategori itu (≥ harga minimal) kini
+  mendapat stamp, walau tanpa minuman.
+- Satu kategori hanya bisa minuman atau makanan (mencentang yang satu melepas yang lain).
+- Tebakan otomatis: kategori bernama makanan/snack/food/roti/kue/dessert = Makanan (di menu asli:
+  Snack & Food).
+- Minuman gratis tetap minuman (stamp ke-5 non-kopi, ke-10 kopi). Teks aturan di kartu, kasir, dan
+  halaman daftar ikut menyebut makanan.
+- Tes member 12/12, tes lain 19/19, `engine.test` 28/32 (4 gagal lama).

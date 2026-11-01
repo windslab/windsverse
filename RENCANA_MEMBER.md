@@ -6,7 +6,7 @@ Disepakati bersama pemilik pada 1 November 2026. Tahap 1 dibangun di branch `lun
 
 ### Stamp
 
-- **1 transaksi = 1 stamp**, bila ada minimal **1 minuman seharga ≥ Rp15.000** yang dibayar.
+- **1 transaksi = 1 stamp**, bila ada minimal **1 minuman seharga ≥ Rp15.000** atau **1 makanan seharga ≥ Rp15.000** yang dibayar (kategori makanan dan harga minimalnya diatur di Member → Aturan).
 - Satu kartu punya **10 kotak stamp**. Setelah penuh, otomatis lanjut ke kartu berikutnya; kartu
   lama tersimpan di riwayat.
 - **Stamp ke-5**: 1 minuman **non-kopi** gratis (bebas pilih). **Stamp ke-10**: 1 minuman **kopi**

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { apply } from '../lib/engine';
 import { initial, type Actor, type Row } from '../lib/model';
-import { memberCard } from '../lib/member';
+import { memberCard, memberRules } from '../lib/member';
 
 const owner: Actor = {
   id: 'owner-identity',
@@ -80,14 +80,14 @@ test('members: phone numbers are normalised and unique', () => {
   assert.throws(() => join(s, '0812 3456 7890'), /sudah terdaftar/);
 });
 
-test('members: a stamp needs a paid drink of at least Rp15.000; points follow the menus', () => {
+test('members: a stamp needs a paid drink or food of at least Rp15.000; points follow the menus', () => {
   const f = fixture();
   const m = join(f.s);
-  f.sell([[f.bread, 2]], m.id); // food only
   f.sell([[f.tea, 1]], m.id); // drink under the minimum
   let card = memberCard(f.s, f.s.members[0]);
   assert.equal(card.stampCount, 0);
   assert.equal(card.points, 0);
+  f.sell([[f.bread, 2]], m.id); // food only counts too
   f.sell(
     [
       [f.coffee, 2],
@@ -96,8 +96,17 @@ test('members: a stamp needs a paid drink of at least Rp15.000; points follow th
     m.id,
   );
   card = memberCard(f.s, f.s.members[0]);
+  assert.equal(card.stampCount, 2);
+  assert.equal(card.points, 15 * 2 + 18 * 2 + 15);
+  // Without food categories, food alone earns nothing.
+  apply(f.s, owner, 'member.settings', { rules: { foodCategories: [] } }, morning);
+  card = memberCard(f.s, f.s.members[0]);
   assert.equal(card.stampCount, 1);
-  assert.equal(card.points, 18 * 2 + 15);
+  // A category is a drink or food, not both.
+  assert.throws(
+    () => apply(f.s, owner, 'member.settings', { rules: { foodCategories: ['kopi'] } }, morning),
+    /sekaligus/,
+  );
 });
 
 test('members: points are counted after a discount; menus can have their own points', () => {
@@ -167,7 +176,7 @@ test('members: a signed-up card waits for its first qualifying order', () => {
   assert.ok(r.token.length >= 20);
   const m = f.s.members[0];
   assert.equal(m.status, 'menunggu');
-  f.sell([[f.bread, 1]], m.id);
+  f.sell([[f.tea, 1]], m.id); // under the minimum
   assert.equal(m.status, 'menunggu');
   f.sell([[f.coffee, 1]], m.id);
   assert.equal(m.status, 'aktif');
@@ -302,4 +311,56 @@ test('members: the card design keeps safe colours and uploaded artwork only', ()
     apply(s, owner, 'member.design', { design: { back: 'http://x.test/a.png' } }, morning),
   );
   assert.throws(() => apply(s, owner, 'member.design', { design: { inkColor: 'red' } }, morning));
+});
+
+test("members: drinks and coffee follow the café's own category names until the admin sets them", () => {
+  const f = fixture();
+  const cat = (name: string) =>
+    apply(f.s, owner, 'save', { kind: 'categories', data: { name, sortOrder: 9 } }, morning) as Row;
+  const ice = cat('Ice Coffee'),
+    fresh = cat('Fresh Drink'),
+    food = cat('Snack & Food');
+  const rules = memberRules(f.s);
+  assert.ok(rules.drinkCategories.includes(ice.id) && rules.drinkCategories.includes(fresh.id));
+  assert.ok(!rules.drinkCategories.includes(food.id));
+  assert.ok(rules.foodCategories.includes(food.id));
+  assert.deepEqual(
+    rules.coffeeCategories.filter((c) => [ice.id, fresh.id, food.id].includes(c)),
+    [ice.id],
+  );
+  assert.ok(!rules.coffeeCategories.includes('non_kopi'));
+  // A latte in a café category earns a stamp right away.
+  const m = join(f.s);
+  const latte = apply(
+    f.s,
+    owner,
+    'save',
+    {
+      kind: 'products',
+      data: { name: 'Es Kopi Susu', price: 20000, category: ice.id, status: 'tersedia' },
+    },
+    morning,
+  ) as Row;
+  f.sell([[latte, 1]], m.id);
+  assert.equal(memberCard(f.s, f.s.members[0]).stampCount, 1);
+});
+
+test('members: saving the rules drops categories the café no longer has', () => {
+  const f = fixture();
+  const ice = apply(
+    f.s,
+    owner,
+    'save',
+    { kind: 'categories', data: { name: 'Ice Coffee', sortOrder: 9 } },
+    morning,
+  ) as Row;
+  apply(
+    f.s,
+    owner,
+    'member.settings',
+    { rules: { drinkCategories: ['hilang', ice.id], coffeeCategories: ['hilang', ice.id] } },
+    morning,
+  );
+  assert.deepEqual(f.s.settings[0].member.drinkCategories, [ice.id]);
+  assert.deepEqual(memberRules(f.s).coffeeCategories, [ice.id]);
 });

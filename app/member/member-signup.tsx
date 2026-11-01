@@ -52,7 +52,7 @@ export default function MemberSignup() {
           </li>
         </ul>
         <p className={styles.fine}>
-          Gratis. 1 stamp tiap transaksi dengan minimal 1 minuman ≥ Rp15.000.
+          Gratis. 1 stamp tiap transaksi dengan minimal 1 minuman atau makanan ≥ Rp15.000.
         </p>
       </section>
       <form className={styles.block} onSubmit={submit}>

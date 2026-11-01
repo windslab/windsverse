@@ -12,6 +12,7 @@ import {
   claimStatus,
   memberCard,
   memberRules,
+  stampRule,
   STAMPS_PER_CARD,
   type CardDesign,
 } from '@/lib/member';
@@ -637,11 +638,22 @@ function Rewards({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
 function Rules({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
   const current = memberRules(s);
   const [rules, setRules] = useState(current);
-  const toggle = (key: 'drinkCategories' | 'coffeeCategories', id: string, on: boolean) =>
-    setRules((r) => ({
-      ...r,
-      [key]: on ? [...new Set([...r[key], id])] : r[key].filter((x) => x !== id),
-    }));
+  type Key = 'drinkCategories' | 'coffeeCategories' | 'foodCategories';
+  const toggle = (key: Key, id: string, on: boolean) =>
+    setRules((r) => {
+      const next = {
+        ...r,
+        [key]: on ? [...new Set([...r[key], id])] : r[key].filter((x) => x !== id),
+      };
+      // A category is either a drink or food.
+      if (on && key === 'foodCategories') {
+        next.drinkCategories = next.drinkCategories.filter((x) => x !== id);
+        next.coffeeCategories = next.coffeeCategories.filter((x) => x !== id);
+      }
+      if (on && key === 'drinkCategories')
+        next.foodCategories = next.foodCategories.filter((x) => x !== id);
+      return next;
+    });
   return (
     <div className="member-panel">
       <div className="member-form">
@@ -652,6 +664,15 @@ function Rules({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
             min={0}
             value={rules.minDrinkPrice}
             onChange={(e) => setRules({ ...rules, minDrinkPrice: Number(e.target.value) })}
+          />
+        </label>
+        <label>
+          Harga minimal makanan untuk dapat stamp (Rp)
+          <input
+            type="number"
+            min={0}
+            value={rules.minFoodPrice}
+            onChange={(e) => setRules({ ...rules, minFoodPrice: Number(e.target.value) })}
           />
         </label>
         <label>
@@ -683,12 +704,20 @@ function Rules({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
         </label>
       </div>
       <h3>Kategori menu</h3>
+      {!s.settings[0]?.member && (
+        <p className="warning">
+          Kategori di bawah ditebak otomatis dari nama kategori menumu (yang bernama
+          makanan/snack/food = makanan, lainnya = minuman, yang bernama coffee/kopi = kopi). Periksa
+          lalu tekan Simpan aturan.
+        </p>
+      )}
       <table className="member-categories">
         <thead>
           <tr>
             <th>Kategori</th>
             <th>Minuman</th>
             <th>Kopi</th>
+            <th>Makanan</th>
           </tr>
         </thead>
         <tbody>
@@ -710,14 +739,22 @@ function Rules({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
                   onChange={(e) => toggle('coffeeCategories', c.id, e.target.checked)}
                 />
               </td>
+              <td>
+                <input
+                  type="checkbox"
+                  checked={rules.foodCategories.includes(c.id)}
+                  onChange={(e) => toggle('foodCategories', c.id, e.target.checked)}
+                />
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
       <p className="muted">
-        Minuman gratis stamp ke-5 untuk minuman non-kopi, stamp ke-10 untuk minuman kopi. Poin tiap
-        menu bisa diubah di Menu kafe (kolom “Poin member per porsi”); contoh dengan aturan ini:
-        menu {money(18000)} = {Math.floor(18000 / rules.rupiahPerPoint)} poin.
+        {stampRule(rules)}. Kategori Makanan ikut memberi stamp, tetapi minuman gratis tetap
+        minuman: stamp ke-5 untuk minuman non-kopi, stamp ke-10 untuk minuman kopi. Poin tiap menu
+        bisa diubah di Menu kafe (kolom “Poin member per porsi”); contoh dengan aturan ini: menu{' '}
+        {money(18000)} = {Math.floor(18000 / rules.rupiahPerPoint)} poin.
       </p>
       <button
         className="button primary"
