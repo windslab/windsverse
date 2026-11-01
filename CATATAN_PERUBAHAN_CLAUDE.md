@@ -1106,3 +1106,28 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Tekstur beton dan plester dipertegas (noda, butiran, pori) agar teksturnya terlihat.
 - Diuji di browser (dev): halaman depan (meja, bangku beton, lantai bertangga, dinding logo, pagar
   kotak-kotak, pot). `format:check`, `build` lulus; tes 19/19.
+
+## 54. Bar, kaca, kamera halus, tripod, kamera Story of Winds untuk video, kucing (1 Nov 2026)
+
+- **Meja bar**: teko teh dan kotak susu di samping toples bubuk; mesin kopi digeser ke kiri tetap di
+  dalam rangka jendela kanan; serokan es di ujung kanan. Peralatan barista sebagai hiasan: tempat
+  sedotan warna-warni, gelas sendok panjang, toples tip di jendela pesan, pitcher susu stainless,
+  knock box, lap bar terlipat, dan pot sukulen kecil.
+- **Kaca box bar** dipasang tepat di dalam rangka: dua sudut depan, tiga bukaan di sisi kiri (antara
+  tiang rangka), sisi kanan dekat ujung meja, dan **jendela belakang dekat kulkas**. Setiap kaca diberi
+  **garis tepi** gelap seperti outline benda lain.
+- **Kamera mengikuti Luna** kini berbelok mulus, bukan melompat: saat terhalang, kamera berputar ke
+  sisi yang bersih (naik bila kedua sisi tertutup) dengan kecepatan yang diperhalus, lalu pelan kembali
+  ke sudut pemain. Saat pemain memutar, putaran kamera otomatis langsung menjadi sudut pemain (tanpa
+  lompatan).
+- **Masuk/keluar box bar**: batas ganda (harus agak masuk untuk pindah ke CCTV, agak keluar untuk
+  kembali) dan jeda minimal 0,6 dtk, sehingga tidak berkedip bolak-balik di pintu.
+- **Tripod**: kaki kini menapak di tanah dan bertemu di bawah kamera (sebelumnya terbalik).
+- **Digicam digabung ke kamera Story of Winds**: item digicam di tas dihapus. Kamera Story of Winds
+  mendapat tombol **REC** (di panel belakang): video direkam lewat film yang dipilih (warna sama
+  dengan fotonya), dengan zoom, sampai 1 menit, lalu bisa disimpan ke perangkat atau dibuang.
+  Tripod membuka kamera Story of Winds yang terpasang di tripod. Berlaku juga di halaman Story of
+  Winds biasa (kamera perangkat).
+- **Kucing**: kaki menembus sedikit ke dalam badan sehingga tidak terlihat terpisah.
+- Diuji di browser (dev): tampak luar meja bar dan kaca, kamera Story of Winds di tripod + rekam video
+  3 dtk dengan film, kucing. `typecheck`, `format:check`, `build` lulus; tes 19/19.

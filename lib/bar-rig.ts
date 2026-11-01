@@ -52,8 +52,8 @@ export const mlOf = (id: string, amount: number) =>
 
 const Y = 1.25; // counter top
 const P = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
-// Left corner by the glass: cups, then the syrups and powders. Right end: the ice scoop, milk,
-// tea and the machine. The middle (the order window) stays clear.
+// Left corner by the glass: cups, then the syrups, powders, milk and tea. Right end, inside the
+// window frame: the machine and the ice scoop. The middle of the order window stays clear.
 const SPOT = {
   plastic: P(-4.33, Y, 3.24),
   paper: P(-4.33, Y, 3.4),
@@ -61,12 +61,12 @@ const SPOT = {
   cocoa: P(-3.88, Y, 3.29),
   matcha: P(-3.78, Y, 3.29),
   work: P(-4.02, Y, 3.52),
-  scoop: P(-2.97, Y, 3.47),
-  milk: P(-2.83, Y, 3.4),
-  tea: P(-2.68, Y, 3.4),
-  machine: P(-2.44, Y, 3.34),
-  spout: P(-2.44, Y + 0.17, 3.45),
-  tray: P(-2.44, Y + 0.012, 3.45),
+  milk: P(-3.66, Y, 3.31),
+  tea: P(-3.52, Y, 3.32),
+  machine: P(-2.62, Y, 3.34),
+  spout: P(-2.62, Y + 0.17, 3.45),
+  tray: P(-2.62, Y + 0.012, 3.45),
+  scoop: P(-2.37, Y, 3.47),
   freezer: P(-2.65, 1.3, 4.6),
 };
 /** Where the counter view centres when there is no cup yet (the cups' corner). */
@@ -396,6 +396,76 @@ export function createBarRig(model: THREE.Object3D, on: BarHandlers) {
   scoopRest.add(restingScoop);
   hit(scoopRest, 'freezer');
   group.add(scoopRest);
+  // Barista odds and ends so the counter feels used (not interactive): a straw holder by the
+  // cups, a cup of long spoons, a tip jar at the order window, a steel milk pitcher and a knock box
+  // by the machine, a folded bar towel, and a little succulent in the corner.
+  {
+    const steel = mat(0xd4d2cc, { metalness: 0.55, roughness: 0.28 });
+    const straws = new THREE.Group();
+    straws.position.set(-4.36, Y, 3.56);
+    straws.add(mesh(cyl(0.025, 0.025, 0.09, 16), clear(0xe8f1f4, 0.45), P(0, 0.045, 0)));
+    [0xe36b5c, 0x5c9fd6, 0xf2c14e, 0x6fbf73, 0xf4f1ea].forEach((c, i) =>
+      straws.add(
+        mesh(
+          cyl(0.003, 0.003, 0.16, 6),
+          mat(c),
+          P(Math.cos(i * 1.3) * 0.012, 0.08, Math.sin(i * 1.3) * 0.012),
+        ).rotateZ((i - 2) * 0.06),
+      ),
+    );
+    const spoons = new THREE.Group();
+    spoons.position.set(-3.72, Y, 3.5);
+    spoons.add(mesh(cyl(0.02, 0.018, 0.06, 14), mat(0xe9e1d4), P(0, 0.03, 0)));
+    for (let i = 0; i < 3; i++)
+      spoons.add(
+        mesh(cyl(0.0025, 0.0025, 0.13, 6), steel, P((i - 1) * 0.007, 0.08, 0)).rotateZ(
+          (i - 1) * 0.12,
+        ),
+      );
+    const tips = new THREE.Group();
+    tips.position.set(-3.3, Y, 3.12);
+    tips.add(mesh(cyl(0.03, 0.03, 0.07, 16), clear(0xe8f1f4, 0.4), P(0, 0.035, 0)));
+    tips.add(
+      mesh(
+        cyl(0.024, 0.024, 0.02, 12),
+        mat(0xc9a94e, { metalness: 0.6, roughness: 0.35 }),
+        P(0, 0.012, 0),
+      ),
+    );
+    tips.add(mesh(new THREE.BoxGeometry(0.05, 0.03, 0.004), mat(0xf6efe2), P(0, 0.085, 0.031)));
+    const pitcher = new THREE.Group();
+    pitcher.position.set(-2.82, Y, 3.28);
+    pitcher.add(mesh(cyl(0.028, 0.034, 0.08, 16), steel, P(0, 0.04, 0)));
+    pitcher.add(
+      mesh(
+        new THREE.TorusGeometry(0.018, 0.004, 6, 12, Math.PI),
+        steel,
+        P(-0.034, 0.045, 0),
+      ).rotateZ(Math.PI / 2),
+    );
+    const knock = mesh(
+      new THREE.BoxGeometry(0.08, 0.06, 0.08),
+      mat(0x2f2c2a),
+      P(-2.8, Y + 0.03, 3.5),
+    );
+    const towel = mesh(
+      new THREE.BoxGeometry(0.1, 0.012, 0.07),
+      mat(0x8fb3c7),
+      P(-2.37, Y + 0.006, 3.25),
+    );
+    const plant = new THREE.Group();
+    plant.position.set(-2.32, Y, 3.12);
+    plant.add(mesh(cyl(0.028, 0.022, 0.04, 12), mat(0xc77a55), P(0, 0.02, 0)));
+    for (let i = 0; i < 5; i++)
+      plant.add(
+        mesh(
+          new THREE.SphereGeometry(0.014, 8, 6),
+          mat(0x6f9c5a),
+          P(Math.cos(i * 1.26) * 0.012, 0.05, Math.sin(i * 1.26) * 0.012),
+        ),
+      );
+    group.add(straws, spoons, tips, pitcher, knock, towel, plant);
+  }
   const spoon = new THREE.Group();
   spoon.add(
     mesh(new THREE.SphereGeometry(0.013, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), metal).rotateX(

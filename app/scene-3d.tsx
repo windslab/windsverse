@@ -17,7 +17,7 @@ import { addCafeWalkSurfaces } from '@/lib/cafe-walk-surfaces';
 import { placeCafePeople } from './scene-people';
 import { EMPTY_CAFE_ACTIVITY, type CafeActivity, type CafeVisitor } from '@/lib/cafe-activity';
 import ExploreMode, { type ExploreApi } from './explore-mode';
-import { createToonOutline, toonGradient, toonify } from '@/lib/toon';
+import { createToonOutline, TOON_OUTLINE_COLOR, toonGradient, toonify } from '@/lib/toon';
 import { retextureCafe } from '@/lib/cafe-retexture';
 import { createCafeSky, SKY_PHASES, type SkyPhase } from '@/lib/cafe-sky';
 import { createCafeWorld } from '@/lib/cafe-world';
@@ -569,11 +569,25 @@ export default function CafeScene({
       probeRay = new THREE.Raycaster();
     // Development only (?sceneStats): freeze the explore camera to inspect a spot.
     const debugCamera = { frozen: false };
-    const followHold = { blocked: 0, clear: 0, last: 0, searchedAt: 0 };
+    /** The camera's own steering around walls: offsets from the player's angle and their speeds. */
+    const followAuto = {
+      yaw: 0,
+      pitch: 0,
+      vYaw: 0,
+      vPitch: 0,
+      steer: 0,
+      lift: 0,
+      home: true,
+      blocked: 0,
+      probed: 0,
+      reach: 1,
+    };
     let occluders: THREE.Object3D[] | undefined,
       lastProbe = 0;
     // Whether guests currently arrive by car (explore mode).
     let taxiArrivals = false;
+    /** When the camera last switched between following Luna and the bar's CCTV. */
+    let cctvSwitchedAt = -10;
     // Entering/leaving explore mode changes how close the camera may come.
     exploreRef.current.onToggle = (on: boolean) => {
       followShown.radius = 0;
@@ -876,19 +890,30 @@ export default function CafeScene({
           });
           glass.name = 'WS_Bar_Glass';
           addedMaterials.push(glass);
-          const pane = (x0: number, x1: number, z0: number, z1: number) => {
+          // A thin dark edge round each pane, like the outlines on everything else.
+          const edge = new THREE.LineBasicMaterial({ color: TOON_OUTLINE_COLOR });
+          addedMaterials.push(edge);
+          const pane = (x0: number, x1: number, z0: number, z1: number, y0 = 1.27, y1 = 1.95) => {
             const width = Math.hypot(x1 - x0, z1 - z0),
-              mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, 0.66), glass);
+              geometry = new THREE.PlaneGeometry(width, y1 - y0),
+              mesh = new THREE.Mesh(geometry, glass);
             mesh.name = 'WS_Bar_Glass_Pane';
-            mesh.position.set((x0 + x1) / 2, 1.605, (z0 + z1) / 2);
+            mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
             mesh.rotation.y = Math.atan2(-(z1 - z0), x1 - x0);
             mesh.renderOrder = 3;
+            mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry), edge));
             model.add(mesh);
           };
-          pane(-4.43, -3.965, 3.02, 3.02);
-          pane(-2.765, -2.22, 3.02, 3.02);
-          pane(-4.465, -4.465, 3.06, 3.7);
-          pane(-2.19, -2.19, 3.06, 3.7);
+          // Front: the two corners either side of the order window.
+          pane(-4.45, -3.97, 3.02, 3.02);
+          pane(-2.77, -2.2, 3.02, 3.02);
+          // Left side: three openings between the frame's posts.
+          pane(-4.48, -4.48, 3.05, 3.44);
+          pane(-4.48, -4.48, 3.5, 4.43);
+          pane(-4.48, -4.48, 4.49, 4.9);
+          // Right side by the counter's end, and the back window by the fridge.
+          pane(-2.19, -2.19, 3.05, 3.65);
+          pane(-4.25, -3.97, 4.93, 4.93, 1.27, 1.99);
         }
         // The row of ceramic cups on the bar counter goes (the Windstopia bar has its own cups).
         model.traverse((node) => {
@@ -2119,7 +2144,8 @@ export default function CafeScene({
                         ),
                         a = (k / 3) * Math.PI * 2;
                       leg.position.set(Math.sin(a) * 0.17, 0.48, Math.cos(a) * 0.17);
-                      leg.rotation.set(Math.cos(a) * 0.36, 0, -Math.sin(a) * 0.36);
+                      // Feet spread out on the ground, the tops meeting under the camera.
+                      leg.rotation.set(-Math.cos(a) * 0.36, 0, Math.sin(a) * 0.36);
                       t.add(leg);
                     }
                     const column = new THREE.Mesh(
@@ -2894,15 +2920,20 @@ export default function CafeScene({
             // Bar box (model units): staff floor between the counter and the back wall.
             lunaLocal.copy(people.baristaPosition());
             cafeModel?.worldToLocal(lunaLocal);
+            // Two edges, not one: she has to be a little way in to switch to the CCTV and a little
+            // way out to switch back, and never twice within a moment, so standing in the doorway
+            // never flickers between the two cameras.
+            const m = inCctv ? -0.15 : 0.15;
             const inBox =
               !!cctv &&
-              lunaLocal.x > -4.6 &&
-              lunaLocal.x < -2.05 &&
-              lunaLocal.z > 2.9 &&
-              lunaLocal.z < 5.05 &&
+              lunaLocal.x > -4.6 + m &&
+              lunaLocal.x < -2.05 - m &&
+              lunaLocal.z > 2.9 + m &&
+              lunaLocal.z < 5.05 - m &&
               lunaLocal.y > 0.45 &&
               lunaLocal.y < 1.5;
-            if (inBox !== inCctv) {
+            if (inBox !== inCctv && t - cctvSwitchedAt > 0.6) {
+              cctvSwitchedAt = t;
               inCctv = inBox;
               controls!.enabled = !inBox;
               followShown.radius = 0;
@@ -2980,7 +3011,7 @@ export default function CafeScene({
               followGoal.radius = followShown.radius = followSpherical.radius;
               followGoal.phi = followShown.phi = followSpherical.phi;
               followGoal.theta = followShown.theta = followSpherical.theta;
-              followHold.blocked = 0;
+              Object.assign(followAuto, { yaw: 0, pitch: 0, vYaw: 0, vPitch: 0, reach: 1 });
             }
             // Free look: from above Luna down to just below her eye line (to see the sky).
             followWish.radius = THREE.MathUtils.clamp(followWish.radius, 1.8, 9);
@@ -3001,7 +3032,7 @@ export default function CafeScene({
               followGoal.phi = followWish.phi;
               followGoal.theta = followWish.theta;
               followGoal.radius = Math.min(followWish.radius, 3.2);
-            } else if (t - lastProbe > 0.1) {
+            } else if (t - lastProbe > 0.06) {
               lastProbe = t;
               if (!occluders) {
                 const list: THREE.Object3D[] = [];
@@ -3028,9 +3059,9 @@ export default function CafeScene({
                     list.push(mesh);
                 });
               }
-              // The player's own angle when it is clear; otherwise the nearest clear angle around
-              // Luna at the same distance (kept while it stays clear, so the view never flips back
-              // and forth); closer only when nothing around is clear.
+              // Steering, not jumping: when Luna is hidden the camera turns (at the same distance)
+              // toward whichever side is clear, rising if neither is; once the player's own angle
+              // is clear again it drifts back to it. Three rays at most per probe.
               const clearAt = (phi: number, theta: number, radius: number) => {
                 followDir.setFromSphericalCoords(1, phi, theta);
                 probeRay.near = 0.6;
@@ -3038,71 +3069,78 @@ export default function CafeScene({
                 probeRay.set(controls!.target, followDir);
                 return !probeRay.intersectObjects(occluders!, false)[0];
               };
-              const wishPhi = followWish.phi,
-                wishTheta = followWish.theta,
-                radius = followWish.radius;
-              const step = t - followHold.last;
-              followHold.last = t;
-              // While the player turns the camera, it goes exactly where they turn it.
-              const dragging = activePointers.size > 0;
-              const wishClear = dragging || clearAt(wishPhi, wishTheta, radius);
-              followHold.clear = wishClear ? followHold.clear + step : 0;
-              // Back to the player's angle once it has been clear for a moment (not at every gap).
-              if (dragging || (wishClear && (!followHold.blocked || followHold.clear > 0.7))) {
-                followHold.blocked = 0;
-                followGoal.phi = wishPhi;
-                followGoal.theta = wishTheta;
-                followGoal.radius = radius;
-              } else if (wishClear) {
-                // Waiting a moment before swinging back.
-              } else if (
-                (!followHold.blocked ||
-                  !clearAt(followGoal.phi, followGoal.theta, followGoal.radius)) &&
-                t - followHold.searchedAt > 0.3
-              ) {
-                followHold.searchedAt = t;
-                followHold.blocked = 1;
-                let found = false;
-                // A small fan of angles (a ray each), so a search never stalls a frame.
-                search: for (const r of [radius, radius * 0.7]) {
-                  for (const turn of [0.45, -0.45, 0.9, -0.9, 1.5, -1.5, 2.3, -2.3])
-                    for (const tilt of [0, -0.3])
-                      if (
-                        clearAt(
-                          THREE.MathUtils.clamp(wishPhi + tilt, 0.25, 1.5),
-                          wishTheta + turn,
-                          Math.max(1.8, r),
-                        )
-                      ) {
-                        followGoal.phi = THREE.MathUtils.clamp(wishPhi + tilt, 0.25, 1.5);
-                        followGoal.theta = wishTheta + turn;
-                        followGoal.radius = Math.max(1.8, r);
-                        found = true;
-                        break search;
-                      }
-                }
-                if (!found) followGoal.radius = 1.8;
+              const phi = THREE.MathUtils.clamp(followWish.phi + followAuto.pitch, 0.25, 1.6),
+                theta = followWish.theta + followAuto.yaw,
+                radius = followWish.radius * followAuto.reach;
+              if (activePointers.size > 0) {
+                // The player is turning the camera: they lead, the camera's own offsets let go.
+                followAuto.steer = followAuto.lift = 0;
+                followAuto.home = true;
+              } else if (!clearAt(phi, theta, radius)) {
+                const left = clearAt(phi, theta + 0.4, radius),
+                  right = clearAt(phi, theta - 0.4, radius);
+                // Keep turning the way it already turns when both (or neither) side is clear.
+                const way = followAuto.yaw >= 0 ? 1 : -1;
+                followAuto.steer = left && !right ? 1 : right && !left ? -1 : way;
+                followAuto.lift = !left && !right ? 1 : 0;
+                followAuto.home = false;
+                followAuto.blocked += t - followAuto.probed;
+              } else {
+                followAuto.steer = followAuto.lift = 0;
+                followAuto.blocked = 0;
+                followAuto.home =
+                  (Math.abs(followAuto.yaw) < 0.01 && Math.abs(followAuto.pitch) < 0.01) ||
+                  clearAt(followWish.phi, followWish.theta, followWish.radius);
               }
+              followAuto.probed = t;
             }
-            // Ease in and out gently; no sudden zoom.
-            const k = reduced ? 1 : 1 - Math.exp(-delta * 1.6),
-              turn = reduced ? 1 : 1 - Math.exp(-delta * 2.2);
-            // The player's own turning is shown as is (every frame, not only at the probes); only the
-            // camera's own swings are eased.
-            const own = !followHold.blocked && !inTower;
-            if (own) {
-              followGoal.phi = followWish.phi;
-              followGoal.theta = followWish.theta;
-              followGoal.radius = followWish.radius;
+            if (!inTower && activePointers.size > 0 && (followAuto.yaw || followAuto.pitch)) {
+              // The player takes over: the camera's own turn becomes their angle (no jump).
+              followWish.theta += followAuto.yaw;
+              followWish.phi += followAuto.pitch;
+              Object.assign(followAuto, { yaw: 0, pitch: 0, vYaw: 0, vPitch: 0 });
             }
-            followShown.phi += (followGoal.phi - followShown.phi) * (own ? 1 : turn);
-            followShown.radius += (followGoal.radius - followShown.radius) * k;
-            // The shortest way round to the goal's heading.
-            const dTheta =
-              ((((followGoal.theta - followShown.theta) % (Math.PI * 2)) + Math.PI * 3) %
-                (Math.PI * 2)) -
-              Math.PI;
-            followShown.theta += dTheta * (own ? 1 : turn);
+            if (!inTower) {
+              // Integrate the steering every frame with eased speeds, so it glides.
+              const ease = Math.min(1, delta * 5),
+                toward = (value: number, rate: number) =>
+                  Math.sign(-value) * Math.min(Math.abs(value), rate * delta);
+              const yawSpeed = followAuto.steer
+                ? followAuto.steer * 1.1
+                : followAuto.home
+                  ? toward(followAuto.yaw, 0.8) / Math.max(delta, 1e-4)
+                  : 0;
+              followAuto.vYaw += (yawSpeed - followAuto.vYaw) * ease;
+              followAuto.yaw = THREE.MathUtils.clamp(
+                followAuto.yaw + followAuto.vYaw * delta,
+                -Math.PI,
+                Math.PI,
+              );
+              const pitchSpeed = followAuto.lift
+                ? -0.6
+                : followAuto.home
+                  ? toward(followAuto.pitch, 0.5) / Math.max(delta, 1e-4)
+                  : 0;
+              followAuto.vPitch += (pitchSpeed - followAuto.vPitch) * ease;
+              followAuto.pitch = THREE.MathUtils.clamp(
+                followAuto.pitch + followAuto.vPitch * delta,
+                0.25 - followWish.phi,
+                0,
+              );
+              // Only after being hidden for a while does it come a little closer, slowly.
+              const reach = followAuto.blocked > 1.2 ? 0.55 : 1;
+              followAuto.reach += (reach - followAuto.reach) * Math.min(1, delta * 0.6);
+              followShown.phi = THREE.MathUtils.clamp(followWish.phi + followAuto.pitch, 0.2, 1.68);
+              followShown.theta = followWish.theta + followAuto.yaw;
+              followShown.radius +=
+                (followWish.radius * followAuto.reach - followShown.radius) *
+                (reduced ? 1 : 1 - Math.exp(-delta * 1.6));
+            } else {
+              followShown.phi = followGoal.phi;
+              followShown.theta = followGoal.theta;
+              followShown.radius +=
+                (followGoal.radius - followShown.radius) * Math.min(1, delta * 2);
+            }
             camera.position.copy(controls!.target).add(followOffset.setFromSpherical(followShown));
             if (inTower && world) {
               const info = world.towerInfo,

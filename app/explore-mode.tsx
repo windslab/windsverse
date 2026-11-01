@@ -22,7 +22,6 @@ import { playSfx } from '@/lib/cafe-sound';
 import { regionById, visitRegion } from '@/lib/windstopia-map';
 import styles from './explore-mode.module.css';
 import VintageCamera from './vintage-camera';
-import Digicam from './explore-digicam';
 import { Bag, Notebook, Reader, type BagItem } from './explore-bag';
 import BarStation from './explore-bar';
 
@@ -91,7 +90,7 @@ export type ExploreApi = {
     look: (dx: number, dy: number) => void;
     facing: (facing: 'environment' | 'user') => void;
     stream: () => MediaStream | null;
-    /** Digicam: zoom 1–4×, tilt the picture (radians), hand-held or on the tripod. */
+    /** Luna's camera lens (Story of Winds): zoom 1–4×, tilt (radians), in hand or on the tripod. */
     zoom: (zoom: number) => void;
     roll: (radians: number) => void;
     mount: (mount: 'hand' | 'tripod') => void;
@@ -192,7 +191,8 @@ export default function ExploreMode({
     [bagOpen, setBagOpen] = useState(false),
     [notebookOpen, setNotebookOpen] = useState(false),
     [readerOpen, setReaderOpen] = useState(false),
-    [digicam, setDigicam] = useState<'hand' | 'tripod' | null>(null),
+    /** The Story of Winds camera: in Luna's hand or on the tripod. */
+    [photoMount, setPhotoMount] = useState<'hand' | 'tripod'>('hand'),
     /** The place name shown briefly when Luna arrives somewhere (new places say so). */
     [place, setPlace] = useState<{ name: string; note: string; first: boolean } | null>(null),
     [actions, setActions] = useState<{ id: string; label: string }[]>([]),
@@ -714,12 +714,15 @@ export default function ExploreMode({
       );
       setReaderOpen(true);
     }
-    if (item === 'digicam') setDigicam('hand');
-    if (item === 'storycam') run('photo');
+    if (item === 'storycam') {
+      setPhotoMount('hand');
+      run('photo');
+    }
     if (item === 'tripod') {
       if (action === 'pack') {
         api.tripod.remove();
-        setDigicam(null);
+        setPhotoOpen(false);
+        setPhotoMount('hand');
       } else {
         if (action === 'place') {
           if (api.sitting()) api.stand();
@@ -729,7 +732,9 @@ export default function ExploreMode({
             return;
           }
         }
-        setDigicam('tripod');
+        // The Story of Winds camera on the tripod: the same films, photos and videos.
+        setPhotoMount('tripod');
+        setPhotoOpen(true);
       }
     }
   };
@@ -763,7 +768,7 @@ export default function ExploreMode({
   return (
     <div
       className={styles.hud}
-      data-camera={digicam ? '' : undefined}
+      data-camera={photoOpen ? '' : undefined}
       data-bar={panel === 'bar' ? '' : undefined}
     >
       <header className={styles.top}>
@@ -800,7 +805,7 @@ export default function ExploreMode({
           api.setRun(keyRun.current || touchRun.current);
         }}
       />
-      {!panel && !digicam && actions.length > 0 && (
+      {!panel && !photoOpen && actions.length > 0 && (
         <div className={styles.prompts}>
           {actions.map((a, i) => (
             <button key={a.id} className={styles.prompt} onClick={() => run(a.id)}>
@@ -810,7 +815,7 @@ export default function ExploreMode({
           ))}
         </div>
       )}
-      {!panel && !digicam && (
+      {!panel && !photoOpen && (
         <nav className={styles.tools} aria-label="Alat">
           <button onClick={() => setBagOpen(true)}>tas</button>
           <button onClick={() => run('photo')}>kamera</button>
@@ -820,7 +825,7 @@ export default function ExploreMode({
           </button>
         </nav>
       )}
-      {place && !digicam && (
+      {place && !photoOpen && (
         <p className={styles.place} key={place.name} role="status">
           <b>{place.name}</b>
           {place.note && <small>{place.note}</small>}
@@ -838,6 +843,7 @@ export default function ExploreMode({
             if (!open) setPhotoOpen(false);
           }}
           scene={photoLens}
+          mount={photoMount}
         />
       )}
       {!panel &&
@@ -864,24 +870,6 @@ export default function ExploreMode({
         <Reader
           onClose={() => {
             setReaderOpen(false);
-          }}
-        />
-      )}
-      {digicam && (
-        <Digicam
-          api={api}
-          mount={digicam}
-          onClose={() => setDigicam(null)}
-          onHang={(url) => {
-            lastPhoto.current = url;
-            api.hangPhoto(url);
-            try {
-              localStorage.setItem(FRAME_KEY, url);
-            } catch {
-              /* Too big or storage blocked: it still hangs for this visit. */
-            }
-            setNote('Foto terpasang di bingkai menara');
-            setTimeout(() => setNote(''), 2200);
           }}
         />
       )}
