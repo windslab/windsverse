@@ -23,26 +23,56 @@ const TILE: Record<Kind, number> = {
   terracotta: 0.4,
 };
 
-/** Average colour of a texture's image (sRGB 0–255). */
-function averageColour(texture: THREE.Texture): [number, number, number] | null {
-  const image = texture.image as (CanvasImageSource & { width: number; height: number }) | null;
-  if (!image?.width) return null;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 16;
+/**
+ * The surface's own colour (sRGB 0–255): the baked texture sampled where the mesh's UVs actually
+ * land. (A plain average would be dragged towards black by the empty space between the islands
+ * of a baked texture.)
+ */
+function surfaceColour(
+  texture: THREE.Texture,
+  geometry: THREE.BufferGeometry,
+): [number, number, number] | null {
+  const image = texture.image as (CanvasImageSource & { width: number; height: number }) | null,
+    uv = geometry.getAttribute('uv');
+  if (!image?.width || !uv) return null;
+  const w = image.width,
+    h = image.height,
+    canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return null;
-  ctx.drawImage(image, 0, 0, 16, 16);
-  const px = ctx.getImageData(0, 0, 16, 16).data;
+  ctx.drawImage(image, 0, 0);
+  const px = ctx.getImageData(0, 0, w, h).data,
+    index = geometry.index,
+    count = index ? index.count : uv.count,
+    step = Math.max(3, Math.floor(count / 3 / 1500) * 3);
+  const fract = (v: number) => v - Math.floor(v);
   let r = 0,
     g = 0,
-    b = 0;
-  for (let i = 0; i < px.length; i += 4) {
-    r += px[i];
-    g += px[i + 1];
-    b += px[i + 2];
+    b = 0,
+    n = 0;
+  // Each triangle's centre, and its corners pulled a little inward.
+  for (let i = 0; i + 2 < count; i += step) {
+    const ids = [0, 1, 2].map((k) => (index ? index.getX(i + k) : i + k));
+    const cu = ids.reduce((t, id) => t + uv.getX(id), 0) / 3,
+      cv = ids.reduce((t, id) => t + uv.getY(id), 0) / 3;
+    for (const [su, sv] of [
+      [cu, cv],
+      ...ids.map((id) => [cu + (uv.getX(id) - cu) * 0.6, cv + (uv.getY(id) - cv) * 0.6]),
+    ]) {
+      const x = Math.min(w - 1, Math.floor(fract(su) * w)),
+        y = Math.min(h - 1, Math.floor(fract(texture.flipY ? 1 - sv : sv) * h)),
+        o = (y * w + x) * 4;
+      // Skip the black padding a sample may still catch at an island's edge.
+      if (px[o] + px[o + 1] + px[o + 2] < 24) continue;
+      r += px[o];
+      g += px[o + 1];
+      b += px[o + 2];
+      n++;
+    }
   }
-  const n = px.length / 4;
-  return [r / n, g / n, b / n];
+  return n ? [r / n, g / n, b / n] : null;
 }
 
 /** A seamless 64 px tile of one kind, in the given colour. */
@@ -64,11 +94,13 @@ function tile(kind: Kind, [r, g, b]: [number, number, number], seed: number) {
   };
   if (kind === 'plaster' || kind === 'terracotta') {
     for (let i = 0; i < 260; i++)
-      dot(rand() * size, rand() * size, 1 + rand() * 2, 1 + rand() * 2, 0.94 + rand() * 0.1);
+      dot(rand() * size, rand() * size, 1 + rand() * 2, 1 + rand() * 2, 0.9 + rand() * 0.14);
   } else if (kind === 'concrete') {
-    for (let i = 0; i < 40; i++)
-      dot(rand() * size, rand() * size, 4 + rand() * 10, 4 + rand() * 10, 0.93 + rand() * 0.1);
-    for (let i = 0; i < 180; i++) dot(rand() * size, rand() * size, 1, 1, 0.86 + rand() * 0.2);
+    // Soft blotches, fine grit and a few pores: weathered concrete.
+    for (let i = 0; i < 46; i++)
+      dot(rand() * size, rand() * size, 4 + rand() * 12, 4 + rand() * 12, 0.88 + rand() * 0.16);
+    for (let i = 0; i < 260; i++) dot(rand() * size, rand() * size, 1, 1, 0.8 + rand() * 0.3);
+    for (let i = 0; i < 18; i++) dot(rand() * size, rand() * size, 2, 1, 0.7);
   } else if (kind === 'timber') {
     // Four planks with soft grain and a dark seam between them.
     for (let p = 0; p < 4; p++) {
@@ -143,7 +175,7 @@ export function retextureCafe(root: THREE.Object3D) {
     if (!kind) return;
     let texture = tiles.get(material.map);
     if (!texture) {
-      const colour = averageColour(material.map);
+      const colour = surfaceColour(material.map, mesh.geometry);
       if (!colour) return;
       texture = tile(kind, colour, (seed += 97));
       tiles.set(material.map, texture);

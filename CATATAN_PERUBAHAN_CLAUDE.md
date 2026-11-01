@@ -1093,3 +1093,16 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - Diuji di browser (dev): tampak luar box bar (kaca, meja), sudut kiri dan ujung kanan dari mata
   Luna, serokan es → freezer, langit siang. `typecheck`, `format:check`, `build` lulus;
   `barista.test` + `people.test` 19/19.
+
+## 53. Perbaikan tekstur yang jadi hitam (1 Nov 2026)
+
+- Penyebab: warna tekstur baru diambil dari rata-rata seluruh gambar tekstur baked, padahal sebagian
+  besar gambar itu ruang hitam kosong di antara potongan UV. Benda dengan potongan kecil (kursi
+  beton, meja, bingkai cermin, lantai beton bertangga, dinding kayu lantai 2, pagar batu, dinding
+  bangku logo) jadi hampir hitam.
+- Sekarang warna diambil hanya dari titik tekstur yang benar-benar dipakai permukaan (dari UV asli
+  tiap segitiga), mengabaikan piksel hitam di tepi potongan. Hasilnya seragam per bahan: beton abu-abu
+  seperti lantai bawah, kayu gelap cokelat, plywood madu, plester putih hangat, terakota.
+- Tekstur beton dan plester dipertegas (noda, butiran, pori) agar teksturnya terlihat.
+- Diuji di browser (dev): halaman depan (meja, bangku beton, lantai bertangga, dinding logo, pagar
+  kotak-kotak, pot). `format:check`, `build` lulus; tes 19/19.
