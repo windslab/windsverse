@@ -6,6 +6,9 @@ export type CafeVisitor = {
   type: string;
   tableNumber: string | number | null;
   finishedAt: number | null;
+  /** Game guests: their name and whether it is a man's (the guest's look follows both). */
+  name?: string;
+  male?: boolean;
 };
 export type CafeActivity = {
   visitors?: CafeVisitor[];

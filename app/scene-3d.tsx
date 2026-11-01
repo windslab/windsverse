@@ -17,12 +17,14 @@ import { addCafeWalkSurfaces } from '@/lib/cafe-walk-surfaces';
 import { placeCafePeople } from './scene-people';
 import { EMPTY_CAFE_ACTIVITY, type CafeActivity, type CafeVisitor } from '@/lib/cafe-activity';
 import ExploreMode, { type ExploreApi } from './explore-mode';
-import { createToonOutline, toonGradient, toonify } from '@/lib/toon';
+import { createToonOutline, TOON_OUTLINE_COLOR, toonGradient, toonify } from '@/lib/toon';
+import { retextureCafe } from '@/lib/cafe-retexture';
 import { createCafeSky, SKY_PHASES, type SkyPhase } from '@/lib/cafe-sky';
 import { createCafeWorld } from '@/lib/cafe-world';
 import { createCritters } from '@/lib/cafe-critters';
 import { createWeather } from '@/lib/cafe-weather';
 import { createCafeCat } from '@/lib/cafe-cat';
+import { createBarRig, type BarHandlers, type BarRig, type ShotKind } from '@/lib/bar-rig';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 function objectByModelName(root: THREE.Object3D, name: string) {
@@ -470,6 +472,12 @@ export default function CafeScene({
       flame: null as THREE.MeshBasicMaterial | null,
       texture: null as THREE.Texture | null,
     };
+    // Halos on everything that gives light (bulbs, neon), flickering softly like candle flames,
+    // and the café's indoor fill lights (on by day too, so the corners never sit in the dark).
+    const glows = {
+      halos: [] as { material: THREE.SpriteMaterial; strength: number; seed: number }[],
+      fills: [] as THREE.PointLight[],
+    };
     /** Zebra crossing in front of the café: where cars stop for Luna. */
     let crossing: { center: THREE.Vector3; reach: number } | undefined;
     let critters: ReturnType<typeof createCritters> | undefined;
@@ -520,6 +528,27 @@ export default function CafeScene({
       photoDir = new THREE.Vector3(),
       photoScale = new THREE.Vector3();
     let photoSaved: { position: THREE.Vector3; target: THREE.Vector3; fov: number } | null = null;
+    // Making a drink: the camera glides to Luna's eyes, looking down at the bar counter.
+    const pov = {
+      on: false,
+      heading: 0,
+      eye: new THREE.Vector3(),
+      look: new THREE.Vector3(),
+      saved: null as { position: THREE.Vector3; target: THREE.Vector3; fov: number } | null,
+    };
+    // The 3D bar station on the counter (lib/bar-rig.ts) and the screen handlers it reports to.
+    let bar: BarRig | undefined,
+      barHandlers: BarHandlers | null = null,
+      barPan = 0,
+      barPanTarget = 0,
+      /** Counter x the bar view is centred on (eased toward the cup). */
+      barFocus = -3.95,
+      barLastFocus = -3.95,
+      barLastView = 'counter',
+      barDrag: { x: number; pan: number } | null = null;
+    const barRay = new THREE.Raycaster(),
+      barNdc = new THREE.Vector2(),
+      barAnchor = new THREE.Vector3();
     const cctvLook = { yaw: 0, pitch: 0 },
       cctvDrag = new Map<number, { x: number; y: number }>(),
       cctvDir = new THREE.Vector3();
@@ -533,16 +562,26 @@ export default function CafeScene({
       followOffset = new THREE.Vector3(),
       followDir = new THREE.Vector3(),
       followSpherical = new THREE.Spherical(),
-      // Player's wish, collision-safe goal and what is shown (radius 0 = not following yet).
+      // Player's wish and what is shown (radius 0 = not following yet).
       followWish = new THREE.Spherical(),
-      followGoal = new THREE.Spherical(),
       followShown = new THREE.Spherical(0),
       probeRay = new THREE.Raycaster();
     // Development only (?sceneStats): freeze the explore camera to inspect a spot.
     const debugCamera = { frozen: false };
-    const followHold = { blocked: 0, clear: 0, last: 0 };
+    /** Pieces faded because they stand between the camera and Luna (eased in and out). */
+    const fades = new Map<
+      THREE.Mesh,
+      { original: THREE.Material; faded: THREE.Material; level: number; want: number }
+    >();
+    const fadeAll = (on: boolean) => {
+      if (!on) for (const fade of fades.values()) fade.want = 1;
+    };
     let occluders: THREE.Object3D[] | undefined,
       lastProbe = 0;
+    // Whether guests currently arrive by car (explore mode).
+    let taxiArrivals = false;
+    /** When the camera last switched between following Luna and the bar's CCTV. */
+    let cctvSwitchedAt = -10;
     // Entering/leaving explore mode changes how close the camera may come.
     exploreRef.current.onToggle = (on: boolean) => {
       followShown.radius = 0;
@@ -828,6 +867,52 @@ export default function CafeScene({
         if (disposed) return;
         const model = gltf.scene;
         addedMaterials.push(...toonify(model));
+        // Seamless textures instead of the small baked ones that stretch on big surfaces.
+        addedTextures.push(...retextureCafe(model));
+        // Glass in the bar box's corner windows (model metres; the frame's own bars): the front
+        // corners either side of the order window, and the two short side windows by the counter.
+        // The middle stays open: that is where guests order.
+        {
+          const glass = new THREE.MeshStandardMaterial({
+            color: '#d9eef4',
+            transparent: true,
+            opacity: 0.2,
+            roughness: 0.05,
+            metalness: 0.1,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          });
+          glass.name = 'WS_Bar_Glass';
+          addedMaterials.push(glass);
+          // A thin dark edge round each pane, like the outlines on everything else.
+          const edge = new THREE.LineBasicMaterial({ color: TOON_OUTLINE_COLOR });
+          addedMaterials.push(edge);
+          const pane = (x0: number, x1: number, z0: number, z1: number, y0 = 1.27, y1 = 1.95) => {
+            const width = Math.hypot(x1 - x0, z1 - z0),
+              geometry = new THREE.PlaneGeometry(width, y1 - y0),
+              mesh = new THREE.Mesh(geometry, glass);
+            mesh.name = 'WS_Bar_Glass_Pane';
+            mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+            mesh.rotation.y = Math.atan2(-(z1 - z0), x1 - x0);
+            mesh.renderOrder = 3;
+            mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry), edge));
+            model.add(mesh);
+          };
+          // Front: the two corners either side of the order window.
+          pane(-4.45, -3.97, 3.02, 3.02);
+          pane(-2.77, -2.2, 3.02, 3.02);
+          // Left side: three openings between the frame's posts.
+          pane(-4.48, -4.48, 3.05, 3.44);
+          pane(-4.48, -4.48, 3.5, 4.43);
+          pane(-4.48, -4.48, 4.49, 4.9);
+          // Right side by the counter's end, and the back window by the fridge.
+          pane(-2.19, -2.19, 3.05, 3.65);
+          pane(-4.25, -3.97, 4.93, 4.93, 1.27, 1.99);
+        }
+        // The row of ceramic cups on the bar counter goes (the Windstopia bar has its own cups).
+        model.traverse((node) => {
+          if (/^WS_Cup(\d{3})?$/.test(node.name)) node.visible = false;
+        });
         // The string-light cables strung from the pole: faint and broken into dashes, so they
         // read as soft lines instead of black wires across the sky.
         {
@@ -853,9 +938,13 @@ export default function CafeScene({
           };
           faint.customProgramCacheKey = () => 'faint-cable';
           addedMaterials.push(faint);
+          // The low cables the hanging lamps hang from stay solid, thin dark lines.
+          const solid = new THREE.MeshBasicMaterial({ color: '#3a2e27' });
+          addedMaterials.push(solid);
           model.traverse((node) => {
             const mesh = node as THREE.Mesh;
-            if (mesh.isMesh && /String_Cable/i.test(mesh.name)) mesh.material = faint;
+            if (!mesh.isMesh || !/String_Cable/i.test(mesh.name)) return;
+            mesh.material = /Seating_String_Cable(001)?$/i.test(mesh.name) ? solid : faint;
           });
         }
         model.updateMatrixWorld(true);
@@ -1300,6 +1389,87 @@ export default function CafeScene({
             mesh.material = Array.isArray(mesh.material) ? lit : lit[0];
           });
         }
+        {
+          const s = model.getWorldScale(new THREE.Vector3()).x,
+            texture = tableGlow.texture;
+          if (texture) {
+            // A few shared halo materials, each flickering on its own beat.
+            const variants = [0, 1, 2, 3].map(() => {
+              const material = new THREE.SpriteMaterial({
+                map: texture,
+                color: '#ffd9a0',
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                transparent: true,
+                opacity: 0,
+              });
+              addedMaterials.push(material);
+              glows.halos.push({ material, strength: 0.7, seed: Math.random() * 10 });
+              return material;
+            });
+            // Each warm bulb (the hanging lamps and the fairy lights): find the bulbs in the merged
+            // meshes by grouping their vertices, and put a halo on each.
+            const centres: THREE.Vector3[] = [];
+            const v = new THREE.Vector3();
+            model.traverse((node) => {
+              const mesh = node as THREE.Mesh;
+              if (!mesh.isMesh || (mesh.material as THREE.Material).name !== 'WS_Warm_Bulb') return;
+              const p = mesh.geometry.getAttribute('position');
+              const cells = new Map<string, { sum: THREE.Vector3; n: number }>();
+              for (let i = 0; i < p.count; i++) {
+                v.fromBufferAttribute(p, i).applyMatrix4(mesh.matrixWorld);
+                const key = [v.x, v.y, v.z].map((n) => Math.round(n / (0.09 * s))).join(',');
+                const cell = cells.get(key) ?? { sum: new THREE.Vector3(), n: 0 };
+                cell.sum.add(v);
+                cell.n++;
+                cells.set(key, cell);
+              }
+              for (const { sum, n } of cells.values()) {
+                const c = sum.divideScalar(n);
+                if (!centres.some((o) => o.distanceTo(c) < 0.12 * s)) centres.push(c);
+              }
+            });
+            centres.slice(0, 80).forEach((c, i) => {
+              const halo = new THREE.Sprite(variants[i % variants.length]);
+              halo.position.copy(c);
+              halo.scale.setScalar(0.32 * s);
+              halo.renderOrder = 2;
+              scene.add(halo);
+            });
+            // The neon signs glow out into the night.
+            const neon = new THREE.SpriteMaterial({
+              map: texture,
+              color: '#ffe6b8',
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+              transparent: true,
+              opacity: 0,
+            });
+            addedMaterials.push(neon);
+            glows.halos.push({ material: neon, strength: 0.55, seed: 3.3 });
+            for (const panel of neonPanels) {
+              const size = new THREE.Box3()
+                .setFromObject(panel.parent ?? panel)
+                .getSize(v)
+                .length();
+              const halo = new THREE.Sprite(neon);
+              panel.getWorldPosition(halo.position);
+              halo.scale.setScalar(Math.max(0.6 * s, size * 1.8));
+              scene.add(halo);
+            }
+          }
+          // Indoor fill on both floors: soft and wide.
+          for (const name of ['floor lantai 1', 'floor lantai 2']) {
+            const floor = objectByModelName(model, name);
+            if (!floor) continue;
+            const box = new THREE.Box3().setFromObject(floor),
+              size = box.getSize(new THREE.Vector3());
+            const fill = new THREE.PointLight('#ffe2bd', 0, Math.max(size.x, size.z) * 0.75, 1);
+            fill.position.copy(box.getCenter(new THREE.Vector3())).setY(box.max.y + 1.5 * s);
+            scene.add(fill);
+            glows.fills.push(fill);
+          }
+        }
         const road = objectByModelName(model, 'jalan poros');
         let roadLayout:
           | {
@@ -1372,6 +1542,27 @@ export default function CafeScene({
             });
           }
         }
+        // Explore mode: guests arrive by car. It pulls up in the lane on the café's side, stops by
+        // the entrance, lets them out at the kerb, then drives on.
+        const taxi = (() => {
+          if (!trafficLanes.length) return null;
+          const vehicle = makeVehicle('car');
+          vehicle.scale.copy(trafficLanes[0].cars[0].model.scale);
+          toonify(vehicle);
+          vehicle.visible = false;
+          scene.add(vehicle);
+          trafficModels.push(vehicle);
+          return {
+            model: vehicle,
+            lane: trafficLanes[0],
+            phase: 'idle' as 'idle' | 'coming' | 'stopped' | 'going',
+            s: 0,
+            v: 0,
+            stopS: 0,
+            timer: 0,
+            kerb: null as THREE.Vector3 | null,
+          };
+        })();
         // The library anchor uses the reading-corner shelf in the exported cafe.
         // The world from the Windstronout panorama replaces the plain floor: hills, river,
         // karst towers, trees and the observatory, all toon-shaded like the café.
@@ -1667,6 +1858,17 @@ export default function CafeScene({
           // Explore mode: beyond the sidewalk Luna walks on the surrounding world.
           if (world && siteBox) people.setOutdoors({ walk: world.walkHeight, site: siteBox });
           cafeModel = model;
+          bar = createBarRig(model, {
+            sound: (name) => playSfx(name),
+            add: (id, amount) => barHandlers?.add(id, amount),
+            cup: (cup) => barHandlers?.cup(cup),
+            ice: () => barHandlers?.ice(),
+            chooseShot: () => barHandlers?.chooseShot(),
+            hint: (text) => barHandlers?.hint(text),
+            swap: (slot) => barHandlers?.swap(slot),
+            pouring: (id) => barHandlers?.pouring(id),
+          });
+          addedMaterials.push(...toonify(bar.group, (_, m) => !!m.userData.live));
           const crewForDebug = people;
           // Development only (?sceneStats): camera handle for checking views.
           if (debugPerf && process.env.NODE_ENV !== 'production')
@@ -1751,6 +1953,93 @@ export default function CafeScene({
                   addedTextures.push(texture);
                   w.setFramePhoto(texture);
                 });
+              },
+              bar: {
+                open: (handlers: BarHandlers) => {
+                  barHandlers = handlers;
+                  barPan = barPanTarget = 0;
+                  barFocus = bar?.focus() ?? barFocus;
+                  people?.setBaristaVisible(false);
+                },
+                close: () => {
+                  barHandlers = null;
+                  barDrag = null;
+                  people?.setBaristaVisible(true);
+                },
+                setDrink: (drink) => bar?.setDrink(drink),
+                setSlots: (slots: string[]) => bar?.setSlots(slots),
+                act: (what: 'freezer' | ShotKind) => bar?.act(what),
+                down: (x: number, y: number) => {
+                  if (!bar || !renderer) return;
+                  const rect = renderer.domElement.getBoundingClientRect();
+                  barNdc.set(
+                    ((x - rect.left) / rect.width) * 2 - 1,
+                    -((y - rect.top) / rect.height) * 2 + 1,
+                  );
+                  barRay.setFromCamera(barNdc, camera);
+                  let action: string | null = null;
+                  for (const h of barRay.intersectObjects(bar.hits, true)) {
+                    let o: THREE.Object3D | null = h.object;
+                    while (o && !o.userData.bar) o = o.parent;
+                    if (o) {
+                      action = o.userData.bar as string;
+                      break;
+                    }
+                  }
+                  bar.pointerDown(action);
+                  if (!action) barDrag = { x, pan: barPanTarget };
+                },
+                move: (x: number) => {
+                  const width = renderer?.domElement.clientWidth ?? 800;
+                  if (barDrag) {
+                    // Look along the counter (it is wider than the view on a phone).
+                    barPanTarget = THREE.MathUtils.clamp(
+                      barDrag.pan - ((x - barDrag.x) / width) * 1.4,
+                      -1.1,
+                      1.1,
+                    );
+                  }
+                },
+                up: () => {
+                  barDrag = null;
+                  bar?.pointerUp();
+                },
+                /** Screen position above the cup (finish button) or the machine (shot menu). */
+                anchor: (what: 'cup' | 'machine' = 'cup') => {
+                  if (!bar || !renderer) return null;
+                  if (what === 'machine') bar.machineAnchor(barAnchor);
+                  else bar.cupAnchor(barAnchor);
+                  barAnchor.project(camera);
+                  if (barAnchor.z > 1) return null;
+                  const rect = renderer.domElement.getBoundingClientRect();
+                  return {
+                    x: rect.left + ((barAnchor.x + 1) / 2) * rect.width,
+                    y: rect.top + ((1 - barAnchor.y) / 2) * rect.height,
+                  };
+                },
+              },
+              pov: (on: boolean) => {
+                if (on === pov.on || !people) return;
+                if (on) {
+                  pov.saved = {
+                    position: camera.position.clone(),
+                    target: controls!.target.clone(),
+                    fov: camera.fov,
+                  };
+                  // Face the espresso machine on the counter.
+                  const at = people.baristaPosition(),
+                    machinePos = machine?.getWorldPosition(new THREE.Vector3()) ?? at;
+                  pov.heading = Math.atan2(machinePos.x - at.x, machinePos.z - at.z);
+                  controls!.enabled = false;
+                } else if (pov.saved) {
+                  camera.position.copy(pov.saved.position);
+                  controls!.target.copy(pov.saved.target);
+                  camera.fov = pov.saved.fov;
+                  camera.updateProjectionMatrix();
+                  controls!.enabled = true;
+                  pov.saved = null;
+                }
+                pov.on = on;
               },
               photo: {
                 start: () => {
@@ -1849,7 +2138,8 @@ export default function CafeScene({
                         ),
                         a = (k / 3) * Math.PI * 2;
                       leg.position.set(Math.sin(a) * 0.17, 0.48, Math.cos(a) * 0.17);
-                      leg.rotation.set(Math.cos(a) * 0.36, 0, -Math.sin(a) * 0.36);
+                      // Feet spread out on the ground, the tops meeting under the camera.
+                      leg.rotation.set(-Math.cos(a) * 0.36, 0, Math.sin(a) * 0.36);
                       t.add(leg);
                     }
                     const column = new THREE.Mesh(
@@ -1899,6 +2189,8 @@ export default function CafeScene({
                 : [],
               settle: (name) => {
                 const here = crew.baristaPosition().clone();
+                // Sitting on a chair: open the book right there, on the same seat.
+                if (name === 'read-here' && crew.readSeated()) return true;
                 if (name === 'read-here' || name === 'lie-here') {
                   crew.settle({
                     position: here,
@@ -1967,6 +2259,7 @@ export default function CafeScene({
             mesh.material = m;
           });
           toonOutline.addHull(luna.scene);
+          for (const guestModel of people?.guestModels() ?? []) toonOutline.addHull(guestModel);
           assetRoot!.add(people.root);
           assetRoot!.updateMatrixWorld(true);
           people.updateActivity(viewRef.current.activity);
@@ -2045,9 +2338,10 @@ export default function CafeScene({
           (vehicle.userData.roadGlow as THREE.Mesh).visible = false;
         }
         if (disposed) return;
-        // Pond ripples and fish animate every frame, so they (and their parts) stay unfrozen.
+        // Pond ripples, fish and the bar props animate, so they (and their parts) stay unfrozen.
         const moving = new Set<THREE.Object3D>();
         for (const item of [...ripples, ...fish]) item.traverse((n) => moving.add(n));
+        bar?.group.traverse((n) => moving.add(n));
         model.traverse((node) => {
           if (!foliage.some((leaf) => leaf.node === node) && !moving.has(node)) {
             node.updateMatrix();
@@ -2311,6 +2605,8 @@ export default function CafeScene({
           // Rain hazes the distance.
           (scene.fog as THREE.Fog).near = 50 - 28 * wx.rain;
           (scene.fog as THREE.Fog).far = 330 - 170 * wx.rain;
+          // Guests arriving in the rain look for a seat under a roof.
+          people?.setRaining(wx.rain > 0.25);
           fill.intensity = THREE.MathUtils.lerp(fill.intensity, 0.18 + 0.52 * sk.daylight, blend);
           warmBar.intensity = THREE.MathUtils.lerp(warmBar.intensity, 1.4 + 0.9 * lamps, blend);
           lightBase.exposure = THREE.MathUtils.lerp(
@@ -2347,6 +2643,14 @@ export default function CafeScene({
               blend,
             );
           });
+          for (const halo of glows.halos) {
+            const flicker = reduced
+              ? 1
+              : 0.9 + 0.1 * Math.sin(t * 7.3 + halo.seed) * Math.sin(t * 3.1 + halo.seed * 2);
+            halo.material.opacity = (0.12 + 0.88 * lamps) * halo.strength * flicker;
+          }
+          for (const fill of glows.fills)
+            fill.intensity = THREE.MathUtils.lerp(fill.intensity, 0.55 + 0.9 * lamps, blend);
           // Candles flicker; their glow comes up as the evening falls.
           for (const m of tableGlow.materials) (m as THREE.SpriteMaterial).opacity = 0.95 * lamps;
           if (tableGlow.flame) tableGlow.flame.visible = lamps > 0.05;
@@ -2446,9 +2750,10 @@ export default function CafeScene({
           }
           bulbs.forEach((bulb) => {
             bulb.emissive.set('#ffd6a4');
+            // The café's bulbs are on all day (softly), brighter as evening falls.
             bulb.emissiveIntensity = THREE.MathUtils.lerp(
               bulb.emissiveIntensity,
-              0.3 + 2.4 * lamps,
+              1 + 1.9 * lamps,
               blend,
             );
           });
@@ -2494,8 +2799,14 @@ export default function CafeScene({
             controls!.enableRotate = !explore.run;
           }
           people?.update(delta, reduced);
+          bar?.update(delta);
           const exploreCamera =
-            explore.on && !telescopeMode && !transition && !debugCamera.frozen && !photo.on;
+            explore.on &&
+            !telescopeMode &&
+            !transition &&
+            !debugCamera.frozen &&
+            !photo.on &&
+            !pov.on;
           // The instrument Luna is playing leaves its stand.
           if (world && people) {
             const playing = people.activity();
@@ -2504,7 +2815,60 @@ export default function CafeScene({
               if (standingOne) standingOne.visible = playing !== kind;
             }
           }
-          if (explore.on && photo.on && people && photo.mount === 'tripod' && tripod.placed) {
+          if (explore.on && pov.on && people && !photo.on) {
+            // Luna's eyes over the counter (or turned to the freezer); eased so moves feel soft.
+            const view = bar && cafeModel ? bar.views[bar.view()] : null;
+            if (view && bar && cafeModel) {
+              barPan += (barPanTarget - barPan) * (1 - Math.exp(-delta * 8));
+              // Along the counter the view follows the cup (and the player's drag on top). When the
+              // cup moves, or Luna turns back from the freezer, the view comes back to it.
+              const focus = bar.focus(),
+                turned = bar.view();
+              if (
+                Math.abs(focus - barLastFocus) > 0.05 ||
+                (turned !== barLastView && turned === 'counter')
+              ) {
+                barPanTarget = 0;
+                barLastFocus = focus;
+              }
+              barLastView = turned;
+              barFocus += (focus - barFocus) * (1 - Math.exp(-delta * 3));
+              const counter = bar.view() === 'counter',
+                x = counter ? THREE.MathUtils.clamp(barFocus + barPan, -4.0, -2.55) : view.eye.x,
+                portrait = camera.aspect < 1;
+              pov.eye.copy(view.eye);
+              pov.eye.x = x;
+              if (portrait && counter) {
+                pov.eye.z += 0.25;
+                pov.eye.y += 0.12;
+              }
+              pov.look.copy(view.target);
+              if (counter) pov.look.x = x;
+              cafeModel.localToWorld(pov.eye);
+              cafeModel.localToWorld(pov.look);
+            } else {
+              const scale = cafeModel?.getWorldScale(photoScale).x ?? 1;
+              pov.eye.copy(people.baristaPosition());
+              pov.eye.y += 1.02 * scale;
+              photoDir.setFromSphericalCoords(1, Math.PI / 2 + 0.62, pov.heading);
+              pov.eye.addScaledVector(photoDir, -0.12 * scale);
+              pov.look.copy(pov.eye).add(photoDir);
+            }
+            const ease = 1 - Math.exp(-delta * 5);
+            camera.position.lerp(pov.eye, ease);
+            controls!.target.lerp(pov.look, ease);
+            if (Math.abs(camera.fov - 62) > 0.05) {
+              camera.fov += (62 - camera.fov) * ease;
+              camera.updateProjectionMatrix();
+            }
+            camera.lookAt(controls!.target);
+          } else if (
+            explore.on &&
+            photo.on &&
+            people &&
+            photo.mount === 'tripod' &&
+            tripod.placed
+          ) {
             // The camera on its tripod, looking where it was set up (turnable and zoomable).
             photoDir.setFromSphericalCoords(
               1,
@@ -2550,15 +2914,20 @@ export default function CafeScene({
             // Bar box (model units): staff floor between the counter and the back wall.
             lunaLocal.copy(people.baristaPosition());
             cafeModel?.worldToLocal(lunaLocal);
+            // Two edges, not one: she has to be a little way in to switch to the CCTV and a little
+            // way out to switch back, and never twice within a moment, so standing in the doorway
+            // never flickers between the two cameras.
+            const m = inCctv ? -0.15 : 0.15;
             const inBox =
               !!cctv &&
-              lunaLocal.x > -4.6 &&
-              lunaLocal.x < -2.05 &&
-              lunaLocal.z > 2.9 &&
-              lunaLocal.z < 5.05 &&
+              lunaLocal.x > -4.6 + m &&
+              lunaLocal.x < -2.05 - m &&
+              lunaLocal.z > 2.9 + m &&
+              lunaLocal.z < 5.05 - m &&
               lunaLocal.y > 0.45 &&
               lunaLocal.y < 1.5;
-            if (inBox !== inCctv) {
+            if (inBox !== inCctv && t - cctvSwitchedAt > 0.6) {
+              cctvSwitchedAt = t;
               inCctv = inBox;
               controls!.enabled = !inBox;
               followShown.radius = 0;
@@ -2628,18 +2997,21 @@ export default function CafeScene({
             if (followShown.radius > 0) {
               followWish.radius *= followSpherical.radius / followShown.radius;
               followWish.phi += followSpherical.phi - followShown.phi;
+              followWish.theta += followSpherical.theta - followShown.theta;
             } else {
               followWish.radius = followSpherical.radius;
               followWish.phi = followSpherical.phi;
-              followGoal.radius = followShown.radius = followSpherical.radius;
-              followGoal.phi = followShown.phi = followSpherical.phi;
+              followWish.theta = followSpherical.theta;
+              followShown.radius = followSpherical.radius;
+              followShown.phi = followSpherical.phi;
+              followShown.theta = followSpherical.theta;
             }
             // Free look: from above Luna down to just below her eye line (to see the sky).
             followWish.radius = THREE.MathUtils.clamp(followWish.radius, 1.8, 9);
             followWish.phi = THREE.MathUtils.clamp(followWish.phi, 0.2, 1.68);
             controls!.target.lerp(followTarget, reduced ? 1 : 1 - Math.exp(-delta * 6));
-            // Camera collision: when a roof or wall is in the way, drop lower and/or come
-            // closer instead of hiding anything (a few probes per second).
+            // The camera simply follows Luna at the player's own angle and distance. Whatever stands
+            // between it and her (a wall, a roof, a tree) fades a little so she stays in sight.
             // Inside the tower: a wide lens, no zooming in on Luna, and the camera stays within the
             // walls so the library can be enjoyed.
             const inTower = !!world && world.towerInfo.inside(people.baristaPosition());
@@ -2648,61 +3020,65 @@ export default function CafeScene({
               camera.fov += (towerFov - camera.fov) * (reduced ? 1 : 1 - Math.exp(-delta * 4));
               camera.updateProjectionMatrix();
             }
-            if (inTower) {
-              followGoal.phi = followWish.phi;
-              followGoal.radius = Math.min(followWish.radius, 3.2);
-            } else if (t - lastProbe > 0.08) {
+            followShown.phi = followWish.phi;
+            followShown.theta = followWish.theta;
+            followShown.radius = inTower ? Math.min(followWish.radius, 3.2) : followWish.radius;
+            if (!inTower && t - lastProbe > 0.1) {
               lastProbe = t;
               if (!occluders) {
                 const list: THREE.Object3D[] = [];
                 occluders = list;
-                // The observatory too: Luna can walk into it and climb its stairs.
-                world?.tower.traverse((node) => {
-                  if ((node as THREE.Mesh).isMesh) list.push(node);
-                });
-                // Only big things (walls, floors, roofs): chairs, tables and plants never pull the
-                // camera in.
+                // The café's pieces (and the observatory's), except see-through glass and the
+                // small things on the floor.
                 const size = new THREE.Vector3();
-                cafeModel?.traverse((node) => {
-                  const mesh = node as THREE.Mesh;
-                  if (
-                    mesh.isMesh &&
-                    !/leaf|leaves|undergrowth|cable|socket|bulb|daun|rumput|grass|kursi|meja|pot|cup/i.test(
-                      mesh.name + ' ' + (mesh.parent?.name ?? ''),
-                    ) &&
-                    new THREE.Box3().setFromObject(mesh).getSize(size).length() > 1.4
-                  )
-                    list.push(mesh);
-                });
+                const add = (root: THREE.Object3D | undefined) =>
+                  root?.traverse((node) => {
+                    const mesh = node as THREE.Mesh;
+                    const material = mesh.material as THREE.MeshStandardMaterial | undefined;
+                    if (
+                      mesh.isMesh &&
+                      !Array.isArray(mesh.material) &&
+                      !(material && material.transparent && material.opacity < 0.9) &&
+                      !/cable|socket|bulb|kaca|glass|Bar_Rig/i.test(
+                        mesh.name + ' ' + (mesh.parent?.name ?? ''),
+                      ) &&
+                      new THREE.Box3().setFromObject(mesh).getSize(size).length() > 0.35
+                    )
+                      list.push(mesh);
+                  });
+                add(world?.tower);
+                add(cafeModel);
               }
-              // Calm camera: the player's angle is kept; only when a wall or roof has blocked the
-              // view for a moment does it ease closer, and it waits a while before easing back.
-              followDir.setFromSphericalCoords(1, followWish.phi, followSpherical.theta);
-              probeRay.near = 0.75;
-              probeRay.set(controls!.target, followDir);
-              probeRay.far = followWish.radius + 0.3;
-              const hit = probeRay.intersectObjects(occluders, false)[0];
-              const step = t - followHold.last;
-              followHold.last = t;
-              if (hit && hit.distance < followWish.radius) {
-                followHold.blocked += step;
-                followHold.clear = 0;
-                const safe = Math.max(1.8, hit.distance - 0.3);
-                if (followHold.blocked > 0.45 && Math.abs(safe - followGoal.radius) > 0.35)
-                  followGoal.radius = safe;
-              } else {
-                followHold.clear += step;
-                followHold.blocked = 0;
-                if (followHold.clear > 0.9) followGoal.radius = followWish.radius;
+              // Two sight lines (chest and knees) from Luna to the camera.
+              const seen = new Set<THREE.Mesh>();
+              camera.position
+                .copy(controls!.target)
+                .add(followOffset.setFromSpherical(followShown));
+              for (const lift of [0, -0.45]) {
+                const from = followTarget.clone().setY(followTarget.y + lift),
+                  to = camera.position.clone().sub(from),
+                  length = to.length();
+                probeRay.near = 0.15;
+                probeRay.far = Math.max(0.2, length - 0.1);
+                probeRay.set(from, to.divideScalar(length));
+                for (const hit of probeRay.intersectObjects(occluders, false))
+                  seen.add(hit.object as THREE.Mesh);
               }
-              followGoal.phi = followWish.phi;
+              for (const mesh of seen) {
+                let fade = fades.get(mesh);
+                if (!fade) {
+                  const original = mesh.material as THREE.Material;
+                  const faded = original.clone();
+                  faded.transparent = true;
+                  faded.depthWrite = false;
+                  fade = { original, faded, level: 1, want: 1 };
+                  fades.set(mesh, fade);
+                  mesh.material = faded;
+                }
+                fade.want = 0.3;
+              }
+              for (const [mesh, fade] of fades) if (!seen.has(mesh)) fade.want = 1;
             }
-            // Ease in and out gently; no sudden zoom.
-            const k = reduced ? 1 : 1 - Math.exp(-delta * 1.6);
-            followShown.phi +=
-              (followGoal.phi - followShown.phi) * (reduced ? 1 : 1 - Math.exp(-delta * 6));
-            followShown.radius += (followGoal.radius - followShown.radius) * k;
-            followShown.theta = followSpherical.theta;
             camera.position.copy(controls!.target).add(followOffset.setFromSpherical(followShown));
             if (inTower && world) {
               const info = world.towerInfo,
@@ -2730,6 +3106,17 @@ export default function CafeScene({
             followShown.setFromVector3(followOffset.copy(camera.position).sub(controls!.target));
           } else if (followShown.radius > 0) {
             followShown.radius = 0;
+          }
+          // Faded pieces ease toward their goal; once fully back they get their own material again.
+          fadeAll(!!(exploreCamera && people && !inCctv));
+          for (const [mesh, fade] of fades) {
+            fade.level += (fade.want - fade.level) * (reduced ? 1 : Math.min(1, delta * 8));
+            fade.faded.opacity = fade.level;
+            if (fade.want === 1 && fade.level > 0.97) {
+              mesh.material = fade.original;
+              fade.faded.dispose();
+              fades.delete(mesh);
+            }
           }
           foliage.forEach(({ node, x, z, phase, amplitude }) => {
             node.rotation.x = x + (reduced ? 0 : Math.sin(t * 0.7 + phase) * amplitude);
@@ -2760,6 +3147,101 @@ export default function CafeScene({
               people.baristaPosition().z - crossing.center.z,
             ) < crossing.reach;
           const listener = controls!.target;
+          if (taxi && people) {
+            const wantArrivals = exploreRef.current.on && !reduced;
+            if (wantArrivals !== taxiArrivals) {
+              taxiArrivals = wantArrivals;
+              people.setArrivals(wantArrivals);
+              if (!wantArrivals) {
+                taxi.phase = 'idle';
+                taxi.model.visible = false;
+              }
+            }
+            const entrance = people.entrance();
+            if (wantArrivals && !taxi.kerb) {
+              // The lane on the café's side; the car stops right in front of the entrance, and
+              // guests step out onto (and wait on) the kerb beside it.
+              let best = Infinity;
+              for (const l of trafficLanes) {
+                const along = entrance.clone().sub(l.start),
+                  off = along.addScaledVector(l.direction, -along.dot(l.direction)).length();
+                if (off < best) {
+                  best = off;
+                  taxi.lane = l;
+                }
+              }
+              const l = taxi.lane,
+                stop = l.start
+                  .clone()
+                  .addScaledVector(l.direction, entrance.clone().sub(l.start).dot(l.direction)),
+                side = entrance.clone().sub(stop);
+              side.addScaledVector(l.direction, -side.dot(l.direction)).setY(0);
+              taxi.kerb = stop
+                .addScaledVector(side.normalize(), taxi.model.scale.x * 0.8)
+                .addScaledVector(l.direction, -taxi.model.scale.x * 0.15)
+                .setY(entrance.y);
+              people.setKerb(taxi.kerb);
+            }
+            const lane = taxi.lane;
+            if (taxi.phase === 'idle' && (people.arriving().length || people.pickups().length)) {
+              const l = taxi.lane;
+              taxi.stopS = entrance.clone().sub(l.start).dot(l.direction);
+              taxi.s = taxi.stopS - 32;
+              taxi.v = 5;
+              taxi.timer = 0;
+              taxi.phase = 'coming';
+              taxi.model.rotation.y = Math.atan2(-l.direction.x, -l.direction.z);
+              const palette = ['#a65b4a', '#4f6772', '#a6a58e', '#d4b58e', '#6f7d5a', '#e2dccd'];
+              (taxi.model.userData.paint as THREE.MeshStandardMaterial).color.set(
+                palette[Math.floor(Math.random() * palette.length)],
+              );
+            }
+            if (taxi.phase !== 'idle') {
+              let target = taxi.phase === 'stopped' ? 0 : 6;
+              if (taxi.phase === 'coming')
+                target = Math.min(target, Math.sqrt(2 * 2.2 * Math.max(0, taxi.stopS - taxi.s)));
+              // Never into the back of a car ahead in the lane.
+              for (const car of taxi.lane.cars) {
+                const gap = car.s - taxi.s;
+                if (car.active && gap > 0 && gap < 9)
+                  target = Math.min(target, car.v * THREE.MathUtils.clamp((gap - 4) / 4, 0, 1));
+              }
+              taxi.v += THREE.MathUtils.clamp(target - taxi.v, -8 * delta, 3 * delta);
+              taxi.s += Math.max(0, taxi.v) * delta;
+              taxi.model.position.copy(lane.start).addScaledVector(lane.direction, taxi.s);
+              if (taxi.phase === 'coming' && taxi.stopS - taxi.s < 0.08 && taxi.v < 0.25) {
+                taxi.phase = 'stopped';
+                taxi.v = 0;
+                taxi.timer = 0;
+              }
+              if (taxi.phase === 'stopped') {
+                taxi.timer += delta;
+                // The doors open: whoever is in steps out onto the kerb, whoever waits there gets in.
+                const waiting = people.arriving(),
+                  leaving = people.pickups();
+                if (taxi.timer > 0.6 && (waiting.length || leaving.length) && taxi.kerb) {
+                  if (waiting.length) people.release(waiting, taxi.kerb);
+                  if (leaving.length) people.board(leaving);
+                  taxi.timer = Math.min(taxi.timer, 0.7);
+                }
+                if (taxi.timer > 2.2) taxi.phase = 'going';
+              }
+              const fade =
+                THREE.MathUtils.smoothstep(taxi.s, taxi.stopS - 32, taxi.stopS - 26) *
+                (1 - THREE.MathUtils.smoothstep(taxi.s, taxi.stopS + 34, taxi.stopS + 44));
+              setVehicleFade(taxi.model, fade);
+              taxi.model.visible = fade > 0.001;
+              (taxi.model.userData.lamp as THREE.MeshBasicMaterial).opacity =
+                (night ? 1 : 0.38) * fade;
+              const glow = taxi.model.userData.roadGlow as THREE.Mesh;
+              glow.visible = night && fade > 0.001;
+              (glow.material as THREE.MeshBasicMaterial).opacity = night ? 0.7 * fade : 0;
+              if (taxi.phase === 'going' && taxi.s > taxi.stopS + 44) {
+                taxi.phase = 'idle';
+                taxi.model.visible = glow.visible = false;
+              }
+            }
+          }
           for (const lane of trafficLanes) {
             if (lane.audio && !soundRef.current) {
               stopVehicleSound(lane.audio);
@@ -2814,6 +3296,12 @@ export default function CafeScene({
                 const gap = ahead.s - car.s;
                 if (gap < 9)
                   target = Math.min(target, ahead.v * THREE.MathUtils.clamp((gap - 4) / 4, 0, 1));
+              }
+              // Wait behind the car dropping guests off.
+              if (taxi && taxi.phase !== 'idle' && taxi.lane === lane) {
+                const gap = taxi.s - car.s;
+                if (gap > 0 && gap < 9)
+                  target = Math.min(target, taxi.v * THREE.MathUtils.clamp((gap - 4) / 4, 0, 1));
               }
               // Stop before the zebra crossing while Luna is there.
               if (lunaCrossing) {
@@ -3077,6 +3565,7 @@ export default function CafeScene({
       toonOutline.dispose();
       sky.dispose();
       world?.dispose();
+      bar?.dispose();
       addedTargets.forEach((target) => target.dispose());
       renderer?.dispose();
       renderer?.forceContextLoss();

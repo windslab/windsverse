@@ -186,7 +186,11 @@
   position: fixed;
   left: max(12px, env(safe-area-inset-left));
   bottom: max(12px, env(safe-area-inset-bottom));
-  z-index: 60;
+  /* Below dialogs (z 50), so it never covers the camera or other windows. */
+  z-index: 40;
+  transition:
+    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.3s;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -286,4 +290,21 @@
   .marquee span[data-scroll] {
     padding-left: 0;
   }
+}
+
+/* Tucked: the player slides off the left edge, leaving only its handle; music keeps playing. */
+.mini[data-tucked] {
+  transform: translateX(calc(-100% + 34px - max(12px, env(safe-area-inset-left))));
+  opacity: 0.85;
+}
+.miniTuck {
+  width: 26px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(241, 227, 196, 0.12);
+  color: inherit;
 }

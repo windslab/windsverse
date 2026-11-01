@@ -900,3 +900,244 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   unggah foto landscape (tersimpan 1280×952, jatah 15 → 14), tombol ▶, dan tampilan HP berdiri.
   Kamera asli tidak bisa diuji di browser uji (akses kamera diblokir). `typecheck`,
   `format:check`, `build` lulus; masalah lint lama di file kamera tidak bertambah.
+
+## 46. Noisegasm bisa disembunyikan; meja racik Windstopia dari sudut pandang Luna (1 Nov 2026)
+
+- **Noisegasm**: pemutar mini kini di bawah jendela-jendela (kamera Story of Winds tidak lagi
+  tertutup) dan punya tombol **‹** untuk menyembunyikannya ke tepi kiri; tinggal tab kecil, musik
+  tetap berjalan. Pilihan ini diingat selama kunjungan.
+- **Meja racik baru** (`app/explore-bar.tsx`), menggantikan panel cangkir, daftar takaran, dan
+  panel espresso. Saat meracik, kamera meluncur halus ke mata Luna menghadap mesin espresso, lalu
+  kembali saat selesai. Di atasnya meja bar bergambar yang semuanya bisa disentuh:
+  - Rak **gelas plastik** (dingin) dan **paper cup** (panas); gelas meluncur ke tengah meja.
+  - **3 botol sirup berpompa**, tiap pompa 10 ml (tutup pompa turun, botol bergoyang, tetesan
+    melengkung ke gelas). Isi tiap botol bisa diganti (⟲): gula cair, gula aren, vanila, karamel;
+    pilihan diingat di perangkat.
+  - **Toples bubuk** cokelat, matcha, taro (tutup terbuka, sendok terbang ke gelas).
+  - **Toples biji kopi** untuk mengisi hopper grinder.
+  - Susu, SKM, teh, air panas.
+  - **Freezer**: buka laci, "Serok es" — satu serokan langsung untuk satu gelas.
+  - **Espresso seperti aslinya**: ketuk portafilter ke bawah **grinder**, tahan GRIND sampai penuh,
+    ketuk ke alas lalu tahan **tamper**, ketuk ke mesin, **seret gagangnya dari kiri ke kanan**
+    sampai terkunci di tengah (tertarik sendiri bila dilepas dekat tengah), tekan **BREW** — gelas
+    bergeser ke bawah mesin dan espresso mengalir — lalu **STOP**. Timer menunjukkan detik
+    ekstraksi; 24–31 detik = shot sempurna. Ketuk portafilter lagi untuk membuang ampas.
+  - Gelas menampilkan isinya: warna campuran, es batu yang bergoyang, crema, uap untuk minuman
+    panas. Tiket pesanan, petunjuk langkah berikutnya, "Buang & ulang", "Tutup", "Selesai racik".
+  - Di HP berdiri, meja lebih lebar dari layar dan bisa digeser ke kiri-kanan.
+  - Animasi lembut (pegas dan easing halus) dan suara baru: pompa, serok, es, kunci, ketuk ampas.
+- Dicek di halaman uji lokal: alur Es Kopi Susu Aren lengkap (gelas plastik, es 1 serok, aren 2
+  pompa = 20 ml, susu, giling, tamp, kunci dengan seret mouse, brew 26 dtk "shot sempurna"),
+  tampilan desktop dan HP. Kamera POV di dalam 3D belum diuji di browser (panel browser
+  tersembunyi). `typecheck`, `format:check`, `build` lulus; `barista.test` 6/6, `engine.test`
+  28/32 seperti sebelumnya.
+
+## 47. Meja racik Windstopia menjadi 3D di meja bar asli (1 Nov 2026)
+
+- Versi 2D (bagian 46) diganti. Perlengkapan bar kini **model 3D** di atas meja bar asli kafe
+  (`lib/bar-rig.ts`), di samping mesin kopi, freezer, dan kulkas buatan pemilik: 3 botol sirup
+  berpompa, 3 toples bubuk (cokelat, matcha, taro), toples biji kopi, tumpukan cup plastik bening
+  dan paper cup, karton susu, kaleng SKM, grinder (hopper, tombol, garpu portafilter), portafilter,
+  tamper dengan alas, dan kotak ampas.
+- **Kamera mata Luna** dengan sudut tetap ke meja bar (geser layar ke kiri/kanan untuk melihat
+  sepanjang meja), dan berbalik ke freezer saat mengambil es. Luna disembunyikan selama itu.
+  Setelah "selesai", kamera kembali ke CCTV di area bar, lalu ke mode bebas setelah keluar.
+- **Interaksi**: sentuh benda 3D-nya. Cup meluncur dari tumpukan ke meja; sirup: cup bergeser ke
+  bawah corong, pompa ditekan (10 ml), tekan lama botol untuk mengganti isinya; bubuk: tutup
+  terangkat, sendok menuang; susu/SKM: diangkat dan dituang; es: kamera menoleh ke freezer, scoop,
+  lalu es masuk cup.
+- **Espresso seperti aslinya**: portafilter ke garpu grinder; ketuk grinder untuk menggiling sesuai
+  **dosis** (pilih 16/18/20 g); ke alas, ketuk tamper (turun, tekan, putar sedikit, naik); ketuk
+  portafilter: naik ke bawah group head dalam posisi miring ke kiri, lalu **geser ke kanan** untuk
+  memutarnya sampai terkunci (tertarik sendiri bila dekat tengah); ketuk mesin untuk brew (cup ke
+  drip tray, aliran espresso, timer dan volume target 1:2), ketuk lagi untuk stop. Shot bagus:
+  24–31 dtk dan dekat 1:2. Ketuk portafilter untuk membuka, mengetuk ampas, dan mengembalikannya.
+- **Layar minimal**: tiket kecil, satu baris petunjuk, angka dosis/detik/ml saat dipakai, tombol
+  dosis, "buang", "tutup", dan tombol kecil **selesai** yang melayang di atas cup.
+- Typecheck, format, build, dan tes lulus seperti sebelumnya. Belum diuji langsung di browser
+  (panel browser asisten tersembunyi, scene 3D tidak dimuat); posisi benda dihitung dari koordinat
+  model kafe dan mungkin perlu disetel setelah dicoba.
+
+## 48. Bar Windstopia: mesin otomatis, alur resep jelas, tamu bergaya Luna (1 Nov 2026)
+
+- **Mesin espresso otomatis** menggantikan mesin kopi buatan pemilik selama game (mesin asli
+  disembunyikan, kembali saat scene ditutup). Tidak ada lagi grinder/portafilter baru: ketuk mesin,
+  pilih **Ristretto (20 ml) / Espresso (30 ml) / Lungo (60 ml)**, cup bergeser ke bawah corong,
+  shot mengalir, lalu cup kembali.
+- **Menu Windstopia hanya 4**: Winds Coffee, Winds Chocolate, Matcha Latte, Lemontea (harga ikut
+  menu kafe bila namanya sama). Resep game buatan sendiri, bukan resep asli kafe. Semua bahan ada
+  di meja: 3 botol sirup (gula, aren, lemon; bisa diganti vanila/karamel lewat tekan lama),
+  toples cokelat & matcha, susu, teko teh, cup plastik & paper cup, es dari freezer.
+- **Alur jelas**: tiket kiri atas berisi langkah resep yang dicentang satu per satu (langkah
+  berikutnya ditebalkan), satu baris "Berikutnya: …" di bawah, tombol "🧊 ambil es di freezer"
+  untuk pesanan dingin, tombol hijau **selesai ✓** di atas cup setelah semua langkah beres.
+- **Pesanan bervariasi**: dingin atau panas acak (Lemontea lebih sering dingin), kalimat tamu ikut.
+- **Tamu bergaya Luna** (`app/luna/guest-look.ts`): salinan model Luna tanpa rompi, pena, dan pita
+  barista; warna kulit, rambut, kaos, celana, sepatu dipilih dari nama. Nama laki-laki (Dimas, Bayu,
+  Yoga, …) berambut pendek, nama perempuan (Rina, Sari, Nadia, …) berambut bob.
+- Perbaikan yang ditemukan saat uji di browser:
+  - Cup, aliran sirup, sendok, dan animasi pompa sebelumnya **tidak terlihat** karena scene
+    membekukan matriks semua objek model kafe; rig bar kini dikecualikan.
+  - Warna isi cup, warna sirup, dan cahaya pompa tidak berubah karena material diganti salinan
+    toon; material yang berubah saat main kini dibiarkan.
+  - Mesin kopi asli bernama `mesin_kopi` di three.js, sehingga dulu tidak ikut tersembunyi.
+  - Cup kini terbuka di atas sehingga minumannya terlihat; pompa turun lebih dalam dan menyala
+    saat ditekan agar jelas dari sudut atas.
+  - Tata letak meja dirapatkan dan sudut kamera dinaikkan supaya semua bahan terlihat sekaligus.
+  - HUD Explore disembunyikan selama di bar; bar tidak terbuka bila belum ada pesanan dari kasir.
+  - Warna tamu dulu tidak berubah (material ditukar toon setelahnya); sekarang dicari saat dipakai,
+    tekstur piksel dibuat abu-abu agar bisa diwarnai tanpa kehilangan detail.
+- Diuji di browser (dev): Winds Chocolate panas, Lemontea dingin (freezer, teh, lemon, gula, tombol
+  selesai), shot Espresso, dan tamu laki-laki/perempuan. `typecheck`, `format:check`, `build`
+  lulus; `barista.test` + `people.test` 19/19, `engine.test` 28/32 (4 gagal lama). 13 error lint di
+  `scene-3d.tsx` sudah ada sebelumnya.
+
+## 49. Tamu Windstopia: proporsi dewasa, rambut & wajah bervariasi, gelas di meja (1 Nov 2026)
+
+- **Nama tamu baru** (20): Fajar, Uli, Ekki, Vira, Aan, Ayi, Aslam, Nisa, Fina, Podding, Adit,
+  Acca, Mamat, Novy, Ifnul, Giffari, Aris, Bayu, Amal, Amma. Laki-laki: Fajar, Ekki, Aan, Aslam,
+  Adit, Mamat, Ifnul, Giffari, Aris, Bayu, Amal; perempuan: Uli, Vira, Ayi, Nisa, Fina, Podding,
+  Acca, Novy, Amma. Dua tamu yang sedang di kafe tidak pernah bernama sama.
+- **Penampilan mengikuti nama**: Fajar selalu terlihat sama setiap datang (warna, rambut, wajah).
+- **Proporsi dewasa**: kepala lebih kecil, kaki, badan, dan lengan lebih panjang, tinggi sedikit
+  berbeda per orang (laki-laki rata-rata lebih tinggi). Tamu kini punya **lutut**, jadi saat duduk
+  di kursi kakinya menekuk ke bawah.
+- **Tangan tidak lagi putus**: lengan bawah sebelumnya ikut terhapus karena nama "Elbow" mengandung
+  kata "bow" (pita barista). Pita kini dikenali dengan nama lengkapnya.
+- **12 gaya rambut**: laki-laki (cepak, jabrik, belah samping, botak tipis, topi, keriting),
+  perempuan (panjang, kuncir kuda, cepol, bob, **hijab**, kuncir dua). Rambut Luna tidak dipakai.
+- **Wajah digambar per tamu** dalam gaya piksel Luna: 6 bentuk mata, alis, 5 bentuk mulut, pipi
+  merah, bintik, kacamata, kumis/janggut/brewok untuk laki-laki; warna kulit ikut tamu.
+- **Gelas tamu** kini diletakkan tepat di atas meja yang dihadapi (termasuk meja lesehan rendah di
+  lantai 2), tidak lagi melayang. Di lesehan, tamu duduk di lantai dengan kaki selonjor ke bawah
+  meja, bukan pose duduk di kursi yang menembus lantai.
+- Diuji di browser (dev): tamu antre, duduk di kursi dan bangku teras lantai 2, wajah dan rambut
+  dilihat dari dekat. `typecheck`, `format:check`, `build` lulus; `barista.test` + `people.test`
+  19/19.
+
+## 50. Windstopia: kamera tak tertutup, kasir otomatis, tuang susu/teh ditahan, tamu naik mobil (1 Nov 2026)
+
+- **Kamera Explore** tidak lagi tertutup atap/dinding: bila pandangan ke Luna terhalang, kamera
+  berputar dan naik/turun pelan ke sudut terdekat yang bersih **dengan jarak yang sama** (tanpa
+  zoom mendadak, tanpa menyembunyikan objek). Baru mendekat bila tidak ada sudut bersih. Kaca tidak
+  dianggap penghalang. Kembali ke sudut pemain setelah sudut itu bersih sebentar.
+- **Kasir**: tidak ada langkah kembalian; pilih menu yang benar → uang langsung diterima.
+- **Bar**:
+  - Cup **tetap di stasiun terakhir**: pump kedua di botol yang sama tidak bergerak lagi; setelah
+    espresso cup tetap di bawah mesin.
+  - **Susu dan teh dituang sambil ditahan**: kotak/teko datang ke atas cup, miring, mengalir selama
+    ditahan. Meteran kecil di samping cup menunjukkan ml dan zona hijau (92–110 % resep). Saat
+    dilepas: "Pas! Takarannya sempurna ✨", "Kurang sedikit", atau "Kebanyakan sedikit".
+  - **Isi cup naik** sesuai bahan yang masuk dan **penuh di langkah terakhir** (volume resep).
+  - Kotak susu dan teko teh digeser agar berdiri di atas meja; tumpukan cup dibuat rendah di tepi
+    depan agar cup di bawah pump tetap terlihat.
+  - **Kamera meracik setinggi mata Luna**, sedikit mundur: semua bahan terlihat dan suasana kafe di
+    depan meja tetap tampak.
+  - **Freezer**: kamera menoleh dan melihat ke bawah, **tutup freezer terbuka**, es diambil, tutup
+    menutup kembali, baru kamera kembali ke meja.
+- **Tamu datang naik mobil** (mode Explore): mobil datang di lajur sisi kafe, berhenti di depan
+  pintu masuk, tamu turun di trotoar lalu berjalan masuk, mobil melaju lagi. Mobil lain di lajur itu
+  menunggu di belakangnya.
+- Diuji di browser (dev): mobil antar tamu, alur Winds Coffee (espresso, 2× pump aren), cokelat
+  dingin (freezer, tuang susu ditahan dengan meteran), kamera berjalan di sekitar kafe.
+  `typecheck`, `format:check`, `build` lulus; `barista.test` + `people.test` 19/19.
+
+## 51. Windstopia: kamera halus, rupiah, lutut Luna, lampu bercahaya, tamu dijemput mobil (1 Nov 2026)
+
+- **Teko teh** kini menuang dari corongnya: teko berdiri di sisi kiri cup dan miring ke kanan.
+- **Kamera lebih halus**: putaran pemain langsung diikuti setiap frame (tidak lagi diperlambat dan
+  diperbarui 10× per detik, penyebab patah-patah). Hanya ayunan otomatis menghindari dinding yang
+  diperhalus. Pencarian sudut bersih memakai paling banyak 32 sinar dan paling sering tiap 0,3 dtk;
+  saat pemain sedang memutar, kamera mengikuti pemain.
+- **Novy** laki-laki.
+- **Hijab berlengan panjang**: lengan atas dan bawah memakai warna baju.
+- **Lutut** kini bagian dari rig Luna sendiri: Luna dan tamu menekuk lutut saat duduk, saat bermain
+  piano/gitar/cello, membaca, kaki berayun di dermaga, melompat, dan sedikit saat berjalan.
+- **Rupiah**: skor diganti uang. Tiap pembelian di kasir menambah harga menu ("+Rp18.000"), tampil
+  di kiri atas ("Rp36.000 · 2 tamu"). Tugas bersih-bersih tidak lagi memberi poin.
+- **Lampu**:
+  - Kabel lampu gantung di area duduk luar tetap terlihat sebagai garis gelap utuh (kabel tinggi
+    di langit tetap samar).
+  - Bola lampu kafe menyala juga di siang hari (lembut), terang saat sore/malam.
+  - Setiap bola lampu (lampu gantung dan lampu peri) dan papan neon punya **halo cahaya** yang
+    berkedip halus seperti nyala lilin.
+  - Dua lampu pengisi lembut di dalam kafe (lantai 1 dan 2), menyala siang dan malam, agar sudut
+    tidak gelap.
+- **Tamu pulang dijemput mobil**: tamu berjalan keluar pagar ke trotoar, menunggu, mobil berhenti,
+  tamu masuk, mobil melaju. Mobil yang sama juga mengantar tamu baru bila ada.
+- **Luna membaca di kursi**: saat duduk di kursi muncul tombol "Baca buku" (atau buku dari tas);
+  Luna membaca tanpa berdiri.
+- **Hujan**: tamu baru memilih kursi yang beratap (dicek dengan sinar ke atas dari tiap kursi).
+- Diuji di browser (dev): lampu malam, halo, kabel. Bagian lain lulus typecheck/tes tapi belum dicoba
+  langsung. `typecheck`, `format:check`, `build` lulus; `barista.test` + `people.test` 19/19.
+
+## 52. Bar ditata ulang, kaca box bar, tekstur tidak ter-stretch, langit lebih cerah (1 Nov 2026)
+
+- **Cangkir keramik yang berjejer** di meja bar disembunyikan.
+- **Tata letak meja bar** (dilihat dari mata Luna):
+  - Sudut kiri dekat kaca: tumpukan cup plastik dan paper cup, lalu 3 botol sirup, lalu toples
+    cokelat dan matcha.
+  - Ujung kanan: serokan es di atas nampan (diklik → langsung ke freezer ambil es), kotak susu, teko
+    teh, mesin kopi.
+  - Bagian tengah (jendela pesan) dibiarkan kosong.
+  - Kamera meracik mengikuti cup sepanjang meja (perjalanan jauh lebih pelan); geser layar untuk
+    melihat ke ujung lain. Setiap kali cup berpindah, atau Luna kembali dari freezer, kamera kembali
+    ke cup.
+- **Kaca** di jendela sudut box bar: dua sudut depan di kiri-kanan jendela pesan, dan dua jendela
+  samping pendek di ujung meja. Jendela pesan di tengah tetap terbuka.
+- **Tekstur kafe**: tekstur "baked" kecil (256–512 px) yang ter-stretch di permukaan besar diganti
+  tekstur mulus kecil berwarna sama (plester, beton, papan kayu, plywood, kulit pohon, terakota),
+  diproyeksikan dari sisi yang dihadapi dengan ukuran tetap (`lib/cafe-retexture.ts`).
+- **Langit siang** lebih cerah ala Ghibli: biru cerulean di atas, biru muda pucat di cakrawala, awan
+  putih bersih (langit teleskop tidak berubah). Kabut jauh ikut biru muda.
+- Diuji di browser (dev): tampak luar box bar (kaca, meja), sudut kiri dan ujung kanan dari mata
+  Luna, serokan es → freezer, langit siang. `typecheck`, `format:check`, `build` lulus;
+  `barista.test` + `people.test` 19/19.
+
+## 53. Perbaikan tekstur yang jadi hitam (1 Nov 2026)
+
+- Penyebab: warna tekstur baru diambil dari rata-rata seluruh gambar tekstur baked, padahal sebagian
+  besar gambar itu ruang hitam kosong di antara potongan UV. Benda dengan potongan kecil (kursi
+  beton, meja, bingkai cermin, lantai beton bertangga, dinding kayu lantai 2, pagar batu, dinding
+  bangku logo) jadi hampir hitam.
+- Sekarang warna diambil hanya dari titik tekstur yang benar-benar dipakai permukaan (dari UV asli
+  tiap segitiga), mengabaikan piksel hitam di tepi potongan. Hasilnya seragam per bahan: beton abu-abu
+  seperti lantai bawah, kayu gelap cokelat, plywood madu, plester putih hangat, terakota.
+- Tekstur beton dan plester dipertegas (noda, butiran, pori) agar teksturnya terlihat.
+- Diuji di browser (dev): halaman depan (meja, bangku beton, lantai bertangga, dinding logo, pagar
+  kotak-kotak, pot). `format:check`, `build` lulus; tes 19/19.
+
+## 54. Bar, kaca, kamera halus, tripod, kamera Story of Winds untuk video, kucing (1 Nov 2026)
+
+- **Meja bar**: teko teh dan kotak susu di samping toples bubuk; mesin kopi digeser ke kiri tetap di
+  dalam rangka jendela kanan; serokan es di ujung kanan. Peralatan barista sebagai hiasan: tempat
+  sedotan warna-warni, gelas sendok panjang, toples tip di jendela pesan, pitcher susu stainless,
+  knock box, lap bar terlipat, dan pot sukulen kecil.
+- **Kaca box bar** dipasang tepat di dalam rangka: dua sudut depan, tiga bukaan di sisi kiri (antara
+  tiang rangka), sisi kanan dekat ujung meja, dan **jendela belakang dekat kulkas**. Setiap kaca diberi
+  **garis tepi** gelap seperti outline benda lain.
+- **Kamera mengikuti Luna** kini berbelok mulus, bukan melompat: saat terhalang, kamera berputar ke
+  sisi yang bersih (naik bila kedua sisi tertutup) dengan kecepatan yang diperhalus, lalu pelan kembali
+  ke sudut pemain. Saat pemain memutar, putaran kamera otomatis langsung menjadi sudut pemain (tanpa
+  lompatan).
+- **Masuk/keluar box bar**: batas ganda (harus agak masuk untuk pindah ke CCTV, agak keluar untuk
+  kembali) dan jeda minimal 0,6 dtk, sehingga tidak berkedip bolak-balik di pintu.
+- **Tripod**: kaki kini menapak di tanah dan bertemu di bawah kamera (sebelumnya terbalik).
+- **Digicam digabung ke kamera Story of Winds**: item digicam di tas dihapus. Kamera Story of Winds
+  mendapat tombol **REC** (di panel belakang): video direkam lewat film yang dipilih (warna sama
+  dengan fotonya), dengan zoom, sampai 1 menit, lalu bisa disimpan ke perangkat atau dibuang.
+  Tripod membuka kamera Story of Winds yang terpasang di tripod. Berlaku juga di halaman Story of
+  Winds biasa (kamera perangkat).
+- **Kucing**: kaki menembus sedikit ke dalam badan sehingga tidak terlihat terpisah.
+- Diuji di browser (dev): tampak luar meja bar dan kaca, kamera Story of Winds di tripod + rekam video
+  3 dtk dengan film, kucing. `typecheck`, `format:check`, `build` lulus; tes 19/19.
+
+## 55. Kamera kembali manual; penghalang dibuat transparan (1 Nov 2026)
+
+- Pergerakan kamera otomatis (berbelok/naik/mendekat saat terhalang) dihapus. Kamera kembali
+  mengikuti Luna di sudut dan jarak yang diatur pemain saja.
+- Benda yang berdiri di antara kamera dan Luna (dinding, atap, lantai atas, pohon, perabot besar)
+  kini **memudar** ke ±30 % opacity, pelan masuk dan keluar, lalu kembali normal setelah tidak
+  menghalangi. Dicek beberapa kali per detik dengan dua garis pandang (dada dan lutut Luna). Kaca dan
+  perlengkapan bar tidak ikut.
+- Diuji di browser (dev): Luna di bawah lantai 2, lantai atas dan dinding di depannya memudar.

@@ -134,7 +134,8 @@ export function createCafeCat(options: {
     const leg = new THREE.Group();
     leg.position.set(x, 0.06, z);
     body.add(leg);
-    part(leg, cylinder, white, [0, -0.028, 0], [0.025, 0.056, 0.025]);
+    // The leg runs up into the round torso, so no gap shows where it meets the body.
+    part(leg, cylinder, white, [0, -0.011, 0], [0.028, 0.09, 0.028]);
     part(leg, sphere, i === 2 ? orange : white, [0, -0.052, 0.01], [0.029, 0.018, 0.033]);
     return leg;
   });

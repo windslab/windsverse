@@ -1,6 +1,42 @@
 import * as THREE from 'three';
+
+/**
+ * Luna's legs are one piece; grown-ups sitting on a chair need a knee. The trouser leg is split
+ * in two and everything below the knee (shin, cuff, shoes) hangs from a new knee joint.
+ */
+function addKnees(model: THREE.Object3D) {
+  const KNEE = 0.065;
+  const knees: THREE.Group[] = [];
+  for (const side of ['L', 'R']) {
+    const leg = model.getObjectByName('Luna_Leg_' + side),
+      pants = model.getObjectByName(`Luna_Leg_${side}_pants`) as THREE.Mesh | undefined;
+    if (!leg || !pants) continue;
+    // The trousers run from the hip (0) down to -0.2; the knee sits a third of the way down.
+    const knee = new THREE.Group();
+    knee.name = 'Luna_Knee_' + side;
+    knee.position.set(pants.position.x, -KNEE, 0);
+    leg.add(knee);
+    const shin = pants.clone();
+    shin.name = `Luna_Leg_${side}_shin`;
+    shin.scale.y = (0.2 - KNEE) / 0.2 + 0.05;
+    shin.position.set(0, -(0.2 - KNEE) / 2 + 0.005, pants.position.z);
+    knee.add(shin);
+    pants.scale.y = KNEE / 0.2 + 0.05;
+    pants.position.y = -KNEE / 2;
+    for (const child of [...leg.children])
+      if (/cuff|sneaker|midsole|sole/i.test(child.name)) {
+        child.position.x -= knee.position.x;
+        child.position.y += KNEE;
+        knee.add(child);
+      }
+    knees.push(knee);
+  }
+  return knees;
+}
+
 /** Fit the articulated PS1 Luna (scripts/luna-ps1/model.js) to café scale, standing on y = 0. */
 export function lunaCafeRig(model: THREE.Group, height: number) {
+  const knees = addKnees(model);
   const root = new THREE.Group(),
     bounds = new THREE.Box3().setFromObject(model),
     size = bounds.getSize(new THREE.Vector3()),
@@ -47,6 +83,9 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
   model.updateWorldMatrix(true, true);
   const hipJoint = model.getObjectByName('Luna_Leg_L'),
     hip = hipJoint ? hipJoint.getWorldPosition(new THREE.Vector3()).y : height * 0.4;
+  // Half the leg's thickness: how far the hip sits above the floor with the legs stretched out.
+  const pants = model.getObjectByName('Luna_Leg_L_pants'),
+    legHalf = pants ? new THREE.Box3().setFromObject(pants).getSize(new THREE.Vector3()).z / 2 : 0;
   // Hands: the centre of each hand mesh, for props to sit in Luna's grip.
   const hands = (['R', 'L'] as const).map((side) => {
     const mesh = model.getObjectByName(`Luna_Wrist_${side}_hand`) as THREE.Mesh | undefined;
@@ -58,6 +97,7 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
     root,
     feet,
     hip,
+    legHalf,
     /** World position of Luna's right (0) or left (1) hand; false if the model has no hands. */
     hand(side: 0 | 1, target: THREE.Vector3) {
       const h = hands[side];
@@ -82,6 +122,25 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
       },
     ) {
       this.pose(age, stride, task, reduced, climb, gait);
+      // Knees: bent on a seat, swinging when dangling, a little with each step.
+      const wave = (speed: number, phase = 0) => (reduced ? 0 : Math.sin(age * speed + phase));
+      knees.forEach((knee, i) => {
+        knee.rotation.x = ['sitting', 'piano', 'guitar', 'cello', 'reading'].includes(task)
+          ? task === 'cello'
+            ? 1.25
+            : 1.45
+          : task === 'dangling'
+            ? 1.1 + wave(1.8, i * Math.PI) * 0.25
+            : task === 'lying'
+              ? i
+                ? 0.7
+                : 0
+              : task === 'floor'
+                ? 0
+                : gait.air
+                  ? 0.9
+                  : Math.max(0, stride * (i ? 1 : -1)) * 0.5 + Math.abs(climb) * 0.3;
+      });
       // Holding an umbrella: the right hand stays up in front of the chest, gripping the handle.
       if (gait.umbrella) {
         pose(3, -0.95, 0.15, -0.12);
@@ -179,6 +238,18 @@ export function lunaCafeRig(model: THREE.Group, height: number) {
           pose(6, -0.12, wave(0.25) * 0.45, 0);
           pose(7, -0.08, 0, 0);
         }
+        return;
+      }
+      if (task === 'floor') {
+        // On the floor at a lesehan table: legs stretched out under it, hands on the thighs.
+        pose(0, -1.5, 0, 0.12);
+        pose(1, -1.5, 0, -0.12);
+        pose(2, -0.75, 0, 0.18);
+        pose(3, -0.75, 0, -0.18);
+        pose(4, -0.35);
+        pose(5, -0.35);
+        pose(6, 0, wave(0.65) * 0.025, 0);
+        pose(7, 0.04, 0, 0);
         return;
       }
       if (task === 'sitting') {

@@ -4,13 +4,22 @@
 // The café's real recipes are never used here (they stay private).
 
 export type Taste = { sweet: number; milky: number; coffee: number; flavor: number };
-export type FlavorId = 'cokelat' | 'matcha' | 'taro' | 'vanila' | 'karamel' | 'aren' | 'teh' | '';
+export type FlavorId =
+  | 'cokelat'
+  | 'matcha'
+  | 'taro'
+  | 'vanila'
+  | 'karamel'
+  | 'aren'
+  | 'teh'
+  | 'lemon'
+  | '';
 
 export type Ingredient = {
   id: string;
   name: string;
   unit: string;
-  /** Amount added per tap. */
+  /** Amount added per tap (syrups: one 10 ml pump). */
   step: number;
   max: number;
   /** Taste contribution per unit. */
@@ -47,12 +56,12 @@ export const INGREDIENTS: Ingredient[] = [
     taste: { milky: 0.0045, sweet: 0.0004 },
   },
   { id: 'skm', name: 'SKM', unit: 'ml', step: 10, max: 60, taste: { sweet: 0.012, milky: 0.004 } },
-  { id: 'gula', name: 'Gula cair', unit: 'ml', step: 5, max: 40, taste: { sweet: 0.016 } },
+  { id: 'gula', name: 'Gula cair', unit: 'ml', step: 10, max: 40, taste: { sweet: 0.016 } },
   {
     id: 'aren',
     name: 'Gula aren',
     unit: 'ml',
-    step: 5,
+    step: 10,
     max: 40,
     taste: { sweet: 0.014 },
     flavor: 'aren',
@@ -80,7 +89,7 @@ export const INGREDIENTS: Ingredient[] = [
     id: 'vanila',
     name: 'Sirup vanila',
     unit: 'ml',
-    step: 5,
+    step: 10,
     max: 30,
     taste: { sweet: 0.01 },
     flavor: 'vanila',
@@ -89,10 +98,19 @@ export const INGREDIENTS: Ingredient[] = [
     id: 'karamel',
     name: 'Sirup karamel',
     unit: 'ml',
-    step: 5,
+    step: 10,
     max: 30,
     taste: { sweet: 0.012 },
     flavor: 'karamel',
+  },
+  {
+    id: 'lemon',
+    name: 'Sirup lemon',
+    unit: 'ml',
+    step: 10,
+    max: 40,
+    taste: { sweet: 0.008 },
+    flavor: 'lemon',
   },
   { id: 'teh', name: 'Teh seduh', unit: 'ml', step: 50, max: 200, taste: {}, flavor: 'teh' },
   { id: 'air', name: 'Air panas', unit: 'ml', step: 50, max: 200, taste: {} },
@@ -123,6 +141,78 @@ export function drinkMenu(
     ? drinks.map(({ id, name, price, category }) => ({ id, name, price, category }))
     : DEMO_MENU;
 }
+/**
+ * Windstopia's menu: four drinks, priced like the café's own menu when it has them.
+ * The recipes below are the game's own (the café's real recipes stay private).
+ */
+const WINDSTOPIA_MENU: MenuItem[] = [
+  { id: 'ws-coffee', name: 'Winds Coffee', price: 18000, category: 'kopi' },
+  { id: 'ws-chocolate', name: 'Winds Chocolate', price: 18000, category: 'non_kopi' },
+  { id: 'ws-matcha', name: 'Matcha Latte', price: 21000, category: 'non_kopi' },
+  { id: 'ws-lemontea', name: 'Lemontea', price: 15000, category: 'non_kopi' },
+];
+export function windstopiaMenu(products: { name: string; price: number }[]) {
+  return WINDSTOPIA_MENU.map((item) => {
+    const own = products.find((p) => p.name.trim().toLowerCase() === item.name.toLowerCase());
+    return own && own.price > 0 ? { ...item, price: own.price } : item;
+  });
+}
+export type RecipeStep = {
+  label: string;
+  done: (drink: Drink) => boolean;
+  /** The ingredient and amount this step asks for (none for the cup). */
+  need?: { id: string; amount: number };
+  /** Poured while held: the meter shows this window as just right. */
+  pour?: boolean;
+};
+/** A held pour is just right from 92 % to 110 % of the recipe's amount. */
+export const POUR_WINDOW = [0.92, 1.1] as const;
+/** The steps for an order, in the order they make sense at the bar. */
+export function recipeFor(order: Order): RecipeStep[] {
+  const n = order.item.name.toLowerCase();
+  const step = (label: string, id: string, amount: number): RecipeStep => ({
+    label,
+    need: { id, amount },
+    done: (d) => (d.amounts[id] ?? 0) >= amount,
+  });
+  const pour = (label: string, id: string, amount: number): RecipeStep => ({
+    label,
+    need: { id, amount },
+    pour: true,
+    done: (d) => (d.amounts[id] ?? 0) >= amount * POUR_WINDOW[0],
+  });
+  const steps: RecipeStep[] = [
+    order.iced
+      ? { label: 'Ambil cup plastik', done: (d) => d.cup === 'gelas-es' }
+      : { label: 'Ambil paper cup', done: (d) => d.cup === 'cangkir' || d.cup === 'cup-takeaway' },
+  ];
+  if (order.iced) steps.push(step('Es batu dari freezer', 'es', 1));
+  if (/coffee|kopi/.test(n))
+    steps.push(
+      step('Espresso dari mesin', 'espresso', 1),
+      step('Gula aren 2 pompa', 'aren', 20),
+      pour('Susu 60 ml (tahan)', 'fullcream', 60),
+    );
+  else if (/chocolate|cokelat|coklat/.test(n))
+    steps.push(
+      step('Cokelat 2 sendok', 'cokelat', 10),
+      step('Gula cair 1 pompa', 'gula', 10),
+      pour('Susu 120 ml (tahan)', 'fullcream', 120),
+    );
+  else if (/matcha/.test(n))
+    steps.push(
+      step('Matcha 2 sendok', 'matcha', 6),
+      step('Gula cair 1 pompa', 'gula', 10),
+      pour('Susu 120 ml (tahan)', 'fullcream', 120),
+    );
+  else if (/lemon|tea|teh/.test(n))
+    steps.push(
+      pour('Teh 150 ml (tahan)', 'teh', 150),
+      step('Sirup lemon 2 pompa', 'lemon', 20),
+      step('Gula cair 1 pompa', 'gula', 10),
+    );
+  return steps;
+}
 export const DEMO_MENU: MenuItem[] = [
   { id: 'demo-kopsus', name: 'Es Kopi Susu Aren', price: 22000, category: 'kopi' },
   { id: 'demo-americano', name: 'Americano', price: 18000, category: 'kopi' },
@@ -145,7 +235,28 @@ export type Order = {
   paid: number;
 };
 
-const NAMES = ['Rina', 'Dimas', 'Sari', 'Bayu', 'Nadia', 'Arif', 'Tika', 'Fajar', 'Mila', 'Yoga'];
+const NAMES: { name: string; male: boolean }[] = [
+  { name: 'Fajar', male: true },
+  { name: 'Uli', male: false },
+  { name: 'Ekki', male: true },
+  { name: 'Vira', male: false },
+  { name: 'Aan', male: true },
+  { name: 'Ayi', male: false },
+  { name: 'Aslam', male: true },
+  { name: 'Nisa', male: false },
+  { name: 'Fina', male: false },
+  { name: 'Podding', male: false },
+  { name: 'Adit', male: true },
+  { name: 'Acca', male: false },
+  { name: 'Mamat', male: true },
+  { name: 'Novy', male: true },
+  { name: 'Ifnul', male: true },
+  { name: 'Giffari', male: true },
+  { name: 'Aris', male: true },
+  { name: 'Bayu', male: true },
+  { name: 'Amal', male: true },
+  { name: 'Amma', male: false },
+];
 const level = (v: number) => (v < 0.3 ? 'sedikit' : v < 0.62 ? 'sedang' : 'banyak');
 
 /** Reads a menu item name like a barista would: coffee? iced? which flavour? */
@@ -183,7 +294,8 @@ export function describeItem(item: MenuItem) {
 }
 
 /** A new customer and their order, with a personal twist on sweetness and strength. */
-export function newCustomer(menu: MenuItem[], rand = Math.random) {
+/** `taken`: names already in the café, so two guests never share one. */
+export function newCustomer(menu: MenuItem[], rand = Math.random, taken: string[] = []) {
   const item = menu[Math.floor(rand() * menu.length)],
     d = describeItem(item);
   const pick = <T>(list: T[]) => list[Math.floor(rand() * list.length)];
@@ -198,6 +310,15 @@ export function newCustomer(menu: MenuItem[], rand = Math.random) {
   };
   const takeaway = rand() < 0.2;
   const extras: string[] = [];
+  // Hot or iced: the name decides when it says so; otherwise the guest picks (tea is mostly iced).
+  const iced = d.iced || rand() < (/lemon|tea|teh/i.test(item.name) ? 0.85 : 0.55);
+  extras.push(
+    pick(
+      iced
+        ? ['yang dingin ya', 'pakai es ya', 'dingin aja', 'yang ice ya']
+        : ['yang panas ya', 'hangat aja', 'panas ya kak', 'yang hot ya'],
+    ),
+  );
   if (takeaway) extras.push(pick(['dibawa pulang ya', 'take away', 'dibungkus ya', 'buat dibawa']));
   if (rand() < 0.6) {
     target.sweet = clamp01(d.base.sweet + jitter() * 1.6);
@@ -252,13 +373,17 @@ export function newCustomer(menu: MenuItem[], rand = Math.random) {
   const notes = [20000, 50000, 100000].filter((n) => n >= item.price);
   const paid =
     rand() < 0.15 ? item.price : (notes[Math.floor(rand() * notes.length)] ?? item.price);
+  const free = NAMES.filter((n) => !taken.includes(n.name)),
+    names = free.length ? free : NAMES;
+  const who = names[Math.floor(rand() * names.length)];
   return {
-    name: NAMES[Math.floor(rand() * NAMES.length)],
+    name: who.name,
+    male: who.male,
     order: {
       item,
       line,
       coffee: d.coffee,
-      iced: d.iced,
+      iced,
       takeaway,
       flavor: d.flavor,
       target,

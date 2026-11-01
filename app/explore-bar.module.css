@@ -1,0 +1,237 @@
+/* Windstopia bar station: a minimal layer over the 3D counter. */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  color: #f8efe1;
+  font:
+    500 12px/1.35 'Helvetica Neue',
+    Arial,
+    sans-serif;
+  pointer-events: none;
+}
+.overlay button {
+  font: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.touch {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  touch-action: none;
+}
+.ticket,
+.top,
+.meter,
+.ice,
+.shots,
+.swap,
+.finish {
+  pointer-events: auto;
+}
+.ticket {
+  position: absolute;
+  left: max(12px, env(safe-area-inset-left));
+  top: max(12px, env(safe-area-inset-top));
+  display: grid;
+  gap: 1px;
+  max-width: 46vw;
+  padding: 7px 11px;
+  border-radius: 10px;
+  background: rgba(30, 20, 12, 0.55);
+  backdrop-filter: blur(6px);
+  animation: fade 0.5s ease both;
+}
+.ticket small {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #e3b66a;
+}
+.ticket strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+.ticket span {
+  color: #d9ccb8;
+}
+.top {
+  position: absolute;
+  right: max(12px, env(safe-area-inset-right));
+  top: max(12px, env(safe-area-inset-top));
+  display: flex;
+  gap: 6px;
+}
+.top button,
+.ice,
+.swap button {
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(30, 20, 12, 0.55);
+  color: inherit;
+  backdrop-filter: blur(6px);
+}
+.top button:disabled {
+  opacity: 0.4;
+}
+.swap {
+  position: absolute;
+  left: 50%;
+  top: 30%;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 4px;
+  animation: fade 0.25s ease both;
+}
+.swap button[aria-selected='true'] {
+  background: rgba(227, 182, 106, 0.9);
+  color: #2a1c10;
+}
+.hint {
+  position: absolute;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  margin: 0;
+  max-width: min(88vw, 460px);
+  padding: 6px 13px;
+  border-radius: 999px;
+  background: rgba(30, 20, 12, 0.55);
+  text-align: center;
+  backdrop-filter: blur(6px);
+}
+.overlay .finish {
+  position: fixed;
+  left: 0;
+  top: 0;
+  padding: 5px 13px;
+  border: 0;
+  border-radius: 999px;
+  background: #6a8f4e;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(20, 12, 6, 0.35);
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.ticket ol {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+.ticket li {
+  color: #d9ccb8;
+  padding-left: 16px;
+  position: relative;
+  transition: color 0.3s;
+}
+.ticket li::before {
+  content: '○';
+  position: absolute;
+  left: 0;
+  color: #8f8170;
+}
+.ticket li[data-next] {
+  color: #fff;
+  font-weight: 700;
+}
+.ticket li[data-next]::before {
+  content: '●';
+  color: #e3b66a;
+}
+.ticket li[data-done] {
+  color: #9fd4a8;
+  text-decoration: line-through;
+  text-decoration-color: rgba(159, 212, 168, 0.5);
+}
+.ticket li[data-done]::before {
+  content: '✓';
+  color: #9fd4a8;
+}
+.ice {
+  position: absolute;
+  right: max(12px, env(safe-area-inset-right));
+  top: calc(max(12px, env(safe-area-inset-top)) + 34px);
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 999px;
+  color: inherit;
+}
+.shots {
+  position: fixed;
+  left: 0;
+  top: 0;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(30, 20, 12, 0.7);
+  backdrop-filter: blur(6px);
+}
+.shots button {
+  display: grid;
+  gap: 1px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  text-align: left;
+}
+.shots button:active {
+  background: rgba(227, 182, 106, 0.9);
+  color: #2a1c10;
+}
+.shots small {
+  font-size: 10px;
+  color: #d9ccb8;
+}
+
+/* Held pour: a slim meter beside the cup, the just-right window in green. */
+.meter {
+  position: fixed;
+  left: 0;
+  top: 0;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  margin-left: 64px;
+  pointer-events: none;
+  animation: fade 0.2s ease both;
+}
+.meterBar {
+  position: relative;
+  width: 12px;
+  height: 96px;
+  border-radius: 6px;
+  background: rgba(30, 20, 12, 0.6);
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+.meterZone {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(130, 200, 120, 0.55);
+}
+.meterFill {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  border-radius: 4px;
+  background: #f6f1e7;
+}
+.meter small {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(30, 20, 12, 0.6);
+  font-size: 10px;
+}

@@ -151,18 +151,30 @@ export type SceneLens = {
   /** Drag on the screen to aim. */
   look: (dx: number, dy: number) => void;
   facing: (facing: 'environment' | 'user') => void;
+  /** Held in Luna's hand, or standing on her tripod. */
+  mount?: (mount: 'hand' | 'tripod') => void;
+  /** The scene's sound, for videos. */
+  audio?: () => MediaStream | null;
   /** Called with each developed photo (explore mode can hang it in the tower's frame). */
   onPhoto?: (photo: Blob) => void;
 };
+/** The best video format this browser records. */
+const videoType = () =>
+  ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find(
+    (t) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t),
+  ) ?? '';
 
 export default function VintageCamera({
   open,
   onOpenChange,
   scene,
+  mount = 'hand',
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   scene?: SceneLens;
+  /** Explore mode: Luna's camera in her hand or on the tripod. */
+  mount?: 'hand' | 'tripod';
 }) {
   const [consented, setConsented] = useState(false),
     [agree, setAgree] = useState(false),
@@ -186,7 +198,12 @@ export default function VintageCamera({
     [evIndex, setEvIndex] = useState(6),
     [grid, setGrid] = useState(false),
     [info, setInfo] = useState(true),
-    [menuIndex, setMenuIndex] = useState(0);
+    [menuIndex, setMenuIndex] = useState(0),
+    [recording, setRecording] = useState(false),
+    [recSeconds, setRecSeconds] = useState(0),
+    [clip, setClip] = useState<{ url: string; blob: Blob } | null>(null);
+  const recorder = useRef<MediaRecorder | null>(null),
+    recFrame = useRef(0);
   const aim = useRef<{ id: number; x: number; y: number } | null>(null);
   const upload = useRef<HTMLInputElement>(null);
   const video = useRef<HTMLVideoElement>(null),
@@ -276,6 +293,7 @@ export default function VintageCamera({
     if (scene) {
       // Luna's camera: the 3D view itself is the live picture.
       scene.start();
+      scene.mount?.(mount);
       scene.facing(facing);
       const s = scene.stream();
       if (!s) {
@@ -320,7 +338,7 @@ export default function VintageCamera({
       stream.current?.getTracks().forEach((t) => t.stop());
       stream.current = null;
     };
-  }, [open, consented, mode, facing, scene]);
+  }, [open, consented, mode, facing, scene, mount]);
 
   useEffect(() => {
     if (open) return;
@@ -477,7 +495,81 @@ export default function VintageCamera({
     hour: '2-digit',
     minute: '2-digit',
   });
-  const busy = phase !== 'live';
+  const busy = phase !== 'live' || recording;
+
+  // Video: the live picture drawn through the chosen film (the same look as its photos), with
+  // the zoom, recorded until stopped (a minute at most). Kept on the device, not on the roll.
+  const toggleVideo = () => {
+    if (recording) return recorder.current?.stop();
+    const v = video.current;
+    if (!v?.videoWidth || typeof MediaRecorder === 'undefined')
+      return setMessage('Browser ini belum bisa merekam video.');
+    const scaleDown = Math.min(1, 1280 / v.videoWidth),
+      canvas = document.createElement('canvas');
+    canvas.width = Math.round(v.videoWidth * scaleDown);
+    canvas.height = Math.round(v.videoHeight * scaleDown);
+    const ctx = canvas.getContext('2d');
+    if (!ctx || !canvas.captureStream) return setMessage('Browser ini belum bisa merekam video.');
+    const look = `${film.preview} brightness(${Math.pow(2, ev * 0.6).toFixed(2)})`,
+      mirror = facing === 'user' && !scene;
+    const draw = () => {
+      const w = canvas.width,
+        h = canvas.height,
+        sw = v.videoWidth / zoom,
+        sh = v.videoHeight / zoom;
+      ctx.save();
+      ctx.filter = look;
+      if (mirror) {
+        ctx.translate(w, 0);
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(v, (v.videoWidth - sw) / 2, (v.videoHeight - sh) / 2, sw, sh, 0, 0, w, h);
+      ctx.restore();
+      recFrame.current = requestAnimationFrame(draw);
+    };
+    draw();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    const sound = scene?.audio?.();
+    if (sound) tracks.push(...sound.getAudioTracks());
+    const type = videoType(),
+      chunks: Blob[] = [],
+      r = new MediaRecorder(new MediaStream(tracks), type ? { mimeType: type } : undefined);
+    r.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    r.onstop = () => {
+      cancelAnimationFrame(recFrame.current);
+      tracks.forEach((t) => t.kind === 'video' && t.stop());
+      setRecording(false);
+      const blob = new Blob(chunks, { type: r.mimeType || 'video/webm' });
+      if (blob.size) setClip({ url: URL.createObjectURL(blob), blob });
+    };
+    recorder.current = r;
+    r.start(500);
+    sounds.click();
+    setRecSeconds(0);
+    setRecording(true);
+  };
+  useEffect(() => {
+    if (!recording) return;
+    const started = Date.now();
+    const t = setInterval(() => {
+      const secs = Math.floor((Date.now() - started) / 1000);
+      setRecSeconds(secs);
+      if (secs >= 60) recorder.current?.stop();
+    }, 250);
+    return () => clearInterval(t);
+  }, [recording]);
+  useEffect(() => () => void (clip && URL.revokeObjectURL(clip.url)), [clip]);
+  // Closing the camera stops a recording.
+  useEffect(() => {
+    if (!open && recorder.current?.state === 'recording') recorder.current.stop();
+  }, [open]);
+  const saveClip = () => {
+    if (!clip) return;
+    const a = document.createElement('a');
+    a.href = clip.url;
+    a.download = `story-of-winds-${Date.now()}.${clip.blob.type.includes('mp4') ? 'mp4' : 'webm'}`;
+    a.click();
+  };
   const quickItems = [
     'Unggah foto dari galeri',
     `Timer 3 detik: ${timer ? 'ON' : 'OFF'}`,
@@ -710,6 +802,17 @@ export default function VintageCamera({
               disabled={mode !== 'shoot' || busy || !roll?.left || !!cameraError}
               onClick={() => void shoot()}
             />
+            <button
+              className={styles.rec}
+              aria-label={recording ? 'Berhenti merekam video' : 'Rekam video'}
+              aria-pressed={recording}
+              disabled={mode !== 'shoot' || (phase !== 'live' && !recording) || !!cameraError}
+              onClick={toggleVideo}
+            >
+              {recording
+                ? `${String(Math.floor(recSeconds / 60)).padStart(2, '0')}:${String(recSeconds % 60).padStart(2, '0')}`
+                : 'REC'}
+            </button>
             <Dial
               className={styles.evDial}
               label="EV"
@@ -766,6 +869,16 @@ export default function VintageCamera({
                         }}
                       />
                       {review && <img className={styles.review} src={review} alt="Foto terbaru" />}
+                      {recording && <b className={styles.recBadge}>● REC</b>}
+                      {clip && (
+                        <div className={styles.clip}>
+                          <video src={clip.url} controls playsInline />
+                          <div className={styles.clipActions}>
+                            <button onClick={saveClip}>simpan video</button>
+                            <button onClick={() => setClip(null)}>buang</button>
+                          </div>
+                        </div>
+                      )}
                       {grid && <i className={styles.grid} aria-hidden />}
                       <div className={styles.osd} aria-hidden hidden={!info && phase === 'live'}>
                         <span className={styles.osdTop}>

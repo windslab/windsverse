@@ -943,3 +943,86 @@
 .dpad {
   z-index: 1;
 }
+
+/* Video: a small red REC button on the back, between the command wheel and Q; a badge on the
+   screen while recording, and the clip to keep or throw away when it stops. */
+.rec {
+  position: absolute;
+  /* Its own font size is 1.6em, so these lengths are divided by 1.6. */
+  left: 43.75em;
+  top: 10.9em;
+  z-index: 1;
+  width: 5.6em;
+  height: 2.25em;
+  border: 0;
+  border-radius: 1.1em;
+  background: linear-gradient(180deg, #e8655a, #b9433a);
+  color: #fff6ef;
+  font:
+    700 1.6em/1 ui-monospace,
+    monospace;
+  letter-spacing: 0.06em;
+  box-shadow:
+    0 0.18em 0 #7d2e28,
+    0 0.3em 0.5em rgba(0, 0, 0, 0.35);
+}
+.rec[aria-pressed='true'] {
+  background: linear-gradient(180deg, #ff7b6e, #d64a3e);
+  animation: recPulse 1s ease-in-out infinite;
+}
+.rec:disabled {
+  opacity: 0.6;
+}
+@keyframes recPulse {
+  50% {
+    filter: brightness(1.25);
+  }
+}
+.recBadge {
+  position: absolute;
+  top: 0.8em;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.2em 0.6em;
+  border-radius: 0.4em;
+  background: rgba(200, 40, 30, 0.85);
+  color: #fff;
+  font:
+    700 1.3em/1.2 ui-monospace,
+    monospace;
+}
+.clip {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: #0c0b0b;
+}
+.clip video {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: calc(100% - 4.2em);
+  object-fit: contain;
+}
+.clipActions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4.2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8em;
+}
+.clipActions button {
+  padding: 0.4em 1em;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font:
+    600 1.3em/1.2 system-ui,
+    sans-serif;
+}

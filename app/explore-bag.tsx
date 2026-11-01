@@ -1,19 +1,18 @@
 'use client';
 // Luna's bag in explore mode: what she carries and what it's for. A notebook for ideas and
-// quotes (kept in this browser), a book to read anywhere, her digicam and its tripod, and the
-// Story of Winds camera.
+// quotes (kept in this browser), a book to read anywhere, and the Story of Winds camera (photos
+// and videos through its films) with a tripod to film herself.
 import { useState } from 'react';
 import styles from './explore-mode.module.css';
 import bag from './explore-bag.module.css';
 
-export type BagItem = 'notebook' | 'book' | 'digicam' | 'tripod' | 'storycam';
+export type BagItem = 'notebook' | 'book' | 'tripod' | 'storycam';
 
 const ITEMS: { id: BagItem; name: string; note: string; icon: string }[] = [
   { id: 'notebook', name: 'Buku catatan', note: 'tulis ide & kutipan', icon: '📓' },
   { id: 'book', name: 'Buku bacaan', note: 'Catatan dari Teras', icon: '📖' },
-  { id: 'digicam', name: 'Digicam', note: 'foto & video', icon: '📷' },
   { id: 'tripod', name: 'Tripod', note: 'rekam diri sendiri', icon: '🎥' },
-  { id: 'storycam', name: 'Kamera Story of Winds', note: 'film & album', icon: '🎞️' },
+  { id: 'storycam', name: 'Kamera Story of Winds', note: 'foto & video, pakai film', icon: '🎞️' },
 ];
 
 export function Bag({
@@ -46,7 +45,6 @@ export function Bag({
             <span className={bag.actions}>
               {item.id === 'notebook' && <button onClick={() => onUse('notebook')}>tulis</button>}
               {item.id === 'book' && <button onClick={() => onUse('book')}>baca</button>}
-              {item.id === 'digicam' && <button onClick={() => onUse('digicam')}>pakai</button>}
               {item.id === 'storycam' && <button onClick={() => onUse('storycam')}>pakai</button>}
               {item.id === 'tripod' &&
                 (tripodPlaced ? (

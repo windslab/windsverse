@@ -83,6 +83,17 @@ export function createCafeSky(radius = 85) {
     'vec3 night=mix(vec3(.004,.009,.022),vec3(.025,.035,.055),haze);',
     'vec3 night=mix(vec3(.24,.26,.42),vec3(.46,.45,.58),haze);',
   );
+  // By day the café's sky is a clear Ghibli blue: deep cerulean overhead easing to a pale aqua
+  // haze at the horizon, with bright, softly warm clouds (the telescope keeps its own sky).
+  atmosphere.material.fragmentShader = atmosphere.material.fragmentShader
+    .replace(
+      'vec3 day=mix(vec3(.30,.40,.43),vec3(.68,.70,.59),haze);',
+      'vec3 day=mix(vec3(.24,.50,.80),vec3(.74,.87,.92),haze);',
+    )
+    .replace(
+      'vec3 cloudColor=mix(vec3(.77,.79,.73),vec3(.86,.59,.38),warm);',
+      'vec3 cloudColor=mix(vec3(.98,.97,.93),vec3(.98,.68,.45),warm);',
+    );
   // …and it stays painted at night (the telescope lets it go clear to show the black sky).
   atmosphere.material.fragmentShader = atmosphere.material.fragmentShader.replace(
     'float opacity=mix(.16,.9,twilight);',
@@ -561,7 +572,7 @@ export function createCafeSky(radius = 85) {
       const { daylight, twilight, warm } = state;
       const mix = (a: number[], b: number[], t: number) => a.map((v, i) => v + (b[i] - v) * t);
       let c = mix([0.42, 0.42, 0.54], [0.47, 0.3, 0.19], twilight);
-      c = mix(c, [0.68, 0.7, 0.59], daylight);
+      c = mix(c, [0.74, 0.87, 0.92], daylight);
       if (warm > 0) c = mix(c, [0.86, 0.6, 0.42], warm * daylight * 0.5);
       if (overcast > 0)
         c = mix(
