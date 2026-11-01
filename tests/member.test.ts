@@ -334,3 +334,23 @@ test("members: drinks and coffee follow the café's own category names until the
   f.sell([[latte, 1]], m.id);
   assert.equal(memberCard(f.s, f.s.members[0]).stampCount, 1);
 });
+
+test('members: saving the rules drops categories the café no longer has', () => {
+  const f = fixture();
+  const ice = apply(
+    f.s,
+    owner,
+    'save',
+    { kind: 'categories', data: { name: 'Ice Coffee', sortOrder: 9 } },
+    morning,
+  ) as Row;
+  apply(
+    f.s,
+    owner,
+    'member.settings',
+    { rules: { drinkCategories: ['hilang', ice.id], coffeeCategories: ['hilang', ice.id] } },
+    morning,
+  );
+  assert.deepEqual(f.s.settings[0].member.drinkCategories, [ice.id]);
+  assert.deepEqual(memberRules(f.s).coffeeCategories, [ice.id]);
+});

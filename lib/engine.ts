@@ -1063,7 +1063,10 @@ export function apply(
         pointsExpireMonths: z.number().int().min(1).max(120),
       })
       .parse({ ...DEFAULT_RULES, ...p.rules });
-    rules.drinkCategories.forEach((c) => find(s, 'categories', c));
+    // Categories that no longer exist (e.g. the demo ones) are dropped rather than refused.
+    const known = new Set(s.categories.map((c) => c.id));
+    rules.drinkCategories = rules.drinkCategories.filter((c) => known.has(c));
+    rules.coffeeCategories = rules.coffeeCategories.filter((c) => known.has(c));
     rules.coffeeCategories.forEach((c) =>
       assert(rules.drinkCategories.includes(c), 'Kategori kopi harus termasuk kategori minuman.'),
     );

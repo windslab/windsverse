@@ -71,11 +71,20 @@ export function guessCategories(s: State) {
       .map((c) => c.id as string),
   };
 }
-export const memberRules = (s: State): MemberRules => ({
-  ...DEFAULT_RULES,
-  ...(s.categories.length ? guessCategories(s) : {}),
-  ...(s.settings[0]?.member ?? {}),
-});
+export function memberRules(s: State): MemberRules {
+  const rules: MemberRules = {
+    ...DEFAULT_RULES,
+    ...(s.categories.length ? guessCategories(s) : {}),
+    ...(s.settings[0]?.member ?? {}),
+  };
+  // Only categories the café still has (the demo defaults are not on a real menu).
+  if (s.categories.length) {
+    const known = new Set(s.categories.map((c) => c.id as string));
+    rules.drinkCategories = rules.drinkCategories.filter((c) => known.has(c));
+    rules.coffeeCategories = rules.coffeeCategories.filter((c) => known.has(c));
+  }
+  return rules;
+}
 
 /** A menu's points: its own value, or one point per `rupiahPerPoint` of its price. */
 export const productPoints = (product: Row | undefined, rules: MemberRules): number =>

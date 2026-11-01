@@ -1261,4 +1261,7 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
 - Tab Aturan menampilkan pemberitahuan bahwa kategori masih tebakan dan perlu diperiksa lalu disimpan.
 - Karena stamp dihitung dari pesanan, transaksi yang sudah lewat langsung mendapat stamp-nya setelah
   perbaikan ini (atau setelah admin menyimpan kategori yang benar).
-- Tes member 11/11, tes lain 19/19, `engine.test` 28/32 (4 gagal lama).
+- **Simpan aturan** sempat gagal dengan "Data tidak ditemukan" karena aturan masih membawa kategori
+  demo yang tidak terlihat di tabel. Kini kategori yang tidak ada di menu dibuang otomatis, baik saat
+  dibaca maupun saat disimpan.
+- Tes member 12/12, tes lain 19/19, `engine.test` 28/32 (4 gagal lama).
