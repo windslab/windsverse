@@ -1141,3 +1141,15 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   menghalangi. Dicek beberapa kali per detik dengan dua garis pandang (dada dan lutut Luna). Kaca dan
   perlengkapan bar tidak ikut.
 - Diuji di browser (dev): Luna di bawah lantai 2, lantai atas dan dinding di depannya memudar.
+
+## 56. Noisegasm: pemutar YouTube lebih tangguh (1 Nov 2026)
+
+- Di situs live (Chrome di panel asisten) Noisegasm bisa diputar/dijeda, dan ke-21 video playlist
+  bisa diputar di windsverse.com. Masalah belum bisa direproduksi, jadi pemutar dibuat lebih tangguh:
+  - Video yang tidak bisa diputar (dihapus, privat, atau tidak boleh di-embed) dilewati otomatis,
+    bukan menghentikan musik.
+  - Tombol play yang ditekan sebelum pemutar YouTube siap tidak lagi error; pemutar mulai begitu siap,
+    dan suara dinyalakan bila YouTube memulai dalam keadaan bisu.
+  - Bila dalam 3 detik musik tetap tidak jalan (beberapa browser, terutama iPhone/iPad, hanya mengizinkan
+    YouTube mulai dari ketukan langsung pada videonya), pemutar mini menulis "Ketuk video kecil untuk
+    memutar".

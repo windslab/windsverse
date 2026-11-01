@@ -25,6 +25,9 @@ type YTPlayer = {
   nextVideo(): void;
   previousVideo(): void;
   setVolume(v: number): void;
+  isMuted?(): boolean;
+  unMute?(): void;
+  getPlayerState?(): number;
   getVideoData(): { title?: string; author?: string };
   destroy(): void;
 };
@@ -39,6 +42,7 @@ type YTNamespace = {
       events: {
         onReady?: () => void;
         onStateChange?: (e: { data: number }) => void;
+        onError?: (e: { data: number }) => void;
       };
     },
   ) => YTPlayer;
@@ -100,11 +104,14 @@ export default function Noisegasm({
     [volume, setVolumeState] = useState(0.5),
     [nowPlaying, setNowPlaying] = useState({ title: '', artist: '' }),
     [waiting, setWaiting] = useState(false),
+    // The browser would not let the page start YouTube: a tap on the little video does.
+    [stuck, setStuck] = useState(false),
     // Tucked to the screen edge so it covers nothing; the music keeps playing.
     [tucked, setTucked] = useState(() => session.get(TUCKED_KEY) === '1');
   const audio = useRef<HTMLAudioElement>(null),
     graph = useRef<{ ctx: AudioContext; gain: GainNode } | null>(null),
     yt = useRef<YTPlayer | null>(null),
+    skipped = useRef(0),
     ytHost = useRef<HTMLDivElement>(null),
     wantPlay = useRef(false),
     volumeRef = useRef(0.5);
@@ -156,7 +163,17 @@ export default function Noisegasm({
   const start = useCallback(async () => {
     wantPlay.current = true;
     if (youtube) {
-      yt.current?.playVideo();
+      const player = yt.current;
+      // Before the player is ready its methods do not exist yet; onReady starts it instead.
+      if (typeof player?.playVideo === 'function') {
+        player.playVideo();
+        if (player.isMuted?.()) player.unMute?.();
+      }
+      // Some browsers (iPhone and iPad above all) only let YouTube start from a tap on the video
+      // itself: if nothing plays in a moment, say so.
+      window.setTimeout(() => {
+        if (wantPlay.current && yt.current?.getPlayerState?.() !== 1) setStuck(true);
+      }, 3000);
       return true;
     }
     const el = audio.current;
@@ -228,12 +245,21 @@ export default function Noisegasm({
             yt.current?.setVolume(Math.round(volumeRef.current * 100));
             if (wantPlay.current) yt.current?.playVideo();
           },
+          // A song that can't play here (removed, private, or not allowed outside YouTube) is
+          // skipped instead of stopping the music; a whole playlist of those gives up.
+          onError: () => {
+            skipped.current += 1;
+            if (skipped.current < 25) yt.current?.nextVideo();
+            else setStuck(true);
+          },
           onStateChange: (e) => {
             const data = yt.current?.getVideoData();
             if (data?.title) setNowPlaying({ title: data.title, artist: data.author ?? '' });
             if (e.data === YT.PlayerState.PLAYING) {
               setPlaying(true);
               setWaiting(false);
+              setStuck(false);
+              skipped.current = 0;
             } else if (e.data === YT.PlayerState.PAUSED) setPlaying(false);
           },
         },
@@ -304,7 +330,13 @@ export default function Noisegasm({
           </span>
           <span className={styles.miniText}>
             <small>NOISEGASM</small>
-            <span>{waiting && !playing ? 'Ketuk di mana saja untuk musik' : title}</span>
+            <span>
+              {stuck && !playing
+                ? 'Ketuk video kecil untuk memutar'
+                : waiting && !playing
+                  ? 'Ketuk di mana saja untuk musik'
+                  : title}
+            </span>
           </span>
         </button>
         <button
