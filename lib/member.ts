@@ -30,6 +30,31 @@ export const DEFAULT_RULES: MemberRules = {
   voucherMonths: 6,
   pointsExpireMonths: 12,
 };
+/** The card's look, set by the admin: artwork for each side and the colours drawn over it. */
+export type CardDesign = {
+  front: string;
+  back: string;
+  /** Member name and code on the front. */
+  textColor: string;
+  /** Stamp ink. */
+  inkColor: string;
+  /** Empty stamp circles on the back. */
+  slotColor: string;
+};
+export const DEFAULT_DESIGN: CardDesign = {
+  front: '',
+  back: '',
+  textColor: '#f7efdf',
+  inkColor: '#9c3b26',
+  slotColor: '#4d5a39',
+};
+export const cardDesign = (s: State): CardDesign => ({
+  ...DEFAULT_DESIGN,
+  ...(s.settings[0]?.memberDesign ?? {}),
+});
+/** A claim the member asked for on their card waits until staff hand the gift over. */
+export const claimStatus = (c: Row): 'menunggu' | 'diserahkan' =>
+  c.status === 'menunggu' ? 'menunggu' : 'diserahkan';
 export const memberRules = (s: State): MemberRules => ({
   ...DEFAULT_RULES,
   ...(s.settings[0]?.member ?? {}),
@@ -175,7 +200,8 @@ export function memberCard(s: State, member: Row, now = new Date()) {
         .map((c) => c.createdAt as string)
         .at(-1);
       const cardsSince = fullCardsSince(lastOfType ?? null);
-      const claimed = claims.some((c) => c.rewardId === r.id);
+      const claim = claims.find((c) => c.rewardId === r.id);
+      const claimed = !!claim;
       const given = s.memberClaims.filter((c) => c.rewardId === r.id).length;
       const stockLeft =
         r.stock === null || r.stock === undefined ? null : Math.max(0, r.stock - given);
@@ -186,10 +212,13 @@ export function memberCard(s: State, member: Row, now = new Date()) {
         type: r.type as string,
         name: r.name as string,
         image: (r.image as string) || '',
+        model: (r.model as string) || '',
+        description: (r.description as string) || '',
         points: r.points as number,
         minCards: r.minCards as number,
         cardsSince,
         claimed,
+        claimStatus: claim ? claimStatus(claim) : null,
         stockLeft,
         missingPoints,
         missingCards,
@@ -232,7 +261,13 @@ export function publicCard(s: State, member: Row, now = new Date()) {
     pointsExpireAt: card.pointsExpireAt,
     year: card.year,
     rewards: card.rewards,
-    history: card.claims.map((c) => ({ at: c.createdAt, name: c.name, points: c.points })),
+    history: card.claims.map((c) => ({
+      at: c.createdAt,
+      name: c.name,
+      points: c.points,
+      status: claimStatus(c),
+    })),
+    design: cardDesign(s),
     rules: {
       minDrinkPrice: card.rules.minDrinkPrice,
       voucherMonths: card.rules.voucherMonths,

@@ -111,9 +111,10 @@ export async function commit(
   const rows = kinds.flatMap((k) => state[k].map((r) => ({ k, r })));
   if (new Set(rows.map((x) => x.r.id)).size !== rows.length) throw new Fault('ID data berulang.');
   const now = Date.now();
-  // Guests may only leave feedback or sign up for a member card (no staff session needed).
+  // Guests may only leave feedback, sign up for a member card or ask for a gift on their own card
+  // (no staff session needed).
   const guard =
-    action === 'feedback.add' || action === 'member.signup'
+    action === 'feedback.add' || action === 'member.signup' || action === 'member.request'
       ? db
           .prepare(
             'UPDATE control SET revision=revision+1,last_mutation=? WHERE id=1 AND revision=?',

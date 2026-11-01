@@ -53,6 +53,18 @@ Disepakati bersama pemilik pada 1 November 2026. Tahap 1 dibangun di branch `lun
   jadi pembatalan atau koreksi pesanan otomatis ikut menyesuaikan. Semua perubahan tercatat di audit.
 - Kategori minuman dan kategori kopi diatur di panel admin (bawaan: minuman = kopi, non kopi,
   mocktail; kopi = kopi).
+- **Kartu digital 3D** seukuran kartu ATM (85,6 × 54 mm, landscape). Depan: desain + nama, kode,
+  nomor kartu. Belakang: desain + 10 stamp (digambar otomatis, beranimasi stempel). Desain depan dan
+  belakang diunggah admin di Member → Tampilan kartu (template dengan area aman bisa diunduh di
+  sana, ukuran 2048 × 1291 px).
+- **Katalog hadiah eksklusif** di bawah kartu, digeser kiri-kanan. Hadiah terkunci (abu-abu + gembok)
+  sampai poin dan kartu penuh cukup; lalu terbuka dan bisa **diklaim pelanggan sendiri** di kartunya.
+  Klaim langsung memakai poin dan berstatus "menunggu diserahkan" sampai staf menekan **Serahkan**
+  (di Kasir POS atau menu Member); staf bisa membatalkan klaim yang belum diserahkan (poin kembali).
+- Tiap hadiah punya gambar mockup (persegi 1:1) dan boleh punya model 3D `.glb` (maks 20 MB) yang
+  bisa diputar di katalog.
+- Kartu juga bisa dibuka dari halaman 3D (tombol **Kartu Member**) dan dari Windstopia (tombol
+  **kartu**): kartu yang terakhir dibuka di perangkat itu.
 
 ## Tahapan
 

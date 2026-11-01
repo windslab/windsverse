@@ -205,7 +205,7 @@ test('members: gifts need points and full cards, once a year, and cost their poi
   assert.equal(card.rewards[0].claimed, true);
   assert.throws(
     () => apply(f.s, owner, 'member.claim', { memberId: m.id, rewardId: reward.id }, morning),
-    /sudah menukar/,
+    /sudah ditukar/,
   );
 });
 
@@ -234,4 +234,72 @@ test('members: points lapse after 12 quiet months, free drinks after 6', () => {
   assert.equal(card.vouchers[0].status, 'hangus');
   card = memberCard(f.s, f.s.members[0], new Date('2027-11-01T08:00:00+08:00'));
   assert.equal(card.points, 0);
+});
+
+test('members: a gift claimed on the card waits for staff, and can be cancelled', () => {
+  const f = fixture();
+  const m = join(f.s);
+  apply(
+    f.s,
+    owner,
+    'reward.save',
+    { data: { year: 2026, type: 'stiker', name: 'Stiker', points: 50, minCards: 0 } },
+    morning,
+  );
+  const reward = f.s.memberRewards[0];
+  for (let i = 0; i < 3; i++) f.sell([[f.coffee, 1]], m.id); // 54 points
+  const guest: Actor = {
+    id: 'guest-y',
+    employeeId: '',
+    name: 'Pelanggan',
+    email: '',
+    role: 'karyawan',
+  };
+  const token = f.s.members[0].token;
+  assert.throws(
+    () =>
+      apply(f.s, guest, 'member.request', { token: 'x'.repeat(24), rewardId: reward.id }, morning),
+    /tidak ditemukan/,
+  );
+  const r = apply(f.s, guest, 'member.request', { token, rewardId: reward.id }, morning) as {
+    id: string;
+  };
+  let card = memberCard(f.s, f.s.members[0], morning);
+  assert.equal(card.points, 4);
+  assert.equal(card.rewards[0].claimStatus, 'menunggu');
+  assert.throws(
+    () => apply(f.s, guest, 'member.request', { token, rewardId: reward.id }, morning),
+    /sudah ditukar/,
+  );
+  apply(f.s, owner, 'member.unclaim', { id: r.id }, morning);
+  card = memberCard(f.s, f.s.members[0], morning);
+  assert.equal(card.points, 54);
+  assert.equal(card.rewards[0].claimed, false);
+  const again = apply(f.s, guest, 'member.request', { token, rewardId: reward.id }, morning) as {
+    id: string;
+  };
+  apply(f.s, owner, 'member.handover', { id: again.id }, morning);
+  assert.equal(memberCard(f.s, f.s.members[0], morning).rewards[0].claimStatus, 'diserahkan');
+  assert.throws(
+    () => apply(f.s, owner, 'member.handover', { id: again.id }, morning),
+    /sudah diserahkan/,
+  );
+});
+
+test('members: the card design keeps safe colours and uploaded artwork only', () => {
+  const { s } = fixture();
+  apply(
+    s,
+    owner,
+    'member.design',
+    { design: { front: '/api/files/abc', inkColor: '#123456' } },
+    morning,
+  );
+  assert.equal(s.settings[0].memberDesign.front, '/api/files/abc');
+  assert.equal(s.settings[0].memberDesign.inkColor, '#123456');
+  assert.equal(s.settings[0].memberDesign.textColor, '#f7efdf');
+  assert.throws(() =>
+    apply(s, owner, 'member.design', { design: { back: 'http://x.test/a.png' } }, morning),
+  );
+  assert.throws(() => apply(s, owner, 'member.design', { design: { inkColor: 'red' } }, morning));
 });

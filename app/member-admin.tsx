@@ -3,10 +3,20 @@
 // and for the admin the rules, the yearly gift collection and the sign-up QR poster.
 import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
-import { Coffee, CupSoda, Gift, Printer } from 'lucide-react';
+import { Box, Coffee, CupSoda, Download, Gift, Printer, Upload } from 'lucide-react';
+import { toast } from 'sonner';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { localDate, money, type Row, type State } from '@/lib/model';
-import { memberCard, memberRules, STAMPS_PER_CARD } from '@/lib/member';
+import {
+  cardDesign,
+  claimStatus,
+  memberCard,
+  memberRules,
+  STAMPS_PER_CARD,
+  type CardDesign,
+} from '@/lib/member';
+import MemberCard3D from './member/card-3d';
+import { TEMPLATE_HEIGHT, TEMPLATE_WIDTH, drawTemplate } from './member/card-art';
 
 type Act = (action: string, payload: Record<string, unknown>, success?: string) => Promise<unknown>;
 const day = (iso?: string | null) =>
@@ -50,6 +60,7 @@ export default function MemberAdmin({
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [s.members, query]);
   const open = s.members.find((m) => m.id === openId);
+  const waiting = s.memberClaims.filter((c) => claimStatus(c) === 'menunggu');
   return (
     <>
       <div className="section-head">
@@ -59,10 +70,23 @@ export default function MemberAdmin({
           {s.members.filter((m) => m.status === 'menunggu').length} menunggu aktivasi
         </span>
       </div>
+      {waiting.length > 0 && (
+        <div className="member-waiting">
+          <Gift size={16} />
+          <span>
+            {waiting.length} hadiah diklaim member lewat kartunya, menunggu diserahkan:{' '}
+            {waiting
+              .map((c) => `${c.name} (${s.members.find((m) => m.id === c.memberId)?.name ?? '?'})`)
+              .join(', ')}
+            . Buka membernya lalu tekan Serahkan saat hadiah diberikan.
+          </span>
+        </div>
+      )}
       <Tabs defaultValue="list">
         <TabsList>
           <TabsTrigger value="list">Daftar member</TabsTrigger>
           {admin && <TabsTrigger value="rewards">Hadiah tahunan</TabsTrigger>}
+          {admin && <TabsTrigger value="design">Tampilan kartu</TabsTrigger>}
           {admin && <TabsTrigger value="rules">Aturan</TabsTrigger>}
           <TabsTrigger value="poster">Poster QR daftar</TabsTrigger>
         </TabsList>
@@ -97,6 +121,8 @@ export default function MemberAdmin({
                         <small>
                           Kartu {card.current.no} ({card.current.stamps.length}/{STAMPS_PER_CARD}) ·{' '}
                           {card.points.toLocaleString('id-ID')} poin
+                          {card.claims.some((c) => claimStatus(c) === 'menunggu') &&
+                            ' · 🎁 menunggu diserahkan'}
                         </small>
                       </button>
                     </li>
@@ -114,6 +140,11 @@ export default function MemberAdmin({
         {admin && (
           <TabsContent value="rewards">
             <Rewards s={s} busy={busy} act={act} />
+          </TabsContent>
+        )}
+        {admin && (
+          <TabsContent value="design">
+            <CardDesignPanel s={s} busy={busy} act={act} />
           </TabsContent>
         )}
         {admin && (
@@ -222,7 +253,9 @@ function MemberDetail({
               {r.minCards ? ` + ${r.minCards} kartu (${r.cardsSince} terkumpul)` : ''}
               {r.stockLeft !== null && ` · stok ${r.stockLeft}`}
             </span>
-            {r.claimed ? (
+            {r.claimStatus === 'menunggu' ? (
+              <small className="warning">diklaim, menunggu diserahkan</small>
+            ) : r.claimed ? (
               <small className="muted">sudah ditukar</small>
             ) : r.canClaim ? (
               <button
@@ -270,8 +303,36 @@ function MemberDetail({
           <h3>Riwayat hadiah</h3>
           <ul className="member-rows">
             {card.claims.map((c) => (
-              <li key={c.id}>
-                {c.name} · {day(c.createdAt)} · −{c.points} poin
+              <li key={c.id} className="row between">
+                <span>
+                  {c.name} · {day(c.createdAt)} · −{c.points} poin ·{' '}
+                  {claimStatus(c) === 'menunggu'
+                    ? 'diklaim lewat kartu, belum diserahkan'
+                    : `diserahkan ${day(c.handedAt || c.createdAt)}`}
+                </span>
+                <span className="row">
+                  {claimStatus(c) === 'menunggu' && (
+                    <button
+                      className="button primary"
+                      disabled={busy}
+                      onClick={() => act('member.handover', { id: c.id }, `${c.name} diserahkan`)}
+                    >
+                      Serahkan
+                    </button>
+                  )}
+                  {(claimStatus(c) === 'menunggu' || admin) && (
+                    <button
+                      className="button"
+                      disabled={busy}
+                      onClick={() => {
+                        if (confirm(`Batalkan ${c.name}? Poinnya (${c.points}) dikembalikan.`))
+                          void act('member.unclaim', { id: c.id }, 'Klaim dibatalkan');
+                      }}
+                    >
+                      Batalkan
+                    </button>
+                  )}
+                </span>
               </li>
             ))}
           </ul>
@@ -348,7 +409,9 @@ function Rewards({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
   const blank = {
     type: '',
     name: '',
+    description: '',
     image: '',
+    model: '',
     points: '',
     minCards: '',
     stock: '',
@@ -368,7 +431,9 @@ function Rewards({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
           year,
           type: form.type,
           name: form.name,
+          description: form.description,
           image: form.image,
+          model: form.model,
           points: Number(form.points),
           minCards: Number(form.minCards || 0),
           stock: form.stock === '' ? null : Number(form.stock),
@@ -401,7 +466,9 @@ function Rewards({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
                     year,
                     type: 'tshirt',
                     name: 'T-shirt WINDS LAB ' + year,
+                    description: 'Desain eksklusif tahun ini, diproduksi WINDS LAB.',
                     image: '',
+                    model: '',
                     points: 2500,
                     minCards: 5,
                     stock: null,
@@ -420,11 +487,21 @@ function Rewards({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
         {rewards.map((r) => {
           const given = s.memberClaims.filter((c) => c.rewardId === r.id).length;
           return (
-            <li key={r.id} className="row between">
+            <li key={r.id} className="row between member-reward-row">
+              {r.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={r.image} alt="" />
+              ) : (
+                <span className="member-reward-empty">
+                  <Gift size={18} />
+                </span>
+              )}
               <span>
                 <b>{r.name}</b> ({r.type}) · {r.points.toLocaleString('id-ID')} poin · {r.minCards}{' '}
                 kartu · {r.stock === null ? 'stok bebas' : `stok ${r.stock}`} · ditukar {given}
                 {r.active === false && ' · nonaktif'}
+                {!r.image && ' · belum ada mockup'}
+                {r.model && ' · ada 3D'}
               </span>
               <span className="row">
                 <button
@@ -434,7 +511,9 @@ function Rewards({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
                     setForm({
                       type: r.type,
                       name: r.name,
+                      description: r.description || '',
                       image: r.image || '',
+                      model: r.model || '',
                       points: String(r.points),
                       minCards: String(r.minCards),
                       stock: r.stock === null ? '' : String(r.stock),
@@ -497,10 +576,27 @@ function Rewards({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
             onChange={(e) => setForm({ ...form, stock: e.target.value })}
           />
         </label>
-        <label>
-          Foto (tautan https, opsional)
-          <input value={form.image} onChange={(e) => setForm({ ...form, image: e.target.value })} />
+        <label className="member-wide">
+          Keterangan singkat (tampil di katalog)
+          <textarea
+            maxLength={240}
+            rows={2}
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+          />
         </label>
+        <UploadField
+          label="Gambar mockup (tampil di katalog, persegi 1:1, latar transparan PNG paling bagus)"
+          kind="image"
+          value={form.image}
+          onChange={(image) => setForm({ ...form, image })}
+        />
+        <UploadField
+          label="Model 3D mockup (opsional)"
+          kind="model"
+          value={form.model}
+          onChange={(model) => setForm({ ...form, model })}
+        />
         <label className="row">
           <input
             type="checkbox"
@@ -674,6 +770,171 @@ function Poster() {
       <button className="button" onClick={() => window.print()}>
         <Printer size={15} /> Cetak poster
       </button>
+    </div>
+  );
+}
+
+/** Uploads one file (an image, or a .glb model) and keeps its address. */
+function UploadField({
+  label,
+  kind,
+  value,
+  onChange,
+}: {
+  label: string;
+  kind: 'image' | 'model';
+  value: string;
+  onChange: (url: string) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  return (
+    <div className="member-upload">
+      <span>{label}</span>
+      <label className="button">
+        <Upload size={14} /> {uploading ? 'Mengunggah…' : value ? 'Ganti file' : 'Pilih file'}
+        <input
+          type="file"
+          hidden
+          disabled={uploading}
+          accept={kind === 'image' ? 'image/png,image/jpeg,image/webp' : '.glb,model/gltf-binary'}
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (!file) return;
+            setUploading(true);
+            try {
+              const r = await fetch('/api/upload', {
+                method: 'POST',
+                headers: { 'Content-Type': file.type || 'application/octet-stream' },
+                body: file,
+              });
+              const d = (await r.json()) as { url?: string; error?: string };
+              if (!r.ok || !d.url) throw Error(d.error || 'Unggahan gagal.');
+              onChange(d.url);
+              toast.success(kind === 'image' ? 'Gambar diunggah' : 'Model 3D diunggah');
+            } catch (err) {
+              toast.error((err as Error).message);
+            } finally {
+              setUploading(false);
+            }
+          }}
+        />
+      </label>
+      {value &&
+        (kind === 'image' ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={value} alt="Pratinjau" />
+        ) : (
+          <small>
+            <Box size={13} /> model 3D terpasang
+          </small>
+        ))}
+      {value && (
+        <button type="button" className="button" onClick={() => onChange('')}>
+          Lepas
+        </button>
+      )}
+      <small className="muted">
+        {kind === 'image'
+          ? 'PNG, JPEG, atau WebP · maks 5 MB'
+          : 'File .glb (glTF biner) · maks 20 MB'}
+      </small>
+    </div>
+  );
+}
+
+const SAMPLE_FACE = {
+  name: 'Nama Member',
+  code: 'WSM-0001',
+  cardNo: 2,
+  stamps: ['01-05', '01-09', '01-14', '01-20', '01-26', '02-02'].map((d) => ({
+    at: `2027-${d}T10:00:00+08:00`,
+  })),
+};
+/** Artwork for both sides of the card, the colours drawn over it, and a live 3D preview. */
+function CardDesignPanel({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
+  const [design, setDesign] = useState<CardDesign>(() => cardDesign(s));
+  const set = (patch: Partial<CardDesign>) => setDesign((d) => ({ ...d, ...patch }));
+  const download = (side: 'front' | 'back') => {
+    const a = document.createElement('a');
+    a.href = drawTemplate(side).toDataURL('image/png');
+    a.download = `template-kartu-member-${side === 'front' ? 'depan' : 'belakang'}.png`;
+    a.click();
+  };
+  return (
+    <div className="member-panel member-design">
+      <div className="member-design-preview">
+        <MemberCard3D face={SAMPLE_FACE} design={design} fresh={2} />
+        <small className="muted">
+          Pratinjau langsung (belum tersimpan sampai kamu tekan Simpan). Geser untuk memutar, ketuk
+          untuk membalik.
+        </small>
+      </div>
+      <div>
+        <p className="muted">
+          Ukuran kartu ATM 85,6 × 54 mm. Buat desain {TEMPLATE_WIDTH} × {TEMPLATE_HEIGHT} px
+          (landscape). Nama, kode member, nomor kartu, dan 10 stamp digambar otomatis di atas
+          desainmu; unduh template untuk melihat area yang perlu dikosongkan.
+        </p>
+        <div className="row">
+          <button type="button" className="button" onClick={() => download('front')}>
+            <Download size={14} /> Template depan
+          </button>
+          <button type="button" className="button" onClick={() => download('back')}>
+            <Download size={14} /> Template belakang
+          </button>
+        </div>
+        <UploadField
+          label="Desain depan"
+          kind="image"
+          value={design.front}
+          onChange={(front) => set({ front })}
+        />
+        <UploadField
+          label="Desain belakang (tempat stamp)"
+          kind="image"
+          value={design.back}
+          onChange={(back) => set({ back })}
+        />
+        <div className="member-form">
+          <label>
+            Warna nama & kode
+            <input
+              type="color"
+              value={design.textColor}
+              onChange={(e) => set({ textColor: e.target.value })}
+            />
+          </label>
+          <label>
+            Warna tinta stempel
+            <input
+              type="color"
+              value={design.inkColor}
+              onChange={(e) => set({ inkColor: e.target.value })}
+            />
+          </label>
+          <label>
+            Warna lingkaran stamp kosong
+            <input
+              type="color"
+              value={design.slotColor}
+              onChange={(e) => set({ slotColor: e.target.value })}
+            />
+          </label>
+        </div>
+        <div className="row">
+          <button
+            className="button primary"
+            disabled={busy}
+            onClick={() => act('member.design', { design }, 'Tampilan kartu disimpan')}
+          >
+            Simpan tampilan
+          </button>
+          <button type="button" className="button" onClick={() => setDesign(cardDesign(s))}>
+            Kembalikan
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

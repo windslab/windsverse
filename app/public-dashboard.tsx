@@ -15,12 +15,14 @@ import {
   Camera,
   Radio,
   Gamepad2,
+  IdCard,
 } from 'lucide-react';
 import { BrandMark } from '@/components/brand-mark';
 import PublicLibrary from './public-library';
 import TelescopeView from './telescope';
 const VintageCamera = dynamic(() => import('./vintage-camera'), { ssr: false });
 const Noisegasm = dynamic(() => import('./noisegasm'), { ssr: false });
+const MemberDialog = dynamic(() => import('./member/member-dialog'), { ssr: false });
 import PublicMenuSection from './public-menu-section';
 import type { Row } from '@/lib/model';
 import { EMPTY_CAFE_ACTIVITY, type CafeActivity } from '@/lib/cafe-activity';
@@ -61,6 +63,7 @@ export default function PublicDashboard() {
     [libraryOpen, setLibraryOpen] = useState(false),
     [cameraOpen, setCameraOpen] = useState(false),
     [radioOpen, setRadioOpen] = useState(false),
+    [memberOpen, setMemberOpen] = useState(false),
     [cafeReturn, setCafeReturn] = useState(0),
     [libraryRequest, setLibraryRequest] = useState(0),
     [tvRequest, setTvRequest] = useState(0),
@@ -274,6 +277,14 @@ export default function PublicDashboard() {
             </button>
             <button
               type="button"
+              className="button landing-library-cta"
+              onClick={() => setMemberOpen(true)}
+            >
+              <IdCard size={18} />
+              Kartu Member <ArrowRight size={18} />
+            </button>
+            <button
+              type="button"
               className="button landing-library-cta landing-telescope-cta"
               disabled={telescopeEntering}
               onPointerEnter={warmTelescope}
@@ -440,6 +451,7 @@ export default function PublicDashboard() {
       <PublicLibrary open={libraryOpen} onOpenChange={setLibraryOpen} />
       {cameraOpen && <VintageCamera open={cameraOpen} onOpenChange={setCameraOpen} />}
       <Noisegasm open={radioOpen} onOpenChange={setRadioOpen} />
+      {memberOpen && <MemberDialog onClose={() => setMemberOpen(false)} />}
     </main>
   );
 }

@@ -3766,7 +3766,7 @@ function Editor({
                     </button>
                   </div>
                 )}
-                <small>PNG, JPEG, atau WebP · maksimal 2 MB</small>
+                <small>PNG, JPEG, atau WebP · maksimal 5 MB</small>
               </div>
             ) : f.type === 'recipe' ? (
               <RecipeBuilder

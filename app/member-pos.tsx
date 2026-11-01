@@ -2,9 +2,10 @@
 // The member box in the till (Kasir POS): find a member by phone, code or name, sign up a new one,
 // see their card at a glance, use a free drink, and see what this order will earn.
 import { useMemo, useState } from 'react';
-import { Coffee, CupSoda, UserPlus, X } from 'lucide-react';
+import { Coffee, CupSoda, Gift, UserPlus, X } from 'lucide-react';
 import { money, type Row, type State } from '@/lib/model';
 import {
+  claimStatus,
   memberCard,
   memberRules,
   normalizePhone,
@@ -246,6 +247,22 @@ export default function MemberPos({
               </div>
             );
           })}
+          {card!.claims
+            .filter((c) => claimStatus(c) === 'menunggu')
+            .map((c) => (
+              <div key={c.id} className="member-voucher" data-gift>
+                <Gift size={15} />
+                <span>{c.name}: diklaim lewat kartu</span>
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={busy}
+                  onClick={() => act('member.handover', { id: c.id }, `${c.name} diserahkan`)}
+                >
+                  Serahkan
+                </button>
+              </div>
+            ))}
           {preview && (
             <small className={preview.qualifies ? 'member-earn' : 'muted'}>
               {preview.qualifies

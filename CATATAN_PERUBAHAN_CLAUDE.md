@@ -1221,3 +1221,30 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
 - Diuji di server lokal: daftar mandiri, aktivasi, 5 stamp → voucher non-kopi, pakai voucher di
   kasir (total Rp0, stamp tidak bertambah), tukar hadiah (poin berkurang). `typecheck`,
   `format:check`, `build` lulus; tes member 8/8, tes lain 19/19, `engine.test` 28/32 (4 gagal lama).
+
+## 61. Kartu member 3D, animasi stempel, katalog hadiah geser (1 Nov 2026)
+
+- **Kartu 3D seukuran kartu ATM** (85,6 × 54 mm, landscape) di halaman kartu member: mengilap,
+  bertepi tipis, bisa diputar dengan menggeser ke samping (berhenti di sisi terdekat), diketuk
+  untuk membalik, atau tombol "Lihat depan / Lihat stamp".
+- **Animasi stempel**: saat kartu dibuka, kartu berbalik ke belakang lalu tiap stamp dicap satu per
+  satu. Stamp baru sejak kunjungan terakhir dicap lebih keras (kartu bergetar, ada cincin tinta).
+- **Desain sendiri**: Member → **Tampilan kartu** (admin) untuk mengunggah desain depan dan belakang
+  (PNG/JPEG/WebP maks 5 MB), memilih warna nama, tinta stempel, dan lingkaran stamp, dengan pratinjau
+  3D langsung. Tombol **Template depan/belakang** mengunduh gambar 2048 × 1291 px yang menandai area
+  yang diisi otomatis (nama, kode, nomor kartu, 10 stamp). Tanpa unggahan, kartu memakai desain
+  bawaan Winds Space.
+- **Katalog hadiah eksklusif** di bawah kartu: satu hadiah per layar, digeser kiri-kanan (ada panah
+  dan titik). Hadiah yang belum cukup poin/kartu tampil abu-abu dengan gembok dan progresnya; begitu
+  cukup, gembok terbuka dengan animasi dan muncul tombol **Klaim hadiah**.
+- **Klaim oleh pelanggan**: poin langsung terpakai, hadiah berstatus "menunggu diserahkan". Staf
+  melihatnya di menu Member (pemberitahuan di atas) dan di kotak member Kasir POS, lalu menekan
+  **Serahkan**; klaim yang belum diserahkan bisa dibatalkan (poin kembali).
+- **Mockup hadiah**: di Hadiah tahunan, tiap hadiah kini punya keterangan singkat, unggah gambar
+  mockup (persegi 1:1), dan unggah model 3D `.glb` (maks 20 MB) yang bisa diputar di katalog.
+- **Akses dari 3D**: tombol **Kartu Member** di halaman utama (bersama Menu, Library, Windstopia, …)
+  dan tombol **kartu** di Windstopia membuka kartu 3D yang terakhir dibuka di perangkat itu, atau
+  ajakan mendaftar.
+- Diuji di server lokal: animasi stempel, desain unggahan tampil di kartu dan pratinjau admin, klaim
+  dari kartu, hadiah terkunci, tombol Kartu Member di halaman 3D. `typecheck`, `format:check`,
+  `build` lulus; tes member 10/10, tes lain 19/19, `engine.test` 28/32 (4 gagal lama).

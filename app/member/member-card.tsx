@@ -1,13 +1,43 @@
 'use client';
-// A member's own card (windsverse.com/member/<secret>): ten stamps, free drinks ready to use,
-// points, this year's gifts and how far each one is, and the member code as a QR for the till.
-import { useEffect, useState } from 'react';
+// A member's own card (windsverse.com/member/<secret>): the card in 3D with its stamps, points and
+// free drinks, then this year's exclusive gifts to swipe through. A gift unlocks once there are
+// enough points and full cards and can be claimed here; staff hand it over at the till.
+import { useCallback, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { Coffee, CupSoda, Gift, Lock, Sparkles } from 'lucide-react';
+import {
+  Box,
+  ChevronLeft,
+  ChevronRight,
+  Coffee,
+  CupSoda,
+  Gift,
+  Lock,
+  LockOpen,
+  Sparkles,
+} from 'lucide-react';
 import { money } from '@/lib/model';
+import type { CardDesign } from '@/lib/member';
+import MemberCard3D from './card-3d';
+import Gift3D from './gift-3d';
 import styles from './member.module.css';
 
-type Card = {
+type Reward = {
+  id: string;
+  name: string;
+  description: string;
+  image: string;
+  model: string;
+  points: number;
+  minCards: number;
+  cardsSince: number;
+  claimed: boolean;
+  claimStatus: 'menunggu' | 'diserahkan' | null;
+  stockLeft: number | null;
+  missingPoints: number;
+  missingCards: number;
+  canClaim: boolean;
+};
+export type PublicCard = {
   member: { code: string; name: string; status: string; joinedAt: string };
   stampCount: number;
   current: { no: number; stamps: { at: string; points: number }[] };
@@ -16,23 +46,28 @@ type Card = {
   points: number;
   pointsExpireAt: string | null;
   year: number;
-  rewards: {
-    id: string;
-    name: string;
-    image: string;
-    points: number;
-    minCards: number;
-    cardsSince: number;
-    claimed: boolean;
-    stockLeft: number | null;
-    missingPoints: number;
-    missingCards: number;
-    canClaim: boolean;
-  }[];
-  history: { at: string; name: string; points: number }[];
+  rewards: Reward[];
+  history: { at: string; name: string; points: number; status: 'menunggu' | 'diserahkan' }[];
   rules: { minDrinkPrice: number; voucherMonths: number; pointsExpireMonths: number };
+  design: CardDesign;
 };
 
+/** The card opened last on this device, for the button in the 3D café. */
+export const TOKEN_KEY = 'ws-member-token';
+const storage = {
+  get(key: string) {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key: string, value: string) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {}
+  },
+};
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString('id-ID', {
     timeZone: 'Asia/Makassar',
@@ -41,25 +76,53 @@ const day = (iso: string) =>
     year: 'numeric',
   });
 
-export default function MemberCard({ token }: { token: string }) {
-  const [card, setCard] = useState<Card | null>(null),
+/** Loads a card by its secret link and keeps it fresh (a stamp shows up right after paying). */
+export function useMemberCard(token: string) {
+  const [card, setCard] = useState<PublicCard | null>(null),
     [error, setError] = useState(''),
-    [qr, setQr] = useState('');
-  useEffect(() => {
-    const load = () =>
+    [fresh, setFresh] = useState(0);
+  const load = useCallback(
+    () =>
       fetch('/api/public?member=' + encodeURIComponent(token), { cache: 'no-store' })
         .then(async (r) => {
-          const d = (await r.json()) as Card & { error?: string };
+          const d = (await r.json()) as PublicCard & { error?: string };
           if (!r.ok) throw Error(d.error || 'Kartu tidak ditemukan.');
+          // Stamps new since this device last saw the card land hard (at most the last three).
+          const seenKey = 'ws-member-seen-' + d.member.code,
+            seen = Number(storage.get(seenKey) ?? -1);
+          setFresh((f) =>
+            seen < 0
+              ? Math.min(3, d.current.stamps.length)
+              : d.stampCount > seen
+                ? Math.min(d.current.stamps.length, d.stampCount - seen)
+                : f,
+          );
+          storage.set(seenKey, String(d.stampCount));
+          storage.set(TOKEN_KEY, token);
           setCard(d);
           setError('');
         })
-        .catch((e) => setError(e.message));
+        .catch((e) => setError(e.message)),
+    [token],
+  );
+  useEffect(() => {
     void load();
-    // Fresh while open at the till (a stamp appears right after paying).
     const t = setInterval(load, 15000);
     return () => clearInterval(t);
-  }, [token]);
+  }, [load]);
+  return { card, error, fresh, reload: load };
+}
+
+export const cardFace = (card: PublicCard) => ({
+  name: card.member.name,
+  code: card.member.code,
+  cardNo: card.current.no,
+  stamps: card.current.stamps,
+});
+
+export default function MemberCard({ token }: { token: string }) {
+  const { card, error, fresh, reload } = useMemberCard(token);
+  const [qr, setQr] = useState('');
   useEffect(() => {
     if (!card) return;
     void QRCode.toDataURL(card.member.code, {
@@ -69,7 +132,7 @@ export default function MemberCard({ token }: { token: string }) {
     }).then(setQr);
   }, [card]);
 
-  if (error)
+  if (error && !card)
     return (
       <main className={styles.page}>
         <p className={styles.error}>{error}</p>
@@ -81,71 +144,46 @@ export default function MemberCard({ token }: { token: string }) {
         <p className={styles.loading}>Membuka kartu…</p>
       </main>
     );
-  const slots = Array.from({ length: 10 }, (_, i) => card.current.stamps[i]);
   return (
     <main className={styles.page}>
-      <section className={styles.card} aria-label="Kartu member Winds Space">
-        <header className={styles.cardHead}>
-          <div>
-            <small>WINDS SPACE · MEMBER</small>
-            <h1>{card.member.name}</h1>
-            <span className={styles.code}>{card.member.code}</span>
-          </div>
-          <span className={styles.cardNo}>Kartu {card.current.no}</span>
-        </header>
-        {card.member.status === 'menunggu' && (
-          <p className={styles.pending}>
-            Kartumu aktif setelah transaksi pertama: sebutkan nomor HP atau tunjukkan QR ini ke
-            kasir.
-          </p>
-        )}
-        {card.member.status === 'nonaktif' && (
-          <p className={styles.pending}>Kartu ini sedang dinonaktifkan. Hubungi kasir.</p>
-        )}
-        <ol className={styles.stamps}>
-          {slots.map((st, i) => {
-            const gift = i === 4 ? 'nonkopi' : i === 9 ? 'kopi' : null;
-            return (
-              <li key={i} data-on={st ? '' : undefined} data-gift={gift || undefined}>
-                {st ? (
-                  <span className={styles.stamp} title={day(st.at)}>
-                    W
-                  </span>
-                ) : gift === 'kopi' ? (
-                  <Coffee size={18} />
-                ) : gift === 'nonkopi' ? (
-                  <CupSoda size={18} />
-                ) : (
-                  <span className={styles.num}>{i + 1}</span>
-                )}
-              </li>
-            );
-          })}
-        </ol>
-        <p className={styles.stampNote}>
-          1 stamp tiap transaksi dengan minimal 1 minuman ≥ {money(card.rules.minDrinkPrice)}. Stamp
-          ke-5: minuman non-kopi gratis · stamp ke-10: minuman kopi gratis.
+      <header className={styles.top}>
+        <small>WINDS SPACE · MEMBER</small>
+        <h1>Halo, {card.member.name.split(' ')[0]}</h1>
+      </header>
+      <MemberCard3D face={cardFace(card)} design={card.design} fresh={fresh} />
+      {card.member.status === 'menunggu' && (
+        <p className={styles.pending}>
+          Kartumu aktif setelah transaksi pertama: sebutkan nomor HP atau tunjukkan QR di bawah ke
+          kasir.
         </p>
-        <div className={styles.stats}>
-          <div>
-            <b>{card.points.toLocaleString('id-ID')}</b>
-            <small>poin</small>
-          </div>
-          <div>
-            <b>{card.fullCards}</b>
-            <small>kartu penuh</small>
-          </div>
-          <div>
-            <b>{card.stampCount}</b>
-            <small>total stamp</small>
-          </div>
+      )}
+      {card.member.status === 'nonaktif' && (
+        <p className={styles.pending}>Kartu ini sedang dinonaktifkan. Hubungi kasir.</p>
+      )}
+      <div className={styles.stats}>
+        <div>
+          <b>{card.points.toLocaleString('id-ID')}</b>
+          <small>poin</small>
         </div>
-        {card.pointsExpireAt && card.points > 0 && (
-          <p className={styles.fine}>
-            Poin tetap aman selama ada transaksi sebelum {day(card.pointsExpireAt)}.
-          </p>
-        )}
-      </section>
+        <div>
+          <b>
+            {card.current.stamps.length}
+            <i>/10</i>
+          </b>
+          <small>stamp kartu {card.current.no}</small>
+        </div>
+        <div>
+          <b>{card.fullCards}</b>
+          <small>kartu penuh</small>
+        </div>
+      </div>
+      <p className={styles.fine}>
+        1 stamp tiap transaksi dengan minimal 1 minuman ≥ {money(card.rules.minDrinkPrice)}. Stamp
+        ke-5: minuman non-kopi gratis · stamp ke-10: minuman kopi gratis.
+        {card.pointsExpireAt &&
+          card.points > 0 &&
+          ` Poin aman selama ada transaksi sebelum ${day(card.pointsExpireAt)}.`}
+      </p>
 
       {card.vouchers.length > 0 && (
         <section className={styles.block}>
@@ -166,80 +204,7 @@ export default function MemberCard({ token }: { token: string }) {
         </section>
       )}
 
-      <section className={styles.block}>
-        <h2>
-          <Gift size={16} /> Hadiah {card.year}
-        </h2>
-        {card.rewards.length === 0 ? (
-          <p className={styles.fine}>Koleksi hadiah tahun ini segera hadir.</p>
-        ) : (
-          <ul className={styles.rewards}>
-            {card.rewards.map((r) => {
-              const pointPct = Math.min(100, ((r.points - r.missingPoints) / r.points) * 100),
-                cardPct = r.minCards
-                  ? Math.min(100, ((r.minCards - r.missingCards) / r.minCards) * 100)
-                  : 100;
-              return (
-                <li
-                  key={r.id}
-                  data-ready={r.canClaim || undefined}
-                  data-done={r.claimed || undefined}
-                >
-                  {r.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={r.image} alt="" />
-                  ) : (
-                    <span className={styles.rewardIcon}>
-                      <Gift size={20} />
-                    </span>
-                  )}
-                  <div>
-                    <b>{r.name}</b>
-                    {r.claimed ? (
-                      <small>Sudah kamu tukar tahun ini ✓</small>
-                    ) : r.canClaim ? (
-                      <small className={styles.ready}>
-                        Bisa ditukar! Tunjukkan kartu ini ke kasir.
-                      </small>
-                    ) : r.stockLeft === 0 ? (
-                      <small>Stok habis</small>
-                    ) : (
-                      <small>
-                        <Lock size={11} /> {r.points.toLocaleString('id-ID')} poin
-                        {r.minCards ? ` + ${r.minCards} kartu penuh` : ''}
-                      </small>
-                    )}
-                    {!r.claimed && (
-                      <>
-                        <span className={styles.bar} aria-label="Poin">
-                          <i style={{ width: pointPct + '%' }} />
-                        </span>
-                        <small className={styles.barNote}>
-                          {r.missingPoints
-                            ? `kurang ${r.missingPoints.toLocaleString('id-ID')} poin`
-                            : 'poin cukup'}
-                          {r.minCards > 0 &&
-                            ` · ${r.cardsSince}/${r.minCards} kartu${r.missingCards ? '' : ' ✓'}`}
-                        </small>
-                        {r.minCards > 0 && (
-                          <span className={styles.bar} data-cards aria-label="Kartu">
-                            <i style={{ width: cardPct + '%' }} />
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        <p className={styles.fine}>
-          Setiap hadiah bisa ditukar sekali per tahun. Poin hangus bila{' '}
-          {card.rules.pointsExpireMonths} bulan tidak ada transaksi; minuman gratis berlaku{' '}
-          {card.rules.voucherMonths} bulan.
-        </p>
-      </section>
+      <GiftCatalog card={card} token={token} onClaimed={reload} />
 
       <section className={styles.block}>
         <h2>QR member</h2>
@@ -260,7 +225,10 @@ export default function MemberCard({ token }: { token: string }) {
           <ul className={styles.history}>
             {card.history.map((h, i) => (
               <li key={i}>
-                <span>{h.name}</span>
+                <span>
+                  {h.name}
+                  {h.status === 'menunggu' && <em> · menunggu diambil</em>}
+                </span>
                 <small>
                   {day(h.at)} · −{h.points.toLocaleString('id-ID')} poin
                 </small>
@@ -275,5 +243,262 @@ export default function MemberCard({ token }: { token: string }) {
         <a href="/">windsverse.com</a>
       </footer>
     </main>
+  );
+}
+
+/** This year's gifts side by side: swipe left and right (or the arrows), one gift at a time. */
+function GiftCatalog({
+  card,
+  token,
+  onClaimed,
+}: {
+  card: PublicCard;
+  token: string;
+  onClaimed: () => Promise<unknown>;
+}) {
+  const track = useRef<HTMLUListElement>(null);
+  const [index, setIndex] = useState(0),
+    [asking, setAsking] = useState(''),
+    [busy, setBusy] = useState(false),
+    [problem, setProblem] = useState(''),
+    [show3d, setShow3d] = useState(''),
+    [unlocking, setUnlocking] = useState<string[]>([]);
+  const rewards = card.rewards;
+  // Gifts that unlocked since this device last looked open with a little ceremony.
+  useEffect(() => {
+    const key = 'ws-member-unlocked-' + card.member.code;
+    let known: string[] = [];
+    try {
+      known = JSON.parse(localStorage.getItem(key) || '[]');
+    } catch {}
+    const open = rewards.filter((r) => r.canClaim).map((r) => r.id);
+    const fresh = open.filter((id) => !known.includes(id));
+    if (!fresh.length) return;
+    try {
+      localStorage.setItem(key, JSON.stringify([...known, ...fresh]));
+    } catch {}
+    queueMicrotask(() => setUnlocking(fresh));
+    const t = setTimeout(() => setUnlocking([]), 2400);
+    return () => clearTimeout(t);
+  }, [rewards, card.member.code]);
+  const go = (i: number) => {
+    const el = track.current;
+    if (!el) return;
+    const slide = el.children[Math.max(0, Math.min(rewards.length - 1, i))] as HTMLElement;
+    el.scrollTo({ left: slide.offsetLeft - 12, behavior: 'smooth' });
+  };
+  const claim = async (r: Reward) => {
+    setBusy(true);
+    setProblem('');
+    try {
+      const res = await fetch('/api/public', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'member.request', token, rewardId: r.id }),
+      });
+      const d = (await res.json()) as { error?: string };
+      if (!res.ok) throw Error(d.error || 'Klaim belum berhasil.');
+      setAsking('');
+      await onClaimed();
+    } catch (e) {
+      setProblem((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section
+      className={styles.catalog}
+      aria-roledescription="carousel"
+      aria-label="Hadiah eksklusif"
+    >
+      <header>
+        <div>
+          <small>KOLEKSI {card.year}</small>
+          <h2>Hadiah eksklusif</h2>
+        </div>
+        {rewards.length > 1 && (
+          <div className={styles.arrows}>
+            <button
+              type="button"
+              aria-label="Hadiah sebelumnya"
+              disabled={index === 0}
+              onClick={() => go(index - 1)}
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <button
+              type="button"
+              aria-label="Hadiah berikutnya"
+              disabled={index >= rewards.length - 1}
+              onClick={() => go(index + 1)}
+            >
+              <ChevronRight size={18} />
+            </button>
+          </div>
+        )}
+      </header>
+      {!rewards.length ? (
+        <p className={styles.fine}>Koleksi hadiah tahun ini segera hadir.</p>
+      ) : (
+        <ul
+          ref={track}
+          className={styles.track}
+          onScroll={(e) => {
+            const el = e.currentTarget,
+              first = el.children[0] as HTMLElement | undefined;
+            if (!first) return;
+            setIndex(Math.round(el.scrollLeft / (first.offsetWidth + 12)));
+          }}
+        >
+          {rewards.map((r, i) => {
+            const locked = !r.claimed && !r.canClaim;
+            const pointPct = Math.min(100, ((r.points - r.missingPoints) / r.points) * 100),
+              cardPct = r.minCards
+                ? Math.min(100, ((r.minCards - r.missingCards) / r.minCards) * 100)
+                : 100;
+            return (
+              <li
+                key={r.id}
+                className={styles.slide}
+                aria-roledescription="slide"
+                aria-label={`${i + 1} dari ${rewards.length}: ${r.name}`}
+                data-locked={locked || undefined}
+                data-ready={r.canClaim || undefined}
+                data-unlocking={unlocking.includes(r.id) || undefined}
+              >
+                <div className={styles.mock}>
+                  {show3d === r.id && r.model ? (
+                    <Gift3D src={r.model} locked={locked} />
+                  ) : r.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={r.image} alt={'Mockup ' + r.name} loading="lazy" draggable={false} />
+                  ) : (
+                    <span className={styles.mockEmpty}>
+                      <Gift size={40} />
+                      <small>Mockup segera hadir</small>
+                    </span>
+                  )}
+                  {locked && (
+                    <span className={styles.lock}>
+                      <Lock size={22} />
+                    </span>
+                  )}
+                  {unlocking.includes(r.id) && (
+                    <span className={styles.lock} data-opening>
+                      <LockOpen size={22} />
+                    </span>
+                  )}
+                  {r.model && (
+                    <button
+                      type="button"
+                      className={styles.view3d}
+                      aria-pressed={show3d === r.id}
+                      onClick={() => setShow3d(show3d === r.id ? '' : r.id)}
+                    >
+                      <Box size={14} /> {show3d === r.id ? 'Foto' : '3D'}
+                    </button>
+                  )}
+                </div>
+                <div className={styles.slideBody}>
+                  <h3>{r.name}</h3>
+                  {r.description && <p>{r.description}</p>}
+                  <small className={styles.price}>
+                    {r.points.toLocaleString('id-ID')} poin
+                    {r.minCards ? ` + ${r.minCards} kartu penuh` : ''}
+                    {r.stockLeft !== null && !r.claimed && ` · sisa ${r.stockLeft}`}
+                  </small>
+                  {r.claimStatus === 'diserahkan' ? (
+                    <p className={styles.owned}>Sudah kamu miliki ✓</p>
+                  ) : r.claimStatus === 'menunggu' ? (
+                    <p className={styles.owned}>
+                      Diklaim! Tunjukkan kartu ini ke kasir untuk mengambil hadiahmu.
+                    </p>
+                  ) : r.stockLeft === 0 ? (
+                    <p className={styles.fine}>Stok habis</p>
+                  ) : r.canClaim ? (
+                    asking === r.id ? (
+                      <div className={styles.confirm}>
+                        <span>
+                          Pakai {r.points.toLocaleString('id-ID')} poin untuk {r.name}?
+                        </span>
+                        <div>
+                          <button
+                            type="button"
+                            className={styles.primary}
+                            disabled={busy}
+                            onClick={() => claim(r)}
+                          >
+                            {busy ? 'Mengklaim…' : 'Ya, klaim'}
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.ghost}
+                            onClick={() => setAsking('')}
+                          >
+                            Batal
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.primary}
+                        disabled={card.member.status !== 'aktif'}
+                        onClick={() => {
+                          setProblem('');
+                          setAsking(r.id);
+                        }}
+                      >
+                        <LockOpen size={15} /> Klaim hadiah
+                      </button>
+                    )
+                  ) : (
+                    <div className={styles.progress}>
+                      <span className={styles.bar} aria-label="Poin">
+                        <i style={{ width: pointPct + '%' }} />
+                      </span>
+                      <small>
+                        {r.missingPoints
+                          ? `kurang ${r.missingPoints.toLocaleString('id-ID')} poin`
+                          : 'poin cukup ✓'}
+                      </small>
+                      {r.minCards > 0 && (
+                        <>
+                          <span className={styles.bar} data-cards aria-label="Kartu penuh">
+                            <i style={{ width: cardPct + '%' }} />
+                          </span>
+                          <small>
+                            {r.cardsSince}/{r.minCards} kartu penuh{r.missingCards ? '' : ' ✓'}
+                          </small>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {problem && asking === r.id && <p className={styles.error}>{problem}</p>}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {rewards.length > 1 && (
+        <div className={styles.dots}>
+          {rewards.map((r, i) => (
+            <button
+              key={r.id}
+              type="button"
+              aria-label={'Ke ' + r.name}
+              aria-current={i === index || undefined}
+              onClick={() => go(i)}
+            />
+          ))}
+        </div>
+      )}
+      <p className={styles.fine}>
+        Tiap hadiah bisa diklaim sekali per tahun. Poin hangus bila {card.rules.pointsExpireMonths}{' '}
+        bulan tidak ada transaksi; minuman gratis berlaku {card.rules.voucherMonths} bulan.
+      </p>
+    </section>
   );
 }

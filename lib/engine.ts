@@ -7,6 +7,7 @@ import {
   orderEarnings,
   validPhone,
   voucherFits,
+  DEFAULT_DESIGN,
   DEFAULT_RULES,
 } from './member';
 import { z } from 'zod';
@@ -1069,6 +1070,20 @@ export function apply(
     s.settings[0].member = rules;
     return;
   }
+  if (action === 'member.design') {
+    admin(a);
+    const colour = z.string().regex(/^#[0-9a-f]{6}$/i, 'Warna tidak valid.');
+    s.settings[0].memberDesign = z
+      .object({
+        front: image,
+        back: image,
+        textColor: colour,
+        inkColor: colour,
+        slotColor: colour,
+      })
+      .parse({ ...DEFAULT_DESIGN, ...p.design });
+    return;
+  }
   if (action === 'reward.save') {
     admin(a);
     const fields = z
@@ -1083,7 +1098,9 @@ export function apply(
             'Jenis hadiah: huruf kecil/angka/tanda hubung, contoh tshirt.',
           ),
         name: z.string().trim().min(2).max(60),
+        description: z.string().trim().max(240).default(''),
         image,
+        model: image,
         points: z.number().int().min(1).max(1_000_000),
         minCards: z.number().int().min(0).max(100),
         stock: z.number().int().min(0).max(100000).nullable().default(null),
@@ -1111,17 +1128,18 @@ export function apply(
     s.memberRewards = s.memberRewards.filter((x) => x.id !== r.id);
     return;
   }
-  if (action === 'member.claim') {
-    const m = find(s, 'members', p.memberId);
+  // A gift is claimed at the till (handed over at once) or asked for on the member's own card
+  // (points are spent right away, staff hand it over later).
+  const claimGift = (m: Row, rewardId: string, status: 'menunggu' | 'diserahkan') => {
     assert(m.status === 'aktif', 'Kartu member belum aktif.');
-    const reward = find(s, 'memberRewards', p.rewardId);
+    const reward = find(s, 'memberRewards', rewardId);
     const offer = memberCard(s, m, now).rewards.find((r) => r.id === reward.id);
     assert(offer, 'Hadiah ini tidak ada di koleksi tahun ini.');
-    assert(!offer!.claimed, 'Member sudah menukar hadiah ini tahun ini.');
+    assert(!offer!.claimed, 'Hadiah ini sudah ditukar tahun ini.');
     assert(offer!.stockLeft !== 0, 'Stok hadiah habis.');
     assert(!offer!.missingPoints, `Poin kurang ${offer!.missingPoints}.`);
     assert(!offer!.missingCards, `Kartu penuh kurang ${offer!.missingCards}.`);
-    s.memberClaims.push({
+    const claim = {
       id: id(),
       memberId: m.id,
       rewardId: reward.id,
@@ -1129,9 +1147,39 @@ export function apply(
       name: reward.name,
       year: reward.year,
       points: reward.points,
+      status,
       createdAt: stamp,
-      staffId: a.employeeId,
-    });
+      staffId: status === 'diserahkan' ? a.employeeId : '',
+      handedAt: status === 'diserahkan' ? stamp : null,
+    };
+    s.memberClaims.push(claim);
+    return claim;
+  };
+  if (action === 'member.claim') {
+    claimGift(find(s, 'members', p.memberId), p.rewardId, 'diserahkan');
+    return;
+  }
+  if (action === 'member.request') {
+    const token = z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{16,40}$/)
+      .parse(p.token);
+    const m = s.members.find((x) => x.token === token);
+    assert(m, 'Kartu member tidak ditemukan.');
+    const claim = claimGift(m!, p.rewardId, 'menunggu');
+    return { id: claim.id };
+  }
+  if (action === 'member.handover') {
+    const c = find(s, 'memberClaims', p.id);
+    assert(c.status === 'menunggu', 'Hadiah ini sudah diserahkan.');
+    Object.assign(c, { status: 'diserahkan', staffId: a.employeeId, handedAt: stamp });
+    return;
+  }
+  if (action === 'member.unclaim') {
+    // Cancelling gives the points back; a handed-over gift only by the admin.
+    const c = find(s, 'memberClaims', p.id);
+    if (c.status !== 'menunggu') admin(a);
+    s.memberClaims = s.memberClaims.filter((x) => x.id !== c.id);
     return;
   }
   if (action === 'order.create') {
