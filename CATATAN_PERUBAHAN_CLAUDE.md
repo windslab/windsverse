@@ -1277,3 +1277,15 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
 - Minuman gratis tetap minuman (stamp ke-5 non-kopi, ke-10 kopi). Teks aturan di kartu, kasir, dan
   halaman daftar ikut menyebut makanan.
 - Tes member 12/12, tes lain 19/19, `engine.test` 28/32 (4 gagal lama).
+
+## 64. Noisegasm di iPhone: "This video is unavailable" (1 Nov 2026)
+
+- Penyebab: pemutar YouTube untuk playlist dibuat tanpa ID video, jadi alamatnya
+  `youtube.com/embed/?list=…`. Browser komputer memaklumi, tetapi iPhone menampilkan "This video
+  is unavailable".
+- Kini playlist dimuat sebagai `embed/videoseries?list=…` (cara resmi YouTube). Daftar lagu langsung
+  diketahui sebelum diputar (21 lagu), sehingga lagu yang tidak bisa diputar bisa dilompati.
+- Bila daftar lagu belum diketahui saat sebuah lagu gagal, pemutar melompat ke lagu berikutnya
+  berdasarkan urutannya di playlist (cara yang juga berjalan di iPhone).
+- Diuji di windsverse.com dengan pemutar yang sama: alamat baru dipakai, playlist terbaca, lagu
+  berputar. Belum diuji di iPhone sungguhan.
