@@ -1192,3 +1192,32 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
   (lebar hingga 300 px, berbingkai kuning) dengan tulisan berdenyut "Ketuk video untuk memutar ↓".
   Begitu musik berputar, video kembali kecil. Pemutar yang disembunyikan ke tepi ikut muncul saat itu.
 - Di emulasi HP (Chrome Android) Noisegasm bisa diputar; perilaku iPhone belum bisa diuji langsung.
+
+## 60. Sistem kartu member, tahap 1 (1 Nov 2026)
+
+Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
+
+- **Stamp**: 1 transaksi = 1 stamp bila ada minimal 1 minuman berbayar seharga ≥ Rp15.000.
+  10 stamp per kartu, lalu lanjut ke kartu baru. Stamp ke-5 memberi minuman **non-kopi** gratis,
+  stamp ke-10 minuman **kopi** gratis. Minuman gratis hangus 6 bulan bila tidak dipakai dan tidak
+  menghasilkan stamp atau poin.
+- **Poin**: bawaan 1 poin per Rp1.000 harga menu (setelah diskon), semua item berbayar dihitung.
+  Admin bisa mengisi poin sendiri per menu (kolom "Poin member" di Produk). Poin terkumpul lintas
+  kartu dan hangus bila 12 bulan tanpa transaksi yang memenuhi syarat.
+- **Hadiah tahunan**: koleksi per tahun (poin + minimal kartu penuh). Tiap hadiah hanya bisa ditukar
+  sekali per tahun per member. Kartu penuh dihitung sejak penukaran terakhir jenis yang sama, jadi
+  T-shirt tahun depan butuh 5 kartu baru. Menukar hadiah mengurangi poin.
+- **Pendaftaran**: di kasir (langsung aktif) atau sendiri lewat QR `windsverse.com/member/daftar`
+  (aktif setelah transaksi pertama yang memenuhi syarat; dibatasi 3 pendaftaran per jam per
+  perangkat). Gratis, tanggal lahir opsional, kartu digital saja.
+- **Kasir POS**: kotak Member untuk mencari (HP/kode/nama), mendaftarkan, melihat kartu, memakai
+  minuman gratis (langsung jadi potongan), melihat stamp/poin yang akan didapat, dan mengirim
+  tautan kartu lewat WhatsApp.
+- **Menu Member** (Operasional): daftar member + detail (stamp, minuman gratis, tukar hadiah,
+  riwayat), hadiah tahunan, aturan, dan poster QR pendaftaran yang bisa dicetak.
+- **Kartu pelanggan** `/member/<tautan rahasia>`: stamp, poin, minuman gratis, progres hadiah,
+  QR kode member, riwayat penukaran. Tanpa nomor HP.
+- Semua dihitung ulang dari pesanan, jadi pembatalan atau koreksi pesanan otomatis menyesuaikan kartu.
+- Diuji di server lokal: daftar mandiri, aktivasi, 5 stamp → voucher non-kopi, pakai voucher di
+  kasir (total Rp0, stamp tidak bertambah), tukar hadiah (poin berkurang). `typecheck`,
+  `format:check`, `build` lulus; tes member 8/8, tes lain 19/19, `engine.test` 28/32 (4 gagal lama).

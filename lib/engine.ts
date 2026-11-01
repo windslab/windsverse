@@ -1,5 +1,14 @@
 import { stripOperationalSecrets } from './audit';
 import { ingredientUnitCost } from './ingredient-cost';
+import {
+  memberCard,
+  memberRules,
+  normalizePhone,
+  orderEarnings,
+  validPhone,
+  voucherFits,
+  DEFAULT_RULES,
+} from './member';
 import { z } from 'zod';
 import {
   type State,
@@ -7,6 +16,7 @@ import {
   type Actor,
   type Kind,
   kinds,
+  laterKinds,
   blank as blankState,
   defaultCategories,
   initial,
@@ -58,6 +68,8 @@ const schemas: Partial<Record<Kind, z.ZodTypeAny>> = {
     status: z.enum(['tersedia', 'habis']),
     image,
     sortOrder: z.number().int().min(0).default(0),
+    // Member points for one of this menu; left out = one point per Rp1.000 of its price.
+    memberPoints: z.number().int().min(0).max(100000).nullable().optional(),
   }),
   ingredients: z
     .object({
@@ -957,6 +969,171 @@ export function apply(
     maybeFinalizeShift(sh);
     return;
   }
+  // --- Member cards (lib/member.ts, RENCANA_MEMBER.md) ------------------------------------------
+  const memberFields = (input: any) => {
+    const name = z.string().trim().min(2, 'Isi nama (minimal 2 huruf).').max(40).parse(input.name);
+    const phone = normalizePhone(
+      z
+        .string()
+        .max(30)
+        .parse(input.phone ?? ''),
+    );
+    assert(validPhone(phone), 'Nomor HP tidak valid. Contoh: 0812 3456 7890.');
+    const birthday = input.birthday ? date.parse(input.birthday) : '';
+    return { name, phone, birthday };
+  };
+  const newToken = () => {
+    const bytes = crypto.getRandomValues(new Uint8Array(18));
+    return btoa(String.fromCharCode(...bytes))
+      .replaceAll('+', '-')
+      .replaceAll('/', '_')
+      .replaceAll('=', '');
+  };
+  const addMember = (input: any, status: 'aktif' | 'menunggu', source: 'kasir' | 'mandiri') => {
+    const fields = memberFields(input);
+    assert(
+      !s.members.some((m) => m.phone === fields.phone),
+      source === 'mandiri'
+        ? 'Nomor ini sudah terdaftar. Tanyakan ke kasir untuk membuka kartu membermu.'
+        : 'Nomor HP ini sudah terdaftar sebagai member.',
+    );
+    const next =
+      s.members.reduce((n, m) => Math.max(n, Number(String(m.code).slice(4)) || 0), 0) + 1;
+    const member = {
+      id: id(),
+      code: 'WSM-' + String(next).padStart(4, '0'),
+      ...fields,
+      token: newToken(),
+      status,
+      source,
+      createdAt: stamp,
+      createdBy: source === 'kasir' ? a.employeeId : '',
+      activatedAt: status === 'aktif' ? stamp : null,
+    };
+    s.members.push(member);
+    return member;
+  };
+  /** A member who signed up on their own becomes active with their first qualifying order. */
+  const activateMember = (o: Row) => {
+    if (!o.memberId || !o.paid || o.status === 'dibatalkan') return;
+    const m = s.members.find((x) => x.id === o.memberId);
+    if (m?.status === 'menunggu' && orderEarnings(s, o).qualifies) {
+      m.status = 'aktif';
+      m.activatedAt = stamp;
+    }
+  };
+  if (action === 'member.create') {
+    const m = addMember(p, 'aktif', 'kasir');
+    return { id: m.id, code: m.code, token: m.token };
+  }
+  if (action === 'member.signup') {
+    const m = addMember(p, 'menunggu', 'mandiri');
+    return { code: m.code, token: m.token };
+  }
+  if (action === 'member.update') {
+    admin(a);
+    const m = find(s, 'members', p.id);
+    const fields = memberFields(p);
+    assert(
+      !s.members.some((x) => x.id !== m.id && x.phone === fields.phone),
+      'Nomor HP ini sudah dipakai member lain.',
+    );
+    Object.assign(m, fields, {
+      status: z.enum(['aktif', 'menunggu', 'nonaktif']).parse(p.status),
+      updatedAt: stamp,
+    });
+    return;
+  }
+  if (action === 'member.relink') {
+    admin(a);
+    find(s, 'members', p.id).token = newToken();
+    return;
+  }
+  if (action === 'member.settings') {
+    admin(a);
+    const categories = z.array(str).max(50);
+    const rules = z
+      .object({
+        minDrinkPrice: amount,
+        drinkCategories: categories,
+        coffeeCategories: categories,
+        rupiahPerPoint: z.number().int().min(100).max(1_000_000),
+        voucherMonths: z.number().int().min(1).max(60),
+        pointsExpireMonths: z.number().int().min(1).max(120),
+      })
+      .parse({ ...DEFAULT_RULES, ...p.rules });
+    rules.drinkCategories.forEach((c) => find(s, 'categories', c));
+    rules.coffeeCategories.forEach((c) =>
+      assert(rules.drinkCategories.includes(c), 'Kategori kopi harus termasuk kategori minuman.'),
+    );
+    s.settings[0].member = rules;
+    return;
+  }
+  if (action === 'reward.save') {
+    admin(a);
+    const fields = z
+      .object({
+        year: z.number().int().min(2024).max(2100),
+        type: z
+          .string()
+          .trim()
+          .toLowerCase()
+          .regex(
+            /^[a-z0-9-]{2,30}$/,
+            'Jenis hadiah: huruf kecil/angka/tanda hubung, contoh tshirt.',
+          ),
+        name: z.string().trim().min(2).max(60),
+        image,
+        points: z.number().int().min(1).max(1_000_000),
+        minCards: z.number().int().min(0).max(100),
+        stock: z.number().int().min(0).max(100000).nullable().default(null),
+        active: z.boolean().default(true),
+      })
+      .parse(p.data);
+    const existing = p.id ? find(s, 'memberRewards', p.id) : null;
+    assert(
+      !s.memberRewards.some(
+        (r) => r.id !== existing?.id && r.year === fields.year && r.type === fields.type,
+      ),
+      'Hadiah jenis ini sudah ada di koleksi tahun tersebut.',
+    );
+    if (existing) Object.assign(existing, fields);
+    else s.memberRewards.push({ id: id(), ...fields, createdAt: stamp });
+    return;
+  }
+  if (action === 'reward.delete') {
+    admin(a);
+    const r = find(s, 'memberRewards', p.id);
+    assert(
+      !s.memberClaims.some((c) => c.rewardId === r.id),
+      'Hadiah ini sudah pernah ditukar; nonaktifkan saja.',
+    );
+    s.memberRewards = s.memberRewards.filter((x) => x.id !== r.id);
+    return;
+  }
+  if (action === 'member.claim') {
+    const m = find(s, 'members', p.memberId);
+    assert(m.status === 'aktif', 'Kartu member belum aktif.');
+    const reward = find(s, 'memberRewards', p.rewardId);
+    const offer = memberCard(s, m, now).rewards.find((r) => r.id === reward.id);
+    assert(offer, 'Hadiah ini tidak ada di koleksi tahun ini.');
+    assert(!offer!.claimed, 'Member sudah menukar hadiah ini tahun ini.');
+    assert(offer!.stockLeft !== 0, 'Stok hadiah habis.');
+    assert(!offer!.missingPoints, `Poin kurang ${offer!.missingPoints}.`);
+    assert(!offer!.missingCards, `Kartu penuh kurang ${offer!.missingCards}.`);
+    s.memberClaims.push({
+      id: id(),
+      memberId: m.id,
+      rewardId: reward.id,
+      type: reward.type,
+      name: reward.name,
+      year: reward.year,
+      points: reward.points,
+      createdAt: stamp,
+      staffId: a.employeeId,
+    });
+    return;
+  }
   if (action === 'order.create') {
     // An order belongs to the shift its author is checked into, whenever it is entered.
     const active = s.attendance.find(
@@ -1026,7 +1203,41 @@ export function apply(
       ing.stock = Math.round((ing.stock - qty) * 1e6) / 1e6;
     });
     const subtotal = items.reduce((v, i) => v + i.price * i.quantity, 0);
-    const discount = amount.parse(p.discount || 0);
+    // A member, and maybe one of their free drinks (its price comes off as a discount).
+    let memberId = '',
+      memberFree:
+        | { voucherId: string; type: 'nonkopi' | 'kopi'; productId: string; value: number }
+        | undefined;
+    if (p.memberId) {
+      const m = find(s, 'members', p.memberId);
+      assert(m.status !== 'nonaktif', 'Kartu member ini dinonaktifkan.');
+      memberId = m.id;
+      if (p.memberFree?.voucherId) {
+        assert(
+          m.status === 'aktif',
+          'Kartu member belum aktif; minuman gratis belum bisa dipakai.',
+        );
+        const voucher = memberCard(s, m, now).vouchers.find(
+          (v) => v.id === p.memberFree.voucherId && v.status === 'tersedia',
+        );
+        assert(voucher, 'Minuman gratis ini sudah dipakai atau hangus.');
+        const item = items.find((i) => i.productId === p.memberFree.productId);
+        assert(item, 'Pilih minuman gratisnya di pesanan.');
+        assert(
+          voucherFits(find(s, 'products', item!.productId), voucher!.type, memberRules(s)),
+          voucher!.type === 'kopi'
+            ? 'Minuman gratis ini untuk menu kopi.'
+            : 'Minuman gratis ini untuk menu non-kopi.',
+        );
+        memberFree = {
+          voucherId: voucher!.id,
+          type: voucher!.type,
+          productId: item!.productId,
+          value: item!.price,
+        };
+      }
+    }
+    const discount = amount.parse(p.discount || 0) + (memberFree?.value ?? 0);
     assert(discount <= subtotal, 'Diskon melebihi subtotal.');
     const tax =
       p.taxEnabled === false
@@ -1084,8 +1295,11 @@ export function apply(
         .default('')
         .parse(p.customerName ?? ''),
       historicalEntry: historical,
+      ...(memberId ? { memberId } : {}),
+      ...(memberFree ? { memberFree } : {}),
     };
     s.orders.push(order);
+    activateMember(order);
     if (pastPlanned) maybeFinalizeShift(sh);
     if (historical) refreshClosedShift(sh);
     return order;
@@ -1105,6 +1319,7 @@ export function apply(
       cashPaid: cash,
       change: cash - o.total,
     });
+    activateMember(o);
     return;
   }
   if (action === 'order.hpp.correct') {
@@ -1157,6 +1372,10 @@ export function apply(
     const reason = str.parse(p.reason);
     const discount = amount.parse(p.discount);
     assert(discount <= o.subtotal, 'Diskon melebihi subtotal.');
+    assert(
+      discount >= (o.memberFree?.value ?? 0),
+      'Diskon harus tetap termasuk potongan minuman gratis member.',
+    );
     const taxEnabled = z.boolean().parse(p.taxEnabled);
     const tax = taxEnabled
       ? Math.round(
@@ -1560,7 +1779,10 @@ export function apply(
     const actorRecord =
       a.employeeId === 'owner' ? null : structuredClone(find(s, 'employees', a.employeeId));
     for (const kind of kinds) {
-      const input = kind === 'categories' && !b.data[kind] ? defaultCategories() : b.data[kind];
+      const input =
+        kind === 'categories' && !b.data[kind]
+          ? defaultCategories()
+          : (b.data[kind] ?? (laterKinds.has(kind) ? [] : undefined));
       assert(
         Array.isArray(input) && input.length <= 10000,
         'Koleksi cadangan tidak valid: ' + kind,

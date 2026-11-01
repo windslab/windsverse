@@ -5436,3 +5436,232 @@ html:has(.cafe-scene-shell.exploring) [data-slot='dialog-content'] {
   -webkit-user-select: text;
   user-select: text;
 }
+
+/* Member cards in the café system: the box in the till and the Member tab. */
+.member-pos {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #293447;
+  border-radius: 12px;
+  background: #151d2a;
+  font-size: 0.83rem;
+}
+.member-pos[data-selected] {
+  border-color: #4a6a3c;
+  background: #17231b;
+}
+.member-matches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.member-matches button,
+.member-list button {
+  width: 100%;
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid #293447;
+  border-radius: 10px;
+  background: #1b2433;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.member-matches small,
+.member-list small {
+  color: #9aa6b9;
+}
+.member-signup {
+  display: grid;
+  gap: 6px;
+}
+.member-glance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.member-glance span {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #223047;
+  color: #cfd8e6;
+  font-size: 0.78rem;
+}
+.member-voucher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: #2a2618;
+  color: #f1d9a8;
+}
+.member-voucher[data-using] {
+  background: #2f3f22;
+  color: #d8efb8;
+}
+.member-voucher select {
+  margin-left: auto;
+  max-width: 55%;
+}
+.member-voucher .button,
+.member-voucher small {
+  margin-left: auto;
+}
+.member-earn {
+  color: #c4ec81;
+}
+.member-admin {
+  display: grid;
+  grid-template-columns: minmax(240px, 340px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .member-admin {
+    grid-template-columns: 1fr;
+  }
+}
+.member-list {
+  display: grid;
+  gap: 8px;
+}
+.member-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  max-height: 70vh;
+  overflow: auto;
+}
+.member-list button[data-open] {
+  border-color: #6a8f4e;
+  background: #1d2a1f;
+}
+.member-hint {
+  padding: 24px;
+}
+.member-detail,
+.member-panel {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid #293447;
+  border-radius: 14px;
+  background: #151d2a;
+}
+.member-detail h2 {
+  margin: 0;
+}
+.member-detail h3,
+.member-panel h3 {
+  margin: 8px 0 0;
+  font-size: 0.95rem;
+}
+.member-stamps {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 6px;
+  max-width: 420px;
+}
+.member-stamps span {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px dashed #3c4a62;
+  color: #7f8da4;
+  font-size: 0.72rem;
+}
+.member-stamps span[data-on] {
+  border: 0;
+  background: radial-gradient(circle at 35% 30%, #f6d79e, #d39a4a);
+  color: #4a3416;
+  font-weight: 700;
+}
+.member-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 0.83rem;
+}
+.member-rows li {
+  padding: 6px 0;
+  border-bottom: 1px solid #222c3c;
+  gap: 8px;
+}
+.member-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.member-form label,
+.member-panel > .row label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.8rem;
+}
+.member-categories {
+  width: 100%;
+  max-width: 420px;
+  border-collapse: collapse;
+  font-size: 0.83rem;
+}
+.member-categories th,
+.member-categories td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #222c3c;
+  text-align: left;
+}
+.member-poster {
+  max-width: 380px;
+  padding: 28px 24px;
+  border-radius: 18px;
+  background: #fffaf0;
+  color: #2f3a24;
+  text-align: center;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+.member-poster h2 {
+  margin: 0;
+  font:
+    600 1.5rem/1.2 Georgia,
+    serif;
+}
+.member-poster img {
+  width: 240px;
+  height: 240px;
+}
+.member-poster small {
+  letter-spacing: 0.12em;
+  color: #7a6a55;
+}
+@media print {
+  body:has(#member-poster) * {
+    visibility: hidden;
+  }
+  #member-poster,
+  #member-poster * {
+    visibility: visible;
+  }
+  #member-poster {
+    position: fixed;
+    left: 50%;
+    top: 40px;
+    transform: translateX(-50%);
+  }
+}
+.member-detail > header {
+  flex-wrap: wrap;
+  gap: 8px;
+}

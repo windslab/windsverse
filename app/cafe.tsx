@@ -5,6 +5,8 @@ import AuditPanel from './audit-panel';
 import CameraAdmin from './camera-admin';
 import MusicAdmin from './music-admin';
 import RosterPlanner from './roster-planner';
+import MemberPos, { type MemberFree } from './member-pos';
+import MemberAdmin from './member-admin';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
@@ -22,6 +24,7 @@ import {
   Coffee,
   BookOpen,
   MessageCircle,
+  IdCard,
   StickyNote,
   Settings,
   Grid2X2,
@@ -132,6 +135,8 @@ type Field = {
   default?: any;
   step?: string;
   hint?: string;
+  /** A number that may be left empty (sent as null). */
+  blank?: boolean;
 };
 const opts = (values: string[]) =>
   values.map((v) => ({ value: v, label: labels[v] || v.replaceAll('_', ' ') }));
@@ -209,6 +214,7 @@ const nav = [
       ['pos', 'Kasir POS', ShoppingCart],
       ['orders', 'Pesanan', ClipboardList],
       ['tables', 'Denah meja', Grid2X2],
+      ['members', 'Member', IdCard],
     ],
   },
   {
@@ -275,6 +281,8 @@ export default function Cafe({ name }: { name: string }) {
     [orderType, setOrderType] = useState('takeaway'),
     [tableId, setTableId] = useState(''),
     [customerName, setCustomerName] = useState(''),
+    [memberId, setMemberId] = useState(''),
+    [memberFree, setMemberFree] = useState<MemberFree>(null),
     [audit, setAudit] = useState<any[]>([]);
   const revision = useRef(0),
     mutation = useRef(false),
@@ -616,6 +624,14 @@ export default function Cafe({ name }: { name: string }) {
           default: 'tersedia',
         },
         { key: 'sortOrder', label: 'Urutan tampil', type: 'number', default: 0 },
+        {
+          key: 'memberPoints',
+          label: 'Poin member per porsi',
+          type: 'number',
+          blank: true,
+          default: '',
+          hint: 'Kosongkan untuk otomatis: 1 poin per Rp1.000 harga.',
+        },
         { key: 'image', label: 'Foto menu', type: 'image' },
       ],
       ingredients: [
@@ -1001,6 +1017,10 @@ export default function Cafe({ name }: { name: string }) {
         tableId: orderType === 'dine_in' ? tableId : '',
         customerName,
         paid,
+        ...(memberId ? { memberId } : {}),
+        ...(memberId && memberFree && cart.some((i) => i.id === memberFree.productId)
+          ? { memberFree }
+          : {}),
       },
       'Pesanan tercatat',
     );
@@ -1009,14 +1029,19 @@ export default function Cafe({ name }: { name: string }) {
       setDiscount(0);
       setCashPaid('');
       setCustomerName('');
+      setMemberId('');
+      setMemberFree(null);
       if (result.id) setReceipt(result);
     }
   };
+  // A member's free drink comes off the bill like a discount.
+  const freeValue = memberFree ? (cart.find((i) => i.id === memberFree.productId)?.price ?? 0) : 0;
   const subtotal = cart.reduce((v, i) => v + i.price * i.quantity, 0),
+    allDiscount = discount + freeValue,
     tax = taxEnabled
-      ? Math.round((Math.max(0, subtotal - discount) * (settings?.taxPercentage || 0)) / 100)
+      ? Math.round((Math.max(0, subtotal - allDiscount) * (settings?.taxPercentage || 0)) / 100)
       : 0,
-    total = Math.max(0, subtotal - discount) + tax;
+    total = Math.max(0, subtotal - allDiscount) + tax;
   const payOrder = (o: Row) =>
     setModal({
       title: 'Terima pembayaran ' + o.no,
@@ -1770,6 +1795,20 @@ export default function Cafe({ name }: { name: string }) {
                 Hubungi admin untuk memastikan kamu tercantum pada jadwal shift tanggal transaksi.
               </small>
             )}
+            <MemberPos
+              s={s}
+              busy={busy}
+              memberId={memberId}
+              memberFree={memberFree}
+              cart={cart}
+              discount={discount}
+              act={act}
+              onMember={(id, name) => {
+                setMemberId(id);
+                if (id && name && !customerName) setCustomerName(name.split(' ')[0]);
+              }}
+              onFree={setMemberFree}
+            />
             <label>
               Nama pemesan (opsional, untuk lacak pesanan)
               <input
@@ -1863,6 +1902,12 @@ export default function Cafe({ name }: { name: string }) {
                 onChange={(e) => setDiscount(Number(e.target.value))}
               />
             </label>
+            {freeValue > 0 && (
+              <div className="row between">
+                <span>Minuman gratis member</span>
+                <span>−{money(freeValue)}</span>
+              </div>
+            )}
             <label className="row">
               <Checkbox checked={taxEnabled} onCheckedChange={(v) => setTaxEnabled(v === true)} />
               Pajak {settings?.taxPercentage || 0}%<span className="ml-auto">{money(tax)}</span>
@@ -3129,6 +3174,7 @@ export default function Cafe({ name }: { name: string }) {
         </div>
       </>
     );
+  if (tab === 'members') content = <MemberAdmin s={s} admin={!!admin} busy={busy} act={act} />;
   if (tab === 'camera' && admin) content = <CameraAdmin />;
   if (tab === 'music' && admin) content = <MusicAdmin />;
   if (tab === 'settings')
@@ -3606,7 +3652,11 @@ function Editor({
             toast.error('Lengkapi ' + f.label);
             return;
           }
-          if (f.type === 'number') data[f.key] = Number(data[f.key] || 0);
+          if (f.type === 'number')
+            data[f.key] =
+              f.blank && (data[f.key] === '' || data[f.key] == null)
+                ? null
+                : Number(data[f.key] || 0);
           if (f.type === 'datetime-local' && data[f.key])
             data[f.key] = new Date(data[f.key] + '+08:00').toISOString();
         }
@@ -3789,7 +3839,7 @@ function Editor({
                 type={f.type || 'text'}
                 autoComplete={f.type === 'password' ? 'new-password' : undefined}
                 inputMode={f.type === 'password' ? 'numeric' : undefined}
-                value={v[f.key]}
+                value={v[f.key] ?? ''}
                 required={f.required}
                 min={f.type === 'number' ? 0 : undefined}
                 step={f.step || '1'}
