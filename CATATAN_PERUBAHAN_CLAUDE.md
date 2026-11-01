@@ -1131,3 +1131,13 @@ Bawa branch ini (atau patch-nya) ke lingkungan ChatGPT Sites yang punya akses pr
 - **Kucing**: kaki menembus sedikit ke dalam badan sehingga tidak terlihat terpisah.
 - Diuji di browser (dev): tampak luar meja bar dan kaca, kamera Story of Winds di tripod + rekam video
   3 dtk dengan film, kucing. `typecheck`, `format:check`, `build` lulus; tes 19/19.
+
+## 55. Kamera kembali manual; penghalang dibuat transparan (1 Nov 2026)
+
+- Pergerakan kamera otomatis (berbelok/naik/mendekat saat terhalang) dihapus. Kamera kembali
+  mengikuti Luna di sudut dan jarak yang diatur pemain saja.
+- Benda yang berdiri di antara kamera dan Luna (dinding, atap, lantai atas, pohon, perabot besar)
+  kini **memudar** ke ±30 % opacity, pelan masuk dan keluar, lalu kembali normal setelah tidak
+  menghalangi. Dicek beberapa kali per detik dengan dua garis pandang (dada dan lutut Luna). Kaca dan
+  perlengkapan bar tidak ikut.
+- Diuji di browser (dev): Luna di bawah lantai 2, lantai atas dan dinding di depannya memudar.

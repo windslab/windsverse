@@ -562,25 +562,19 @@ export default function CafeScene({
       followOffset = new THREE.Vector3(),
       followDir = new THREE.Vector3(),
       followSpherical = new THREE.Spherical(),
-      // Player's wish, collision-safe goal and what is shown (radius 0 = not following yet).
+      // Player's wish and what is shown (radius 0 = not following yet).
       followWish = new THREE.Spherical(),
-      followGoal = new THREE.Spherical(),
       followShown = new THREE.Spherical(0),
       probeRay = new THREE.Raycaster();
     // Development only (?sceneStats): freeze the explore camera to inspect a spot.
     const debugCamera = { frozen: false };
-    /** The camera's own steering around walls: offsets from the player's angle and their speeds. */
-    const followAuto = {
-      yaw: 0,
-      pitch: 0,
-      vYaw: 0,
-      vPitch: 0,
-      steer: 0,
-      lift: 0,
-      home: true,
-      blocked: 0,
-      probed: 0,
-      reach: 1,
+    /** Pieces faded because they stand between the camera and Luna (eased in and out). */
+    const fades = new Map<
+      THREE.Mesh,
+      { original: THREE.Material; faded: THREE.Material; level: number; want: number }
+    >();
+    const fadeAll = (on: boolean) => {
+      if (!on) for (const fade of fades.values()) fade.want = 1;
     };
     let occluders: THREE.Object3D[] | undefined,
       lastProbe = 0;
@@ -3008,18 +3002,16 @@ export default function CafeScene({
               followWish.radius = followSpherical.radius;
               followWish.phi = followSpherical.phi;
               followWish.theta = followSpherical.theta;
-              followGoal.radius = followShown.radius = followSpherical.radius;
-              followGoal.phi = followShown.phi = followSpherical.phi;
-              followGoal.theta = followShown.theta = followSpherical.theta;
-              Object.assign(followAuto, { yaw: 0, pitch: 0, vYaw: 0, vPitch: 0, reach: 1 });
+              followShown.radius = followSpherical.radius;
+              followShown.phi = followSpherical.phi;
+              followShown.theta = followSpherical.theta;
             }
             // Free look: from above Luna down to just below her eye line (to see the sky).
             followWish.radius = THREE.MathUtils.clamp(followWish.radius, 1.8, 9);
             followWish.phi = THREE.MathUtils.clamp(followWish.phi, 0.2, 1.68);
             controls!.target.lerp(followTarget, reduced ? 1 : 1 - Math.exp(-delta * 6));
-            // Camera collision: when a roof or wall is in the way, the camera swings round (and up
-            // or down) at the same distance to a clear view of Luna; nothing is hidden, and it
-            // only comes closer when no angle is clear (a few probes per second).
+            // The camera simply follows Luna at the player's own angle and distance. Whatever stands
+            // between it and her (a wall, a roof, a tree) fades a little so she stays in sight.
             // Inside the tower: a wide lens, no zooming in on Luna, and the camera stays within the
             // walls so the library can be enjoyed.
             const inTower = !!world && world.towerInfo.inside(people.baristaPosition());
@@ -3028,118 +3020,64 @@ export default function CafeScene({
               camera.fov += (towerFov - camera.fov) * (reduced ? 1 : 1 - Math.exp(-delta * 4));
               camera.updateProjectionMatrix();
             }
-            if (inTower) {
-              followGoal.phi = followWish.phi;
-              followGoal.theta = followWish.theta;
-              followGoal.radius = Math.min(followWish.radius, 3.2);
-            } else if (t - lastProbe > 0.06) {
+            followShown.phi = followWish.phi;
+            followShown.theta = followWish.theta;
+            followShown.radius = inTower ? Math.min(followWish.radius, 3.2) : followWish.radius;
+            if (!inTower && t - lastProbe > 0.1) {
               lastProbe = t;
               if (!occluders) {
                 const list: THREE.Object3D[] = [];
                 occluders = list;
-                // The observatory too: Luna can walk into it and climb its stairs.
-                world?.tower.traverse((node) => {
-                  if ((node as THREE.Mesh).isMesh) list.push(node);
-                });
-                // Only big things (walls, floors, roofs): chairs, tables and plants never pull the
-                // camera in.
+                // The café's pieces (and the observatory's), except see-through glass and the
+                // small things on the floor.
                 const size = new THREE.Vector3();
-                cafeModel?.traverse((node) => {
-                  const mesh = node as THREE.Mesh;
-                  const material = mesh.material as THREE.MeshStandardMaterial | undefined;
-                  if (
-                    mesh.isMesh &&
-                    // Glass is seen through, so it never blocks the view.
-                    !(material && material.transparent && material.opacity < 0.9) &&
-                    !/leaf|leaves|undergrowth|cable|socket|bulb|daun|rumput|grass|kursi|meja|pot|cup|kaca|glass/i.test(
-                      mesh.name + ' ' + (mesh.parent?.name ?? ''),
-                    ) &&
-                    new THREE.Box3().setFromObject(mesh).getSize(size).length() > 1.4
-                  )
-                    list.push(mesh);
-                });
+                const add = (root: THREE.Object3D | undefined) =>
+                  root?.traverse((node) => {
+                    const mesh = node as THREE.Mesh;
+                    const material = mesh.material as THREE.MeshStandardMaterial | undefined;
+                    if (
+                      mesh.isMesh &&
+                      !Array.isArray(mesh.material) &&
+                      !(material && material.transparent && material.opacity < 0.9) &&
+                      !/cable|socket|bulb|kaca|glass|Bar_Rig/i.test(
+                        mesh.name + ' ' + (mesh.parent?.name ?? ''),
+                      ) &&
+                      new THREE.Box3().setFromObject(mesh).getSize(size).length() > 0.35
+                    )
+                      list.push(mesh);
+                  });
+                add(world?.tower);
+                add(cafeModel);
               }
-              // Steering, not jumping: when Luna is hidden the camera turns (at the same distance)
-              // toward whichever side is clear, rising if neither is; once the player's own angle
-              // is clear again it drifts back to it. Three rays at most per probe.
-              const clearAt = (phi: number, theta: number, radius: number) => {
-                followDir.setFromSphericalCoords(1, phi, theta);
-                probeRay.near = 0.6;
-                probeRay.far = radius + 0.35;
-                probeRay.set(controls!.target, followDir);
-                return !probeRay.intersectObjects(occluders!, false)[0];
-              };
-              const phi = THREE.MathUtils.clamp(followWish.phi + followAuto.pitch, 0.25, 1.6),
-                theta = followWish.theta + followAuto.yaw,
-                radius = followWish.radius * followAuto.reach;
-              if (activePointers.size > 0) {
-                // The player is turning the camera: they lead, the camera's own offsets let go.
-                followAuto.steer = followAuto.lift = 0;
-                followAuto.home = true;
-              } else if (!clearAt(phi, theta, radius)) {
-                const left = clearAt(phi, theta + 0.4, radius),
-                  right = clearAt(phi, theta - 0.4, radius);
-                // Keep turning the way it already turns when both (or neither) side is clear.
-                const way = followAuto.yaw >= 0 ? 1 : -1;
-                followAuto.steer = left && !right ? 1 : right && !left ? -1 : way;
-                followAuto.lift = !left && !right ? 1 : 0;
-                followAuto.home = false;
-                followAuto.blocked += t - followAuto.probed;
-              } else {
-                followAuto.steer = followAuto.lift = 0;
-                followAuto.blocked = 0;
-                followAuto.home =
-                  (Math.abs(followAuto.yaw) < 0.01 && Math.abs(followAuto.pitch) < 0.01) ||
-                  clearAt(followWish.phi, followWish.theta, followWish.radius);
+              // Two sight lines (chest and knees) from Luna to the camera.
+              const seen = new Set<THREE.Mesh>();
+              camera.position
+                .copy(controls!.target)
+                .add(followOffset.setFromSpherical(followShown));
+              for (const lift of [0, -0.45]) {
+                const from = followTarget.clone().setY(followTarget.y + lift),
+                  to = camera.position.clone().sub(from),
+                  length = to.length();
+                probeRay.near = 0.15;
+                probeRay.far = Math.max(0.2, length - 0.1);
+                probeRay.set(from, to.divideScalar(length));
+                for (const hit of probeRay.intersectObjects(occluders, false))
+                  seen.add(hit.object as THREE.Mesh);
               }
-              followAuto.probed = t;
-            }
-            if (!inTower && activePointers.size > 0 && (followAuto.yaw || followAuto.pitch)) {
-              // The player takes over: the camera's own turn becomes their angle (no jump).
-              followWish.theta += followAuto.yaw;
-              followWish.phi += followAuto.pitch;
-              Object.assign(followAuto, { yaw: 0, pitch: 0, vYaw: 0, vPitch: 0 });
-            }
-            if (!inTower) {
-              // Integrate the steering every frame with eased speeds, so it glides.
-              const ease = Math.min(1, delta * 5),
-                toward = (value: number, rate: number) =>
-                  Math.sign(-value) * Math.min(Math.abs(value), rate * delta);
-              const yawSpeed = followAuto.steer
-                ? followAuto.steer * 1.1
-                : followAuto.home
-                  ? toward(followAuto.yaw, 0.8) / Math.max(delta, 1e-4)
-                  : 0;
-              followAuto.vYaw += (yawSpeed - followAuto.vYaw) * ease;
-              followAuto.yaw = THREE.MathUtils.clamp(
-                followAuto.yaw + followAuto.vYaw * delta,
-                -Math.PI,
-                Math.PI,
-              );
-              const pitchSpeed = followAuto.lift
-                ? -0.6
-                : followAuto.home
-                  ? toward(followAuto.pitch, 0.5) / Math.max(delta, 1e-4)
-                  : 0;
-              followAuto.vPitch += (pitchSpeed - followAuto.vPitch) * ease;
-              followAuto.pitch = THREE.MathUtils.clamp(
-                followAuto.pitch + followAuto.vPitch * delta,
-                0.25 - followWish.phi,
-                0,
-              );
-              // Only after being hidden for a while does it come a little closer, slowly.
-              const reach = followAuto.blocked > 1.2 ? 0.55 : 1;
-              followAuto.reach += (reach - followAuto.reach) * Math.min(1, delta * 0.6);
-              followShown.phi = THREE.MathUtils.clamp(followWish.phi + followAuto.pitch, 0.2, 1.68);
-              followShown.theta = followWish.theta + followAuto.yaw;
-              followShown.radius +=
-                (followWish.radius * followAuto.reach - followShown.radius) *
-                (reduced ? 1 : 1 - Math.exp(-delta * 1.6));
-            } else {
-              followShown.phi = followGoal.phi;
-              followShown.theta = followGoal.theta;
-              followShown.radius +=
-                (followGoal.radius - followShown.radius) * Math.min(1, delta * 2);
+              for (const mesh of seen) {
+                let fade = fades.get(mesh);
+                if (!fade) {
+                  const original = mesh.material as THREE.Material;
+                  const faded = original.clone();
+                  faded.transparent = true;
+                  faded.depthWrite = false;
+                  fade = { original, faded, level: 1, want: 1 };
+                  fades.set(mesh, fade);
+                  mesh.material = faded;
+                }
+                fade.want = 0.3;
+              }
+              for (const [mesh, fade] of fades) if (!seen.has(mesh)) fade.want = 1;
             }
             camera.position.copy(controls!.target).add(followOffset.setFromSpherical(followShown));
             if (inTower && world) {
@@ -3168,6 +3106,17 @@ export default function CafeScene({
             followShown.setFromVector3(followOffset.copy(camera.position).sub(controls!.target));
           } else if (followShown.radius > 0) {
             followShown.radius = 0;
+          }
+          // Faded pieces ease toward their goal; once fully back they get their own material again.
+          fadeAll(!!(exploreCamera && people && !inCctv));
+          for (const [mesh, fade] of fades) {
+            fade.level += (fade.want - fade.level) * (reduced ? 1 : Math.min(1, delta * 8));
+            fade.faded.opacity = fade.level;
+            if (fade.want === 1 && fade.level > 0.97) {
+              mesh.material = fade.original;
+              fade.faded.dispose();
+              fades.delete(mesh);
+            }
           }
           foliage.forEach(({ node, x, z, phase, amplitude }) => {
             node.rotation.x = x + (reduced ? 0 : Math.sin(t * 0.7 + phase) * amplitude);
