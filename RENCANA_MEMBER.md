@@ -6,12 +6,15 @@ Disepakati bersama pemilik pada 1 November 2026. Tahap 1 dibangun di branch `lun
 
 ### Stamp
 
-- **1 transaksi = 1 stamp**, bila ada minimal **1 minuman seharga ≥ Rp15.000** atau **1 makanan seharga ≥ Rp15.000** yang dibayar (kategori makanan dan harga minimalnya diatur di Member → Aturan).
+- **1 stamp per hari kerja kafe** (sampai 05.00 WITA), dari transaksi pertama yang memiliki minimal **1 minuman seharga ≥ Rp15.000** atau **1 makanan seharga ≥ Rp15.000** yang dibayar (kategori makanan dan harga minimalnya diatur di Member → Aturan). Transaksi berikutnya di hari yang sama hanya mendapat poin. Bila transaksi pertama dibatalkan, stamp hari itu pindah ke transaksi berikutnya. Aturan ini disepakati 3 November 2026 untuk menutup celah memecah transaksi.
 - Satu kartu punya **10 kotak stamp**. Setelah penuh, otomatis lanjut ke kartu berikutnya; kartu
   lama tersimpan di riwayat.
-- **Stamp ke-5**: 1 minuman **non-kopi** gratis (bebas pilih). **Stamp ke-10**: 1 minuman **kopi**
-  gratis (bebas pilih).
-- Minuman gratis **hangus 6 bulan** setelah didapat bila tidak dipakai.
+- **Stamp ke-5**: **potongan Rp5.000** untuk satu transaksi. Transaksi itu tetap mendapat stamp, dan
+  poinnya dihitung setelah potongan.
+- **Stamp ke-10**: 1 **minuman gratis sampai Rp20.000** (kopi atau non-kopi). Bila lebih mahal,
+  pelanggan membayar selisihnya.
+- Kedua nilai itu diatur di Member → Aturan. Hadiah stamp **hangus 6 bulan** setelah didapat bila
+  tidak dipakai.
 - Minuman gratis yang ditukar tidak memberi stamp maupun poin; yang dihitung hanya bagian transaksi
   yang dibayar dan memenuhi syarat.
 
@@ -51,8 +54,7 @@ Disepakati bersama pemilik pada 1 November 2026. Tahap 1 dibangun di branch `lun
   dipakai dan nilai potongannya, yang masuk ke kolom diskon).
 - Stamp, poin, voucher minuman gratis, dan kartu **dihitung dari pesanan** (lunas, tidak dibatalkan),
   jadi pembatalan atau koreksi pesanan otomatis ikut menyesuaikan. Semua perubahan tercatat di audit.
-- Kategori minuman dan kategori kopi diatur di panel admin (bawaan: minuman = kopi, non kopi,
-  mocktail; kopi = kopi).
+- Kategori minuman dan makanan diatur di panel admin.
 - **Kartu digital 3D** seukuran kartu ATM (85,6 × 54 mm, landscape). Depan: desain + nama, kode,
   nomor kartu. Belakang: desain + 10 stamp (digambar otomatis, beranimasi stempel). Desain depan dan
   belakang diunggah admin di Member → Tampilan kartu (template dengan area aman bisa diunduh di

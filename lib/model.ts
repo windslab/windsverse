@@ -48,7 +48,7 @@ export const money = (n: number) =>
     maximumFractionDigits: 0,
   }).format(n || 0);
 export const CAFE_TIMEZONE = 'Asia/Makassar';
-export const OPERATIONS_VERSION = 2;
+export const OPERATIONS_VERSION = 3;
 export const hasMissingHpp = (order: Row) =>
   order.hppComplete === false || order.items?.some((item: any) => item.hppMissing === true);
 export const tracksStock = (ingredient: Row) => ingredient.trackStock === true;
@@ -99,6 +99,50 @@ export const labels: Record<string, string> = {
   lunas: 'Lunas',
   belum_dibayar: 'Belum dibayar',
 };
+/**
+ * How an expense reaches the wages: rent and utilities are monthly, stock purchases are already in
+ * HPP, and everything else belongs to the whole day rather than to whoever went shopping.
+ */
+export const expenseScope = (e: Row): 'harian' | 'bulanan' | 'stok' =>
+  e.category === 'bahan_baku'
+    ? 'stok'
+    : e.category === 'sewa' || e.category === 'utilitas'
+      ? 'bulanan'
+      : 'harian';
+/** The shifts of a date that share its daily expenses; a closed shift nobody worked is left out. */
+export const shiftsSharingDay = (s: State, date: string) =>
+  s.shifts
+    .filter(
+      (sh) =>
+        sh.date === date &&
+        (sh.status !== 'closed' ||
+          s.attendance.some((at) => at.shiftId === sh.id && at.status === 'hadir') ||
+          s.orders.some((o) => o.shiftId === sh.id && o.paid && o.status !== 'dibatalkan')),
+    )
+    .sort((a, b) => a.startAt.localeCompare(b.startAt) || a.id.localeCompare(b.id));
+export const dailyExpenses = (s: State, date: string) =>
+  s.expenses
+    .filter((e) => e.date === date && expenseScope(e) === 'harian')
+    .reduce((v, e) => v + e.amount, 0);
+/** An even share of the day's expenses; the earliest shifts carry any leftover rupiah. */
+export function dailyExpenseShare(s: State, shift: Row) {
+  const sharing = shiftsSharingDay(s, shift.date),
+    index = sharing.findIndex((sh) => sh.id === shift.id);
+  if (index < 0) return 0;
+  const total = dailyExpenses(s, shift.date),
+    each = Math.floor(total / sharing.length);
+  return each + (index < total - each * sharing.length ? 1 : 0);
+}
+/** Lowers the monthly bonus only: monthly costs, and daily costs of a day without any shift. */
+export const monthlyExpenses = (s: State, period: string) =>
+  s.expenses
+    .filter(
+      (e) =>
+        e.date.startsWith(period) &&
+        (expenseScope(e) === 'bulanan' ||
+          (expenseScope(e) === 'harian' && !shiftsSharingDay(s, e.date).length)),
+    )
+    .reduce((v, e) => v + e.amount, 0);
 export function shiftTotals(s: State, shift: Row) {
   const orders = s.orders.filter(
     (o) => o.shiftId === shift.id && o.paid && o.status !== 'dibatalkan',
@@ -106,9 +150,7 @@ export function shiftTotals(s: State, shift: Row) {
   const revenue = orders.reduce((v, o) => v + o.subtotal - o.discount, 0);
   const hpp = orders.reduce((v, o) => v + o.hpp, 0);
   const hppComplete = orders.every((o) => !hasMissingHpp(o));
-  const costs = s.expenses
-    .filter((e) => e.shiftId === shift.id && e.category !== 'bahan_baku')
-    .reduce((v, e) => v + e.amount, 0);
+  const costs = dailyExpenseShare(s, shift);
   const profit = revenue - hpp - costs;
   const tiers = [
     ...(shift.status === 'closed' && Array.isArray(shift.snapshot?.tiers)

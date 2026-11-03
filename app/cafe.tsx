@@ -6,6 +6,7 @@ import CameraAdmin from './camera-admin';
 import MusicAdmin from './music-admin';
 import RosterPlanner from './roster-planner';
 import MemberPos, { type MemberFree } from './member-pos';
+import { memberRules, voucherValue } from '@/lib/member';
 import MemberAdmin from './member-admin';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -110,6 +111,9 @@ import {
   dateTime,
   labels,
   shiftTotals,
+  expenseScope,
+  dailyExpenses,
+  shiftsSharingDay,
   CAFE_TIMEZONE,
   hasMissingHpp as missingHpp,
   OPERATIONS_VERSION,
@@ -341,6 +345,8 @@ export default function Cafe({ name }: { name: string }) {
       .map((c) => ({ value: c.id, label: c.name }));
   const employee = (id: string) => s.employees.find((e) => e.id === id)?.name || 'Karyawan';
   const shiftName = (id: string) => s.shifts.find((sh) => sh.id === id)?.name || 'Umum';
+  const expenseScopeName = (e: Row) =>
+    ({ harian: 'Harian', bulanan: 'Bulanan', stok: 'Stok (HPP)' })[expenseScope(e)];
   async function load() {
     try {
       const r = await fetch('/api/cafe', { cache: 'no-store' });
@@ -579,27 +585,6 @@ export default function Cafe({ name }: { name: string }) {
     const employees = s.employees
       .filter((e) => e.status === 'aktif')
       .map((e) => ({ value: e.id, label: e.name }));
-    const shifts = [
-      { value: '', label: 'Biaya umum — tidak dibebankan ke shift' },
-      ...[...s.shifts]
-        .filter(
-          (sh) =>
-            !s.payrolls.some((pr) => pr.period === sh.date.slice(0, 7) && pr.status === 'lunas'),
-        )
-        .sort((a, b) => b.startAt.localeCompare(a.startAt))
-        .map((sh) => ({
-          value: sh.id,
-          label:
-            sh.name +
-            ' · ' +
-            sh.date +
-            (s.payrolls.some((pr) => pr.period === sh.date.slice(0, 7) && pr.status === 'lunas')
-              ? ' · Periode terkunci'
-              : sh.status === 'closed'
-                ? ' · Selesai'
-                : ''),
-        })),
-    ];
     const map: Partial<Record<Kind, Field[]>> = {
       categories: [
         { key: 'name', label: 'Nama kategori', required: true },
@@ -753,19 +738,12 @@ export default function Cafe({ name }: { name: string }) {
           options: opts(['operasional', 'bahan_baku', 'sewa', 'utilitas', 'lainnya']),
           default: 'operasional',
         },
-        { key: 'date', label: 'Tanggal', type: 'date', default: localDate(), required: true },
-        {
-          key: 'shiftId',
-          label: 'Alokasi',
-          type: 'select',
-          options: shifts,
-          default: current?.id || '',
-        },
+        { key: 'date', label: 'Tanggal', type: 'date', default: businessDay(), required: true },
         {
           key: 'notes',
           label: 'Keterangan',
           type: 'textarea',
-          hint: 'Pembelian bahan baku dicatat sebagai arus kas, tidak dikurangi lagi dari laba yang sudah memakai HPP.',
+          hint: 'Operasional dan lainnya masuk pengeluaran hari itu dan dibagi rata ke semua shift. Sewa dan utilitas mengurangi laba bulanan. Bahan baku tidak dikurangi lagi karena sudah memakai HPP.',
         },
       ],
       books: [
@@ -1018,7 +996,9 @@ export default function Cafe({ name }: { name: string }) {
         customerName,
         paid,
         ...(memberId ? { memberId } : {}),
-        ...(memberId && memberFree && cart.some((i) => i.id === memberFree.productId)
+        ...(memberId &&
+        memberFree &&
+        (!memberFree.productId || cart.some((i) => i.id === memberFree.productId))
           ? { memberFree }
           : {}),
       },
@@ -1036,10 +1016,17 @@ export default function Cafe({ name }: { name: string }) {
       if (result.id) setReceipt(result);
     }
   };
-  // A member's free drink comes off the bill like a discount.
-  const freeValue = memberFree ? (cart.find((i) => i.id === memberFree.productId)?.price ?? 0) : 0;
-  const subtotal = cart.reduce((v, i) => v + i.price * i.quantity, 0),
-    allDiscount = discount + freeValue,
+  const subtotal = cart.reduce((v, i) => v + i.price * i.quantity, 0);
+  // A member's stamp reward comes off the bill like a discount.
+  const freeDrink = cart.find((i) => i.id === memberFree?.productId);
+  const freeValue = !memberFree
+    ? 0
+    : memberFree.productId
+      ? freeDrink
+        ? voucherValue(memberRules(s), subtotal, freeDrink.price)
+        : 0
+      : voucherValue(memberRules(s), subtotal);
+  const allDiscount = discount + freeValue,
     tax = taxEnabled
       ? Math.round((Math.max(0, subtotal - allDiscount) * (settings?.taxPercentage || 0)) / 100)
       : 0,
@@ -2413,19 +2400,38 @@ export default function Cafe({ name }: { name: string }) {
       <>
         {toolbar('Catatan pengeluaran', 'expenses')}
         <div className="notice">
-          Karyawan dapat menambah dan mengubah catatan pembelian atau biaya operasional, termasuk
-          mengalokasikannya ke shift selesai selama periode belum dibayar. Penghapusan tetap
-          memerlukan akun admin agar riwayat tidak hilang tanpa pengawasan.
+          Karyawan dapat menambah dan mengubah catatan pembelian atau biaya operasional selama
+          periode belum dibayar. Pengeluaran harian disatukan per tanggal dan dibagi rata ke semua
+          shift hari itu, siapa pun yang belanja. Penghapusan tetap memerlukan akun admin agar
+          riwayat tidak hilang tanpa pengawasan.
         </div>
+        {admin &&
+          table(
+            ['Tanggal', 'Pengeluaran harian', 'Jumlah shift', 'Per shift'],
+            [...new Set(s.expenses.filter((e) => expenseScope(e) === 'harian').map((e) => e.date))]
+              .sort()
+              .reverse()
+              .slice(0, 14)
+              .map((day) => {
+                const total = dailyExpenses(s, day),
+                  shiftCount = shiftsSharingDay(s, day).length;
+                return [
+                  day,
+                  money(total),
+                  shiftCount || 'Tidak ada shift',
+                  shiftCount ? money(Math.round(total / shiftCount)) : 'Masuk biaya bulanan',
+                ];
+              }),
+          )}
         {table(
-          ['Tanggal', 'Keterangan', 'Kategori', 'Alokasi', 'Nominal', 'Aksi'],
+          ['Tanggal', 'Keterangan', 'Kategori', 'Jenis', 'Nominal', 'Aksi'],
           [...s.expenses]
             .reverse()
             .map((e) => [
               e.date,
               e.title,
               e.category,
-              shiftName(e.shiftId),
+              expenseScopeName(e),
               money(e.amount),
               controls('expenses', e),
             ]),
@@ -2462,7 +2468,7 @@ export default function Cafe({ name }: { name: string }) {
           Gaji mengikuti laba bersih shift sebelum gaji. Setiap staf yang hadir mendapat tier penuh.
           Koreksi shift selesai mempertahankan tier yang tersimpan saat penutupan. HPP harus lengkap
           sebelum payroll dihitung atau dibayar. Bonus bulanan: {settings?.bonusPercentage}% laba
-          positif setelah biaya umum dan gaji, dibagi menurut jumlah shift hadir.
+          positif setelah biaya bulanan dan gaji, dibagi menurut jumlah shift hadir.
         </div>
         {incompleteHppOrders.some((o) => o.date.startsWith(period)) && (
           <div className="notice warning">
@@ -2736,12 +2742,12 @@ export default function Cafe({ name }: { name: string }) {
         )}
         <h2>Pengeluaran</h2>
         {table(
-          ['Tanggal', 'Keterangan', 'Kategori', 'Alokasi', 'Nominal', 'Aksi'],
+          ['Tanggal', 'Keterangan', 'Kategori', 'Jenis', 'Nominal', 'Aksi'],
           expenses.map((e) => [
             e.date,
             e.title,
             e.category,
-            shiftName(e.shiftId),
+            expenseScopeName(e),
             money(e.amount),
             controls('expenses', e),
           ]),
@@ -3256,8 +3262,8 @@ export default function Cafe({ name }: { name: string }) {
           <h2>Aturan hitung versi 1</h2>
           <ul className="bullets">
             <li>
-              Laba untuk tier = omzet setelah diskon (tanpa pajak) − HPP − biaya yang dialokasikan
-              ke shift.
+              Laba untuk tier = omzet setelah diskon (tanpa pajak) − HPP − bagian shift dari
+              pengeluaran harian.
             </li>
             <li>
               Gaji shift itu sendiri dikurangkan setelah tier ditentukan. Laba negatif memakai tier
@@ -3265,8 +3271,8 @@ export default function Cafe({ name }: { name: string }) {
             </li>
             <li>Setiap staf hadir mendapat nominal tier penuh, tanpa prorata keterlambatan.</li>
             <li>
-              Biaya umum mengurangi laba bulanan; alokasikan ke shift jika harus memengaruhi tier
-              shift.
+              Pengeluaran harian (operasional dan lainnya) disatukan per tanggal lalu dibagi rata ke
+              semua shift hari itu. Sewa dan utilitas hanya mengurangi laba bulanan.
             </li>
             <li>
               Bonus dihitung bulanan dari laba positif setelah biaya dan gaji, dibagi menurut jumlah

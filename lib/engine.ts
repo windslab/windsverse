@@ -7,6 +7,8 @@ import {
   orderEarnings,
   validPhone,
   voucherFits,
+  voucherValue,
+  type VoucherType,
   DEFAULT_DESIGN,
 } from './member';
 import { z } from 'zod';
@@ -24,6 +26,7 @@ import {
   businessDay,
   shiftSlot,
   shiftTotals,
+  monthlyExpenses,
   hasMissingHpp,
   tracksStock,
   CAFE_TIMEZONE,
@@ -263,6 +266,15 @@ export function apply(
     };
     invalidatePayroll(sh.date.slice(0, 7));
   };
+  // A day's expenses are shared, so a change to one shift can change the others on that date.
+  const refreshDay = (date: string) =>
+    s.shifts
+      .filter(
+        (sh) =>
+          sh.date === date &&
+          !s.payrolls.some((pr) => pr.period === date.slice(0, 7) && pr.status === 'lunas'),
+      )
+      .forEach(refreshClosedShift);
   const finalizeShift = (sh: Row, closedAt = stamp) => {
     assertPeriodEditable(sh.date.slice(0, 7));
     validateTiers(s.tiers);
@@ -277,6 +289,7 @@ export function apply(
     sh.status = 'closed';
     sh.closedAt = closedAt;
     invalidatePayroll(sh.date.slice(0, 7));
+    refreshDay(sh.date);
   };
   const assertPayrollCurrent = (period: string) => {
     const payrolls = s.payrolls.filter((pr) => pr.period === period),
@@ -310,9 +323,7 @@ export function apply(
     const entries = [...amounts.entries()].sort(([a], [b]) => a.localeCompare(b)),
       baseTotal = entries.reduce((n, [, v]) => n + v.base, 0),
       shiftCount = entries.reduce((n, [, v]) => n + v.count, 0),
-      general = s.expenses
-        .filter((e) => e.date.startsWith(period) && !e.shiftId && e.category !== 'bahan_baku')
-        .reduce((n, e) => n + e.amount, 0),
+      general = monthlyExpenses(s, period),
       pool = Math.round(Math.max(0, profit - general - baseTotal) * (percentage / 100));
     assert(
       entries.length === payrolls.length &&
@@ -439,7 +450,7 @@ export function apply(
       if (existing) assertPeriodEditable(existing.date.slice(0, 7));
       if (existing?.shiftId)
         assertPeriodEditable(find(s, 'shifts', existing.shiftId).date.slice(0, 7));
-      if (row.shiftId) assertPeriodEditable(find(s, 'shifts', row.shiftId).date.slice(0, 7));
+      row.shiftId = '';
       assertPeriodEditable(row.date.slice(0, 7));
     }
     if (k === 'recipes') {
@@ -469,8 +480,11 @@ export function apply(
     if (k === 'expenses') {
       const periods = [row.date.slice(0, 7), existing?.date?.slice(0, 7)];
       s.payrolls = s.payrolls.filter((pr) => pr.status === 'lunas' || !periods.includes(pr.period));
-      for (const sid of new Set([row.shiftId, existing?.shiftId].filter(Boolean)))
-        refreshClosedShift(find(s, 'shifts', sid!));
+      for (const day of new Set([row.date, existing?.date].filter(Boolean))) refreshDay(day);
+    }
+    if (k === 'shifts') {
+      refreshDay(row.date);
+      if (existing && existing.date !== row.date) refreshDay(existing.date);
     }
     if (k === 'settings' && existing?.bonusPercentage !== row.bonusPercentage) {
       const locked = new Set(
@@ -733,7 +747,10 @@ export function apply(
           find(s, 'tables', tableId).status = 'dibersihkan';
       s.orders = s.orders.filter((o) => o.shiftId !== row.id);
       s.attendance = s.attendance.filter((at) => at.shiftId !== row.id);
-      s.expenses = s.expenses.filter((e) => e.shiftId !== row.id);
+      // The money was still spent: the expense stays with its date.
+      s.expenses.forEach((e) => {
+        if (e.shiftId === row.id) e.shiftId = '';
+      });
       s.payrolls = s.payrolls.filter(
         (pr) => pr.status === 'lunas' || pr.period !== row.date.slice(0, 7),
       );
@@ -773,8 +790,9 @@ export function apply(
       s.payrolls = s.payrolls.filter(
         (pr) => pr.status === 'lunas' || pr.period !== row.date.slice(0, 7),
       );
-      if (row.shiftId) refreshClosedShift(find(s, 'shifts', row.shiftId));
+      refreshDay(row.date);
     }
+    if (k === 'shifts') refreshDay(row.date);
     if (k === 'products') s.recipes = s.recipes.filter((r) => r.productId !== row.id);
     return;
   }
@@ -945,14 +963,14 @@ export function apply(
     s.attendance = s.attendance.filter((x) => x.id !== at.id).concat(at);
     if (prev && prev.shiftId !== sh.id) {
       const oldShift = find(s, 'shifts', prev.shiftId);
-      refreshClosedShift(oldShift);
+      refreshDay(oldShift.date);
       maybeFinalizeShift(oldShift);
     }
     if (sh.status === 'planned' && ci && sh.date === today) {
       sh.status = 'open';
       sh.openedAt = ci;
     }
-    refreshClosedShift(sh);
+    refreshDay(sh.date);
     maybeFinalizeShift(sh);
     return;
   }
@@ -965,7 +983,7 @@ export function apply(
     assert(['planned', 'open', 'closed'].includes(sh.status), 'Shift tidak valid.');
     assertPeriodEditable(sh.date.slice(0, 7));
     s.attendance = s.attendance.filter((x) => x.id !== at.id);
-    refreshClosedShift(sh);
+    refreshDay(sh.date);
     maybeFinalizeShift(sh);
     return;
   }
@@ -1060,6 +1078,8 @@ export function apply(
         coffeeCategories: categories,
         foodCategories: categories,
         rupiahPerPoint: z.number().int().min(100).max(1_000_000),
+        voucherDiscount: amount,
+        freeDrinkMax: amount,
         voucherMonths: z.number().int().min(1).max(60),
         pointsExpireMonths: z.number().int().min(1).max(120),
       })
@@ -1269,35 +1289,40 @@ export function apply(
     // A member, and maybe one of their free drinks (its price comes off as a discount).
     let memberId = '',
       memberFree:
-        | { voucherId: string; type: 'nonkopi' | 'kopi'; productId: string; value: number }
+        | { voucherId: string; type: VoucherType; productId: string; value: number }
         | undefined;
     if (p.memberId) {
       const m = find(s, 'members', p.memberId);
       assert(m.status !== 'nonaktif', 'Kartu member ini dinonaktifkan.');
       memberId = m.id;
       if (p.memberFree?.voucherId) {
-        assert(
-          m.status === 'aktif',
-          'Kartu member belum aktif; minuman gratis belum bisa dipakai.',
-        );
+        assert(m.status === 'aktif', 'Kartu member belum aktif; hadiah stamp belum bisa dipakai.');
         const voucher = memberCard(s, m, now).vouchers.find(
           (v) => v.id === p.memberFree.voucherId && v.status === 'tersedia',
         );
-        assert(voucher, 'Minuman gratis ini sudah dipakai atau hangus.');
-        const item = items.find((i) => i.productId === p.memberFree.productId);
-        assert(item, 'Pilih minuman gratisnya di pesanan.');
-        assert(
-          voucherFits(find(s, 'products', item!.productId), voucher!.type, memberRules(s)),
-          voucher!.type === 'kopi'
-            ? 'Minuman gratis ini untuk menu kopi.'
-            : 'Minuman gratis ini untuk menu non-kopi.',
-        );
-        memberFree = {
-          voucherId: voucher!.id,
-          type: voucher!.type,
-          productId: item!.productId,
-          value: item!.price,
-        };
+        assert(voucher, 'Hadiah stamp ini sudah dipakai atau hangus.');
+        const rules = memberRules(s);
+        if (voucher!.type === 'potongan')
+          memberFree = {
+            voucherId: voucher!.id,
+            type: voucher!.type,
+            productId: '',
+            value: voucherValue(rules, subtotal),
+          };
+        else {
+          const item = items.find((i) => i.productId === p.memberFree.productId);
+          assert(item, 'Pilih minuman gratisnya di pesanan.');
+          assert(
+            voucherFits(find(s, 'products', item!.productId), rules),
+            'Hadiah ini hanya untuk menu minuman.',
+          );
+          memberFree = {
+            voucherId: voucher!.id,
+            type: voucher!.type,
+            productId: item!.productId,
+            value: voucherValue(rules, subtotal, item!.price),
+          };
+        }
       }
     }
     const discount = amount.parse(p.discount || 0) + (memberFree?.value ?? 0);
@@ -1437,7 +1462,7 @@ export function apply(
     assert(discount <= o.subtotal, 'Diskon melebihi subtotal.');
     assert(
       discount >= (o.memberFree?.value ?? 0),
-      'Diskon harus tetap termasuk potongan minuman gratis member.',
+      'Diskon harus tetap termasuk hadiah stamp member.',
     );
     const taxEnabled = z.boolean().parse(p.taxEnabled);
     const tax = taxEnabled
@@ -1569,6 +1594,7 @@ export function apply(
     s.payrolls = s.payrolls.filter(
       (pr) => pr.period !== sh.date.slice(0, 7) || pr.status === 'lunas',
     );
+    refreshDay(sh.date);
     return;
   }
   if (action === 'payroll.generate') {
@@ -1611,9 +1637,7 @@ export function apply(
     );
     const bases = [...totals.values()].reduce((n, x) => n + x.base, 0),
       count = [...totals.values()].reduce((n, x) => n + x.count, 0);
-    const general = s.expenses
-      .filter((e) => e.date.startsWith(period) && !e.shiftId && e.category !== 'bahan_baku')
-      .reduce((n, e) => n + e.amount, 0);
+    const general = monthlyExpenses(s, period);
     const net = closed.reduce((n, sh) => n + sh.snapshot.profit, 0) - general - bases;
     const bonusPool = Math.round(Math.max(0, net) * (s.settings[0].bonusPercentage / 100));
     let allocated = 0;

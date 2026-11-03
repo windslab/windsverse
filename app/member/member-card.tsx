@@ -8,7 +8,7 @@ import {
   Box,
   ChevronLeft,
   ChevronRight,
-  Coffee,
+  Ticket,
   CupSoda,
   Gift,
   Lock,
@@ -41,7 +41,7 @@ export type PublicCard = {
   stampCount: number;
   current: { no: number; stamps: { at: string; points: number }[] };
   fullCards: number;
-  vouchers: { id: string; type: 'kopi' | 'nonkopi'; expiresAt: string }[];
+  vouchers: { id: string; type: 'potongan' | 'minuman'; expiresAt: string }[];
   points: number;
   pointsExpireAt: string | null;
   year: number;
@@ -50,6 +50,8 @@ export type PublicCard = {
   rules: {
     minDrinkPrice: number;
     stampRule: string;
+    voucherDiscount: number;
+    freeDrinkMax: number;
     voucherMonths: number;
     pointsExpireMonths: number;
   };
@@ -182,8 +184,9 @@ export default function MemberCard({ token }: { token: string }) {
         </div>
       </div>
       <p className={styles.fine}>
-        {card.rules.stampRule}. Stamp ke-5: minuman non-kopi gratis · stamp ke-10: minuman kopi
-        gratis.
+        {card.rules.stampRule}. Stamp ke-5: potongan Rp
+        {card.rules.voucherDiscount.toLocaleString('id-ID')} · stamp ke-10: minuman gratis sampai Rp
+        {card.rules.freeDrinkMax.toLocaleString('id-ID')}.
         {card.pointsExpireAt &&
           card.points > 0 &&
           ` Poin aman selama ada transaksi sebelum ${day(card.pointsExpireAt)}.`}
@@ -192,14 +195,18 @@ export default function MemberCard({ token }: { token: string }) {
       {card.vouchers.length > 0 && (
         <section className={styles.block}>
           <h2>
-            <Sparkles size={16} /> Minuman gratis siap dipakai
+            <Sparkles size={16} /> Hadiah stamp siap dipakai
           </h2>
           <ul className={styles.vouchers}>
             {card.vouchers.map((v) => (
               <li key={v.id}>
-                {v.type === 'kopi' ? <Coffee size={18} /> : <CupSoda size={18} />}
+                {v.type === 'potongan' ? <Ticket size={18} /> : <CupSoda size={18} />}
                 <span>
-                  <b>{v.type === 'kopi' ? 'Minuman kopi' : 'Minuman non-kopi'} gratis</b>
+                  <b>
+                    {v.type === 'potongan'
+                      ? `Potongan Rp${card.rules.voucherDiscount.toLocaleString('id-ID')}`
+                      : `Minuman gratis sampai Rp${card.rules.freeDrinkMax.toLocaleString('id-ID')}`}
+                  </b>
                   <small>berlaku sampai {day(v.expiresAt)}</small>
                 </span>
               </li>
@@ -501,7 +508,7 @@ function GiftCatalog({
       )}
       <p className={styles.fine}>
         Tiap hadiah bisa diklaim sekali per tahun. Poin hangus bila {card.rules.pointsExpireMonths}{' '}
-        bulan tidak ada transaksi; minuman gratis berlaku {card.rules.voucherMonths} bulan.
+        bulan tidak ada transaksi; hadiah stamp berlaku {card.rules.voucherMonths} bulan.
       </p>
     </section>
   );

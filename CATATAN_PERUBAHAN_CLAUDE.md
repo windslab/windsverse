@@ -1301,3 +1301,32 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
 - Kartu pesanan lampau menampilkan tanggal transaksi beserta waktu input.
 - `typecheck`, `format:check`, `build` lulus; `engine.test` 29/33 (4 gagal lama), ditambah tes baru
   untuk kasus ini.
+
+## 66. Pengeluaran disatukan per hari dan dibagi rata ke semua shift (3 Nov 2026)
+
+- Permintaan pemilik: tidak adil bila belanja hanya mengurangi gaji shift yang kebetulan berbelanja.
+- Pilihan "Alokasi" ke shift dihapus. Perhitungan kini ditentukan kategori dan tanggal:
+  - **Operasional, lainnya**: pengeluaran harian, disatukan per tanggal lalu dibagi rata ke semua
+    shift hari itu. Sisa pembagian Rp1 masuk ke shift paling awal.
+  - **Sewa, utilitas**: bulanan, hanya mengurangi laba bulanan untuk bonus, supaya sewa sebulan tidak
+    menjatuhkan gaji satu hari.
+  - **Bahan baku**: tetap tidak mengurangi laba karena sudah lewat HPP.
+- Shift selesai yang tidak dikerjakan siapa pun dan tanpa penjualan tidak ikut menanggung. Hari tanpa
+  shift masuk ke perhitungan bulanan.
+- Tanggal bawaan pengeluaran mengikuti hari kerja kafe (sampai 05.00 WITA), supaya belanja lewat
+  tengah malam tetap masuk ke hari shift malam itu.
+- Menghapus shift tidak lagi menghapus catatan pengeluaran.
+- Periode yang gajinya sudah dibayar tidak berubah. Gaji yang belum dibayar perlu dihitung ulang
+  (`OPERATIONS_VERSION` naik ke 3).
+- Admin mendapat ringkasan pengeluaran harian per tanggal di menu Pengeluaran.
+
+## 67. Aturan member: 1 stamp per hari, hadiah stamp diubah (3 Nov 2026)
+
+- Keputusan pemilik untuk menutup celah pembelian berulang di hari yang sama dan menjaga margin.
+- Maksimal 1 stamp per hari kerja kafe. Transaksi berikutnya di hari itu hanya mendapat poin. Bila
+  transaksi pertama dibatalkan, stamp pindah ke transaksi berikutnya.
+- Stamp ke-5: potongan Rp5.000. Stamp ke-10: minuman gratis sampai Rp20.000, kopi atau non-kopi; bila
+  lebih mahal, pelanggan membayar selisihnya. Nilainya bisa diatur di Member → Aturan.
+- Kasir menampilkan "Stamp hari ini sudah didapat" sebelum transaksi dicatat.
+- Teks kartu, pendaftaran, dan template kartu mengikuti aturan baru.
+- Aturan berlaku juga untuk pesanan member yang sudah ada, karena stamp dihitung dari pesanan.

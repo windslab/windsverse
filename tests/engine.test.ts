@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { apply, validateTiers } from '../lib/engine';
-import { initial, shiftTotals, type Actor } from '../lib/model';
+import { initial, monthlyExpenses, shiftTotals, type Actor } from '../lib/model';
 const owner: Actor = {
   id: 'owner-identity',
   employeeId: 'owner',
@@ -132,6 +132,62 @@ test('shift profit excludes tax and deducts HPP and allocated costs', () => {
   const t = shiftTotals(f.s, f.shift);
   assert.equal(t.profit, 250000 - 72400 - 10000);
   assert.equal(t.wage, 20000);
+});
+test('a day of expenses is shared evenly by its shifts, whoever went shopping', () => {
+  const f = fixture();
+  const night = apply(f.s, owner, 'save', {
+    kind: 'shifts',
+    data: {
+      name: 'Malam',
+      startAt: '2026-10-08T17:00:00+08:00',
+      endAt: '2026-10-08T23:00:00+08:00',
+      employeeIds: [f.staff.employeeId],
+    },
+  });
+  const spend = (title: string, amount: number, category: string, date = '2026-10-08') =>
+    apply(f.s, owner, 'save', {
+      kind: 'expenses',
+      data: { title, amount, category, date, shiftId: f.shift.id },
+    });
+  spend('Es batu', 10000, 'operasional');
+  spend('Gas', 5001, 'lainnya');
+  assert.equal(f.s.expenses[0].shiftId, '');
+  assert.equal(shiftTotals(f.s, f.shift).costs, 7501);
+  assert.equal(shiftTotals(f.s, night).costs, 7500);
+  spend('Beli susu', 100000, 'bahan_baku');
+  spend('Sewa', 2000000, 'sewa');
+  spend('Listrik', 300000, 'utilitas');
+  assert.equal(shiftTotals(f.s, f.shift).costs, 7501);
+  assert.equal(monthlyExpenses(f.s, '2026-10'), 2300000);
+  // A day without any shift cannot be split, so it lowers the monthly bonus only.
+  spend('Belanja hari libur', 40000, 'operasional', '2026-10-20');
+  assert.equal(monthlyExpenses(f.s, '2026-10'), 2340000);
+});
+test('a closed shift pays its share again when a day expense or its sibling changes', () => {
+  const f = fixture();
+  finish(f, sell(f, 10));
+  apply(f.s, f.staff, 'attendance.out', { id: f.s.attendance[0].id }, morningOut);
+  const before = f.shift.snapshot.profit;
+  const night = apply(f.s, owner, 'save', {
+    kind: 'shifts',
+    data: {
+      name: 'Malam',
+      startAt: '2026-10-08T17:00:00+08:00',
+      endAt: '2026-10-08T23:00:00+08:00',
+      employeeIds: [f.staff.employeeId],
+    },
+  });
+  apply(f.s, owner, 'save', {
+    kind: 'expenses',
+    data: { title: 'Es', amount: 10000, category: 'operasional', date: '2026-10-08', shiftId: '' },
+  });
+  assert.equal(f.shift.snapshot.profit, before - 5000);
+  // The night shift never ran: removing it hands the whole day back to the morning shift.
+  f.s.expenses[0].shiftId = night.id; // recorded before expenses became daily
+  apply(f.s, owner, 'delete', { kind: 'shifts', id: night.id, reason: 'Tidak jadi buka' });
+  assert.equal(f.shift.snapshot.profit, before - 10000);
+  assert.equal(f.s.expenses.length, 1);
+  assert.equal(f.s.expenses[0].shiftId, '');
 });
 test('stock purchase is not double-counted as HPP expense', () => {
   const f = fixture();
@@ -659,7 +715,8 @@ test('admin can delete a test shift together with its activity', () => {
   assert.equal(f.s.shifts.length, 0);
   assert.equal(f.s.orders.length, 0);
   assert.equal(f.s.attendance.length, 0);
-  assert.equal(f.s.expenses.length, 0);
+  assert.equal(f.s.expenses.length, 1);
+  assert.equal(f.s.expenses[0].shiftId, '');
   assert.equal(f.s.ingredients[0].stock, stockBeforeSale);
 });
 test('staff can record paid order on a past planned shift without opening it', () => {

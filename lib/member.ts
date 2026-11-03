@@ -1,30 +1,35 @@
 // Winds Space member cards (see RENCANA_MEMBER.md). Everything a card shows — stamps, cards, free
 // drink vouchers, points and which gifts can be claimed — is worked out from the member's paid
 // orders and gift claims, so cancelling or correcting an order adjusts the card by itself.
-import { localDate, type Row, type State } from './model';
+import { businessDay, localDate, type Row, type State } from './model';
 
 export type MemberRules = {
   /** A stamp needs at least one paid drink at this price or more… */
   minDrinkPrice: number;
   /** …or one paid food item at this price or more. */
   minFoodPrice: number;
-  /** Category ids that count as drinks, and which of those are coffee. */
+  /** Category ids that count as drinks, and which of those are coffee (not used by rewards). */
   drinkCategories: string[];
   coffeeCategories: string[];
   /** Food categories that earn a stamp too (free drinks stay drinks). */
   foodCategories: string[];
   /** Rupiah per point when a menu has no points of its own. */
   rupiahPerPoint: number;
-  /** A free drink is lost after this many months unused. */
+  /** Stamp 5 takes this much off a bill. */
+  voucherDiscount: number;
+  /** Stamp 10 pays for a drink up to this price; the customer pays any difference. */
+  freeDrinkMax: number;
+  /** A stamp reward is lost after this many months unused. */
   voucherMonths: number;
   /** All points are lost after this many months without a qualifying transaction. */
   pointsExpireMonths: number;
 };
 export const STAMPS_PER_CARD = 10;
-/** Stamp 5 of each card gives a non-coffee drink, stamp 10 a coffee. */
-export const FREE_AT: { slot: number; type: 'nonkopi' | 'kopi' }[] = [
-  { slot: 5, type: 'nonkopi' },
-  { slot: 10, type: 'kopi' },
+export type VoucherType = 'potongan' | 'minuman';
+/** Stamp 5 of each card gives money off a bill, stamp 10 a drink. */
+export const REWARD_AT: { slot: number; type: VoucherType }[] = [
+  { slot: 5, type: 'potongan' },
+  { slot: 10, type: 'minuman' },
 ];
 export const DEFAULT_RULES: MemberRules = {
   minDrinkPrice: 15000,
@@ -33,6 +38,8 @@ export const DEFAULT_RULES: MemberRules = {
   coffeeCategories: ['kopi'],
   foodCategories: ['makanan', 'snack', 'dessert'],
   rupiahPerPoint: 1000,
+  voucherDiscount: 5000,
+  freeDrinkMax: 20000,
   voucherMonths: 6,
   pointsExpireMonths: 12,
 };
@@ -97,10 +104,10 @@ export function memberRules(s: State): MemberRules {
 export function stampRule(rules: MemberRules) {
   const rp = (n: number) => 'Rp' + n.toLocaleString('id-ID');
   if (!rules.foodCategories.length)
-    return `1 stamp tiap transaksi dengan minimal 1 minuman ≥ ${rp(rules.minDrinkPrice)}`;
+    return `1 stamp per hari untuk transaksi dengan minimal 1 minuman ≥ ${rp(rules.minDrinkPrice)}`;
   return rules.minDrinkPrice === rules.minFoodPrice
-    ? `1 stamp tiap transaksi dengan minimal 1 minuman atau makanan ≥ ${rp(rules.minDrinkPrice)}`
-    : `1 stamp tiap transaksi dengan minimal 1 minuman ≥ ${rp(rules.minDrinkPrice)} atau makanan ≥ ${rp(rules.minFoodPrice)}`;
+    ? `1 stamp per hari untuk transaksi dengan minimal 1 minuman atau makanan ≥ ${rp(rules.minDrinkPrice)}`
+    : `1 stamp per hari untuk transaksi dengan minimal 1 minuman ≥ ${rp(rules.minDrinkPrice)} atau makanan ≥ ${rp(rules.minFoodPrice)}`;
 }
 
 /** A menu's points: its own value, or one point per `rupiahPerPoint` of its price. */
@@ -117,17 +124,14 @@ const addMonths = (iso: string, months: number) => {
   return d.toISOString();
 };
 const orderTime = (o: Row) => (o.paidAt || o.createdAt) as string;
-/** What a free drink voucher is good for. */
-export const voucherFits = (
-  product: Row | undefined,
-  type: 'nonkopi' | 'kopi',
-  rules: MemberRules,
-) =>
-  !!product &&
-  rules.drinkCategories.includes(product.category) &&
-  (type === 'kopi'
-    ? rules.coffeeCategories.includes(product.category)
-    : !rules.coffeeCategories.includes(product.category));
+/** The stamp 10 reward is good for any drink. */
+export const voucherFits = (product: Row | undefined, rules: MemberRules) =>
+  !!product && rules.drinkCategories.includes(product.category);
+/** What a reward takes off the bill: a drink's price up to the limit, or the stamp 5 discount. */
+export const voucherValue = (rules: MemberRules, subtotal: number, drinkPrice?: number) =>
+  drinkPrice === undefined
+    ? Math.min(rules.voucherDiscount, subtotal)
+    : Math.min(drinkPrice, rules.freeDrinkMax);
 
 /**
  * Stamp and points one order earns for its member (zero unless it qualifies). The free drink in
@@ -136,8 +140,9 @@ export const voucherFits = (
 export function orderEarnings(s: State, o: Row, rules = memberRules(s)) {
   let qualifies = false,
     points = 0;
+  // The stamp 5 discount has no product: it lowers the points like any other discount.
   const free = o.memberFree as { productId: string; value: number } | undefined;
-  let freeLeft = free ? 1 : 0;
+  let freeLeft = free?.productId ? 1 : 0;
   for (const item of o.items as Row[]) {
     const product = s.products.find((p) => p.id === item.productId);
     let units = item.quantity as number;
@@ -155,7 +160,7 @@ export function orderEarnings(s: State, o: Row, rules = memberRules(s)) {
     points += productPoints(product ?? { id: '', price: item.price }, rules) * units;
   }
   if (!qualifies) return { qualifies: false, points: 0 };
-  const freeValue = free?.value ?? 0,
+  const freeValue = free?.productId ? free.value : 0,
     paidBase = o.subtotal - freeValue,
     ratio = paidBase > 0 ? Math.min(1, Math.max(0, (o.subtotal - o.discount) / paidBase)) : 0;
   return { qualifies: true, points: Math.floor(points * ratio) };
@@ -163,7 +168,7 @@ export function orderEarnings(s: State, o: Row, rules = memberRules(s)) {
 
 export type Voucher = {
   id: string;
-  type: 'nonkopi' | 'kopi';
+  type: VoucherType;
   card: number;
   earnedAt: string;
   expiresAt: string;
@@ -178,10 +183,18 @@ export function memberCard(s: State, member: Row, now = new Date()) {
     .filter((o) => o.memberId === member.id && o.paid && o.status !== 'dibatalkan')
     .sort((a, b) => orderTime(a).localeCompare(orderTime(b)));
   const stamps: { at: string; points: number; orderNo: string; orderId: string }[] = [];
+  // One stamp per café day, so splitting a bill earns nothing extra; every order keeps its points.
+  const earnings: { at: string; points: number }[] = [],
+    stampDays = new Set<string>();
   for (const o of orders) {
     const e = orderEarnings(s, o, rules);
-    if (e.qualifies)
-      stamps.push({ at: orderTime(o), points: e.points, orderNo: o.no, orderId: o.id });
+    if (!e.qualifies) continue;
+    const at = orderTime(o),
+      orderDay = (o.date as string) || businessDay(new Date(at));
+    earnings.push({ at, points: e.points });
+    if (stampDays.has(orderDay)) continue;
+    stampDays.add(orderDay);
+    stamps.push({ at, points: e.points, orderNo: o.no, orderId: o.id });
   }
   // Cards and free drinks.
   const cards: { no: number; completedAt: string | null; stamps: typeof stamps }[] = [];
@@ -192,14 +205,14 @@ export function memberCard(s: State, member: Row, now = new Date()) {
     if (!cards[no - 1]) cards[no - 1] = { no, completedAt: null, stamps: [] };
     cards[no - 1].stamps.push(st);
     if (slot === STAMPS_PER_CARD) cards[no - 1].completedAt = st.at;
-    const free = FREE_AT.find((f) => f.slot === slot);
-    if (free) {
+    const reward = REWARD_AT.find((f) => f.slot === slot);
+    if (reward) {
       const id = `c${no}-${slot}`;
       const used = orders.some((o) => o.memberFree?.voucherId === id);
       const expiresAt = addMonths(st.at, rules.voucherMonths);
       vouchers.push({
         id,
-        type: free.type,
+        type: reward.type,
         card: no,
         earnedAt: st.at,
         expiresAt,
@@ -214,7 +227,7 @@ export function memberCard(s: State, member: Row, now = new Date()) {
     .filter((c) => c.memberId === member.id)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const events = [
-    ...stamps.map((st) => ({ at: st.at, delta: st.points, earn: true })),
+    ...earnings.map((en) => ({ at: en.at, delta: en.points, earn: true })),
     ...claims.map((c) => ({
       at: c.createdAt as string,
       delta: -(c.points as number),
@@ -271,6 +284,7 @@ export function memberCard(s: State, member: Row, now = new Date()) {
   return {
     rules,
     stampCount: stamps.length,
+    stampDays: [...stampDays],
     current: cards.at(-1)!,
     cards,
     fullCards: cards.filter((c) => c.completedAt).length,
@@ -314,6 +328,8 @@ export function publicCard(s: State, member: Row, now = new Date()) {
     rules: {
       minDrinkPrice: card.rules.minDrinkPrice,
       stampRule: stampRule(card.rules),
+      voucherDiscount: card.rules.voucherDiscount,
+      freeDrinkMax: card.rules.freeDrinkMax,
       voucherMonths: card.rules.voucherMonths,
       pointsExpireMonths: card.rules.pointsExpireMonths,
     },

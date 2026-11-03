@@ -65,7 +65,7 @@ function Saved({ token }: { token: string }) {
         </div>
         <div>
           <b>{card.vouchers.length}</b>
-          <small>minuman gratis</small>
+          <small>hadiah stamp</small>
         </div>
       </div>
       <a className={styles.primary} href={'/member/' + token}>
@@ -84,8 +84,8 @@ function Join({ note }: { note?: string }) {
       </header>
       {note && <p className={styles.pending}>{note}</p>}
       <p className={styles.fine}>
-        Kumpulkan stamp tiap kali beli minuman: stamp ke-5 minuman non-kopi gratis, stamp ke-10 kopi
-        gratis, dan poin untuk hadiah eksklusif tahunan. Gratis.
+        Kumpulkan 1 stamp per hari: stamp ke-5 potongan Rp5.000, stamp ke-10 minuman gratis sampai
+        Rp20.000, dan poin untuk hadiah eksklusif tahunan. Gratis.
       </p>
       {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- plain links, like the rest of the site */}
       <a className={styles.primary} href="/member/daftar">

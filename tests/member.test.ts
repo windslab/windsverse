@@ -43,13 +43,15 @@ function fixture() {
     morning,
   ) as Row;
   apply(s, owner, 'shift.open', { id: shift.id }, morning);
+  // Each sale lands on its own café day unless a test moves it: one stamp per day.
+  let sales = 0;
   const sell = (
     items: [Row, number][],
     memberId: string,
     extra: Record<string, unknown> = {},
     now = morning,
-  ) =>
-    apply(
+  ) => {
+    const order = apply(
       s,
       owner,
       'order.create',
@@ -66,6 +68,9 @@ function fixture() {
       },
       now,
     ) as Row;
+    order.date = new Date(Date.UTC(2026, 9, 8 + sales++)).toISOString().slice(0, 10);
+    return order;
+  };
   return { s, coffee, matcha, tea, bread, sell, shift };
 }
 const join = (s: ReturnType<typeof fixture>['s'], phone = '0812 3456 7890') =>
@@ -117,42 +122,82 @@ test('members: points are counted after a discount; menus can have their own poi
   assert.equal(memberCard(f.s, f.s.members[0]).points, 30);
 });
 
-test('members: stamp 5 gives a non-coffee drink, stamp 10 a coffee; used ones count nothing', () => {
+test('members: one stamp per day; later orders that day earn points only', () => {
+  const f = fixture();
+  const m = join(f.s);
+  const first = f.sell([[f.coffee, 1]], m.id);
+  const second = f.sell([[f.coffee, 1]], m.id);
+  second.date = first.date;
+  const third = f.sell([[f.tea, 1]], m.id); // under the minimum: nothing, as on any day
+  third.date = first.date;
+  let card = memberCard(f.s, f.s.members[0]);
+  assert.equal(card.stampCount, 1);
+  assert.equal(card.points, 36);
+  assert.deepEqual(card.stampDays, [first.date]);
+  // Cancelling the first order hands the day's stamp to the second.
+  first.status = 'dibatalkan';
+  card = memberCard(f.s, f.s.members[0]);
+  assert.equal(card.stampCount, 1);
+  assert.equal(card.points, 18);
+  assert.equal(card.current.stamps[0].orderId, second.id);
+  // The next day earns a stamp again.
+  f.sell([[f.coffee, 1]], m.id);
+  assert.equal(memberCard(f.s, f.s.members[0]).stampCount, 2);
+});
+
+test('members: stamp 5 takes money off, stamp 10 pays a drink up to the limit', () => {
   const f = fixture();
   const m = join(f.s);
   for (let i = 0; i < 5; i++) f.sell([[f.coffee, 1]], m.id);
   let card = memberCard(f.s, f.s.members[0]);
   const voucher = card.vouchers.find((v) => v.status === 'tersedia')!;
-  assert.equal(voucher.type, 'nonkopi');
-  // Not for a coffee.
-  assert.throws(
-    () =>
-      f.sell([[f.coffee, 1]], m.id, {
-        memberFree: { voucherId: voucher.id, productId: f.coffee.id },
-      }),
-    /non-kopi/,
-  );
-  // A free matcha alone: no stamp, no points, matcha comes off the bill.
-  const o = f.sell([[f.matcha, 1]], m.id, {
-    memberFree: { voucherId: voucher.id, productId: f.matcha.id },
-  });
-  assert.equal(o.discount, 21000);
-  assert.equal(o.total, 0);
+  assert.equal(voucher.type, 'potongan');
+  // Rp5.000 off a paid order that still earns its stamp, with points after the discount.
+  const before = card.points;
+  const paid = f.sell([[f.coffee, 1]], m.id, { memberFree: { voucherId: voucher.id } });
+  assert.equal(paid.discount, 5000);
+  assert.equal(paid.total, 13000);
   card = memberCard(f.s, f.s.members[0]);
-  assert.equal(card.stampCount, 5);
+  assert.equal(card.stampCount, 6);
+  assert.equal(card.points, before + Math.floor((18 * 13000) / 18000));
   assert.equal(card.vouchers[0].status, 'terpakai');
   assert.throws(
-    () =>
-      f.sell([[f.matcha, 1]], m.id, {
-        memberFree: { voucherId: voucher.id, productId: f.matcha.id },
-      }),
+    () => f.sell([[f.coffee, 1]], m.id, { memberFree: { voucherId: voucher.id } }),
     /sudah dipakai/,
   );
-  for (let i = 0; i < 5; i++) f.sell([[f.coffee, 1]], m.id);
+  for (let i = 0; i < 4; i++) f.sell([[f.coffee, 1]], m.id);
   card = memberCard(f.s, f.s.members[0]);
   assert.equal(card.fullCards, 1);
   assert.equal(card.current.no, 2);
-  assert.equal(card.vouchers.at(-1)!.type, 'kopi');
+  const drink = card.vouchers.at(-1)!;
+  assert.equal(drink.type, 'minuman');
+  // Not for food.
+  assert.throws(
+    () =>
+      f.sell([[f.bread, 1]], m.id, {
+        memberFree: { voucherId: drink.id, productId: f.bread.id },
+      }),
+    /menu minuman/,
+  );
+  // Any drink: a pricier one is paid up to the limit; the free drink earns nothing.
+  const pricey = apply(
+    f.s,
+    owner,
+    'save',
+    {
+      kind: 'products',
+      data: { name: 'Mocktail', price: 23000, category: 'non_kopi', status: 'tersedia' },
+    },
+    morning,
+  ) as Row;
+  const stampsBefore = card.stampCount;
+  const free = f.sell([[pricey, 1]], m.id, {
+    memberFree: { voucherId: drink.id, productId: pricey.id },
+  });
+  assert.equal(free.discount, 20000);
+  assert.equal(free.total, 3000);
+  card = memberCard(f.s, f.s.members[0]);
+  assert.equal(card.stampCount, stampsBefore);
 });
 
 test('members: a signed-up card waits for its first qualifying order', () => {
@@ -233,7 +278,7 @@ test('members: a cancelled order takes its stamp back', () => {
   assert.equal(memberCard(f.s, f.s.members[0]).stampCount, 0);
 });
 
-test('members: points lapse after 12 quiet months, free drinks after 6', () => {
+test('members: points lapse after 12 quiet months, stamp rewards after 6', () => {
   const f = fixture();
   const m = join(f.s);
   for (let i = 0; i < 5; i++) f.sell([[f.coffee, 1]], m.id);

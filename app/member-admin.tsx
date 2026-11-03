@@ -3,7 +3,7 @@
 // and for the admin the rules, the yearly gift collection and the sign-up QR poster.
 import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
-import { Box, Coffee, CupSoda, Download, Gift, Printer, Upload } from 'lucide-react';
+import { Box, CupSoda, Download, Gift, Printer, Ticket, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { localDate, money, type Row, type State } from '@/lib/model';
@@ -214,9 +214,9 @@ function MemberDetail({
             {card.current.stamps[i] ? (
               'W'
             ) : i === 4 ? (
-              <CupSoda size={13} />
+              <Ticket size={13} />
             ) : i === 9 ? (
-              <Coffee size={13} />
+              <CupSoda size={13} />
             ) : (
               i + 1
             )}
@@ -230,12 +230,13 @@ function MemberDetail({
         <span>{card.stampCount} stamp total</span>
         {card.pointsExpireAt && <span>poin aman s/d {day(card.pointsExpireAt)}</span>}
       </div>
-      <h3>Minuman gratis</h3>
+      <h3>Hadiah stamp</h3>
       {!card.vouchers.length && <p className="muted">Belum ada (stamp ke-5 dan ke-10).</p>}
       <ul className="member-rows">
         {card.vouchers.map((v) => (
           <li key={v.id}>
-            {v.type === 'kopi' ? 'Kopi' : 'Non-kopi'} · kartu {v.card} · didapat {day(v.earnedAt)} ·{' '}
+            {v.type === 'potongan' ? 'Potongan' : 'Minuman gratis'} · kartu {v.card} · didapat{' '}
+            {day(v.earnedAt)} ·{' '}
             {v.status === 'tersedia' ? `berlaku s/d ${day(v.expiresAt)}` : v.status}
           </li>
         ))}
@@ -685,7 +686,25 @@ function Rules({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
           />
         </label>
         <label>
-          Minuman gratis hangus setelah (bulan)
+          Potongan stamp ke-5 (Rp)
+          <input
+            type="number"
+            min={0}
+            value={rules.voucherDiscount}
+            onChange={(e) => setRules({ ...rules, voucherDiscount: Number(e.target.value) })}
+          />
+        </label>
+        <label>
+          Batas harga minuman gratis stamp ke-10 (Rp)
+          <input
+            type="number"
+            min={0}
+            value={rules.freeDrinkMax}
+            onChange={(e) => setRules({ ...rules, freeDrinkMax: Number(e.target.value) })}
+          />
+        </label>
+        <label>
+          Hadiah stamp hangus setelah (bulan)
           <input
             type="number"
             min={1}
@@ -716,7 +735,6 @@ function Rules({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
           <tr>
             <th>Kategori</th>
             <th>Minuman</th>
-            <th>Kopi</th>
             <th>Makanan</th>
           </tr>
         </thead>
@@ -734,14 +752,6 @@ function Rules({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
               <td>
                 <input
                   type="checkbox"
-                  disabled={!rules.drinkCategories.includes(c.id)}
-                  checked={rules.coffeeCategories.includes(c.id)}
-                  onChange={(e) => toggle('coffeeCategories', c.id, e.target.checked)}
-                />
-              </td>
-              <td>
-                <input
-                  type="checkbox"
                   checked={rules.foodCategories.includes(c.id)}
                   onChange={(e) => toggle('foodCategories', c.id, e.target.checked)}
                 />
@@ -751,8 +761,9 @@ function Rules({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
         </tbody>
       </table>
       <p className="muted">
-        {stampRule(rules)}. Kategori Makanan ikut memberi stamp, tetapi minuman gratis tetap
-        minuman: stamp ke-5 untuk minuman non-kopi, stamp ke-10 untuk minuman kopi. Poin tiap menu
+        {stampRule(rules)}. Transaksi berikutnya di hari yang sama hanya mendapat poin. Stamp ke-5
+        memberi potongan {money(rules.voucherDiscount)}, stamp ke-10 memberi minuman gratis sampai{' '}
+        {money(rules.freeDrinkMax)}; bila lebih mahal, pelanggan membayar selisihnya. Poin tiap menu
         bisa diubah di Menu kafe (kolom “Poin member per porsi”); contoh dengan aturan ini: menu{' '}
         {money(18000)} = {Math.floor(18000 / rules.rupiahPerPoint)} poin.
       </p>
@@ -798,7 +809,7 @@ function Poster() {
       <div className="member-poster" id="member-poster">
         <small>WINDS SPACE</small>
         <h2>Jadi member, kumpulkan stamp</h2>
-        <p>Stamp ke-5 minuman non-kopi gratis · stamp ke-10 minuman kopi gratis</p>
+        <p>Stamp ke-5 potongan Rp5.000 · stamp ke-10 minuman gratis sampai Rp20.000</p>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         {qr && <img src={qr} alt="QR daftar member" />}
         <p>Pindai untuk daftar, gratis</p>

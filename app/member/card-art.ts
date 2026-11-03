@@ -34,7 +34,10 @@ export type Face = {
 export type StampMotion = { slot: number; progress: number };
 
 const SLOTS = 10;
-const FREE: Record<number, string> = { 4: 'NON-KOPI', 9: 'KOPI' };
+const FREE: Record<number, [string, string]> = {
+  4: ['POTONGAN', 'Rp5.000'],
+  9: ['MINUMAN', 'GRATIS'],
+};
 
 export function loadImage(src: string): Promise<HTMLImageElement | null> {
   if (!src) return Promise.resolve(null);
@@ -245,7 +248,7 @@ export function drawBack(
     ctx.fillText('Stamp Card', w * 0.07, h * 0.1);
     ctx.fillStyle = '#e8c98f';
     ctx.font = `500 ${h * 0.034}px Inter, system-ui, sans-serif`;
-    ctx.fillText('Stamp ke-5 non-kopi gratis · stamp ke-10 kopi gratis', w * 0.07, h * 0.175);
+    ctx.fillText('Stamp ke-5 potongan Rp5.000 · stamp ke-10 minuman gratis', w * 0.07, h * 0.175);
   }
   const area = rect(ZONES.stamps, w, h),
     cellW = area.w / 5,
@@ -274,8 +277,8 @@ export function drawBack(
       ctx.fillText(String(i + 1), cx, cy - (free ? radius * 0.18 : 0));
       if (free) {
         ctx.font = `700 ${radius * 0.2}px Inter, system-ui, sans-serif`;
-        ctx.fillText('GRATIS', cx, cy + radius * 0.3);
-        ctx.fillText(free, cx, cy + radius * 0.54);
+        ctx.fillText(free[0], cx, cy + radius * 0.3);
+        ctx.fillText(free[1], cx, cy + radius * 0.54);
       }
       ctx.restore();
     }
