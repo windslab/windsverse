@@ -7,6 +7,8 @@ import {
   orderEarnings,
   validPhone,
   voucherFits,
+  voucherValue,
+  type VoucherType,
   DEFAULT_DESIGN,
 } from './member';
 import { z } from 'zod';
@@ -1076,6 +1078,8 @@ export function apply(
         coffeeCategories: categories,
         foodCategories: categories,
         rupiahPerPoint: z.number().int().min(100).max(1_000_000),
+        voucherDiscount: amount,
+        freeDrinkMax: amount,
         voucherMonths: z.number().int().min(1).max(60),
         pointsExpireMonths: z.number().int().min(1).max(120),
       })
@@ -1285,35 +1289,40 @@ export function apply(
     // A member, and maybe one of their free drinks (its price comes off as a discount).
     let memberId = '',
       memberFree:
-        | { voucherId: string; type: 'nonkopi' | 'kopi'; productId: string; value: number }
+        | { voucherId: string; type: VoucherType; productId: string; value: number }
         | undefined;
     if (p.memberId) {
       const m = find(s, 'members', p.memberId);
       assert(m.status !== 'nonaktif', 'Kartu member ini dinonaktifkan.');
       memberId = m.id;
       if (p.memberFree?.voucherId) {
-        assert(
-          m.status === 'aktif',
-          'Kartu member belum aktif; minuman gratis belum bisa dipakai.',
-        );
+        assert(m.status === 'aktif', 'Kartu member belum aktif; hadiah stamp belum bisa dipakai.');
         const voucher = memberCard(s, m, now).vouchers.find(
           (v) => v.id === p.memberFree.voucherId && v.status === 'tersedia',
         );
-        assert(voucher, 'Minuman gratis ini sudah dipakai atau hangus.');
-        const item = items.find((i) => i.productId === p.memberFree.productId);
-        assert(item, 'Pilih minuman gratisnya di pesanan.');
-        assert(
-          voucherFits(find(s, 'products', item!.productId), voucher!.type, memberRules(s)),
-          voucher!.type === 'kopi'
-            ? 'Minuman gratis ini untuk menu kopi.'
-            : 'Minuman gratis ini untuk menu non-kopi.',
-        );
-        memberFree = {
-          voucherId: voucher!.id,
-          type: voucher!.type,
-          productId: item!.productId,
-          value: item!.price,
-        };
+        assert(voucher, 'Hadiah stamp ini sudah dipakai atau hangus.');
+        const rules = memberRules(s);
+        if (voucher!.type === 'potongan')
+          memberFree = {
+            voucherId: voucher!.id,
+            type: voucher!.type,
+            productId: '',
+            value: voucherValue(rules, subtotal),
+          };
+        else {
+          const item = items.find((i) => i.productId === p.memberFree.productId);
+          assert(item, 'Pilih minuman gratisnya di pesanan.');
+          assert(
+            voucherFits(find(s, 'products', item!.productId), rules),
+            'Hadiah ini hanya untuk menu minuman.',
+          );
+          memberFree = {
+            voucherId: voucher!.id,
+            type: voucher!.type,
+            productId: item!.productId,
+            value: voucherValue(rules, subtotal, item!.price),
+          };
+        }
       }
     }
     const discount = amount.parse(p.discount || 0) + (memberFree?.value ?? 0);
@@ -1453,7 +1462,7 @@ export function apply(
     assert(discount <= o.subtotal, 'Diskon melebihi subtotal.');
     assert(
       discount >= (o.memberFree?.value ?? 0),
-      'Diskon harus tetap termasuk potongan minuman gratis member.',
+      'Diskon harus tetap termasuk hadiah stamp member.',
     );
     const taxEnabled = z.boolean().parse(p.taxEnabled);
     const tax = taxEnabled

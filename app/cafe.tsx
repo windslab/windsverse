@@ -6,6 +6,7 @@ import CameraAdmin from './camera-admin';
 import MusicAdmin from './music-admin';
 import RosterPlanner from './roster-planner';
 import MemberPos, { type MemberFree } from './member-pos';
+import { memberRules, voucherValue } from '@/lib/member';
 import MemberAdmin from './member-admin';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -995,7 +996,9 @@ export default function Cafe({ name }: { name: string }) {
         customerName,
         paid,
         ...(memberId ? { memberId } : {}),
-        ...(memberId && memberFree && cart.some((i) => i.id === memberFree.productId)
+        ...(memberId &&
+        memberFree &&
+        (!memberFree.productId || cart.some((i) => i.id === memberFree.productId))
           ? { memberFree }
           : {}),
       },
@@ -1013,10 +1016,17 @@ export default function Cafe({ name }: { name: string }) {
       if (result.id) setReceipt(result);
     }
   };
-  // A member's free drink comes off the bill like a discount.
-  const freeValue = memberFree ? (cart.find((i) => i.id === memberFree.productId)?.price ?? 0) : 0;
-  const subtotal = cart.reduce((v, i) => v + i.price * i.quantity, 0),
-    allDiscount = discount + freeValue,
+  const subtotal = cart.reduce((v, i) => v + i.price * i.quantity, 0);
+  // A member's stamp reward comes off the bill like a discount.
+  const freeDrink = cart.find((i) => i.id === memberFree?.productId);
+  const freeValue = !memberFree
+    ? 0
+    : memberFree.productId
+      ? freeDrink
+        ? voucherValue(memberRules(s), subtotal, freeDrink.price)
+        : 0
+      : voucherValue(memberRules(s), subtotal);
+  const allDiscount = discount + freeValue,
     tax = taxEnabled
       ? Math.round((Math.max(0, subtotal - allDiscount) * (settings?.taxPercentage || 0)) / 100)
       : 0,

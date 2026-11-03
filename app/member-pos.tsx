@@ -2,8 +2,8 @@
 // The member box in the till (Kasir POS): find a member by phone, code or name, sign up a new one,
 // see their card at a glance, use a free drink, and see what this order will earn.
 import { useMemo, useState } from 'react';
-import { Coffee, CupSoda, Gift, UserPlus, X } from 'lucide-react';
-import { money, type Row, type State } from '@/lib/model';
+import { CupSoda, Gift, Ticket, UserPlus, X } from 'lucide-react';
+import { businessDay, money, type Row, type State } from '@/lib/model';
 import {
   claimStatus,
   memberCard,
@@ -12,6 +12,7 @@ import {
   orderEarnings,
   stampRule,
   voucherFits,
+  voucherValue,
   STAMPS_PER_CARD,
 } from '@/lib/member';
 
@@ -60,15 +61,25 @@ export default function MemberPos({
   // What this order will earn, worked out the same way the card does.
   const preview = useMemo(() => {
     if (!member || !cart.length) return null;
-    const freeItem = memberFree ? cart.find((i) => i.id === memberFree.productId) : null;
+    const freeItem = memberFree?.productId ? cart.find((i) => i.id === memberFree.productId) : null;
     const items = cart.map((i) => ({ productId: i.id, quantity: i.quantity, price: i.price }));
     const subtotal = items.reduce((v, i) => v + i.price * i.quantity, 0);
     const order = {
       id: 'preview',
       items,
       subtotal,
-      discount: discount + (freeItem?.price ?? 0),
-      memberFree: freeItem ? { productId: freeItem.id, value: freeItem.price } : undefined,
+      discount:
+        discount +
+        (!memberFree
+          ? 0
+          : memberFree.productId
+            ? freeItem
+              ? voucherValue(rules, subtotal, freeItem.price)
+              : 0
+            : voucherValue(rules, subtotal)),
+      memberFree: freeItem
+        ? { productId: freeItem.id, value: voucherValue(rules, subtotal, freeItem.price) }
+        : undefined,
     };
     return orderEarnings(s, order, rules);
   }, [member, cart, memberFree, discount, s, rules]);
@@ -211,24 +222,37 @@ export default function MemberPos({
             const fitting = cart.filter((i) =>
               voucherFits(
                 s.products.find((p) => p.id === i.id),
-                v.type,
                 rules,
               ),
             );
             const using = memberFree?.voucherId === v.id;
+            const unavailable = member.status !== 'aktif' || (!!memberFree && !using);
             return (
               <div key={v.id} className="member-voucher" data-using={using || undefined}>
-                {v.type === 'kopi' ? <Coffee size={15} /> : <CupSoda size={15} />}
-                <span>{v.type === 'kopi' ? 'Kopi gratis' : 'Non-kopi gratis'}</span>
+                {v.type === 'potongan' ? <Ticket size={15} /> : <CupSoda size={15} />}
+                <span>
+                  {v.type === 'potongan'
+                    ? `Potongan ${money(rules.voucherDiscount)}`
+                    : `Minuman gratis s/d ${money(rules.freeDrinkMax)}`}
+                </span>
                 {using ? (
                   <button type="button" className="button" onClick={() => onFree(null)}>
                     batal pakai
+                  </button>
+                ) : v.type === 'potongan' ? (
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={unavailable || !cart.length}
+                    onClick={() => onFree({ voucherId: v.id, productId: '' })}
+                  >
+                    pakai
                   </button>
                 ) : fitting.length ? (
                   <select
                     aria-label="Pakai minuman gratis untuk"
                     value=""
-                    disabled={member.status !== 'aktif' || (!!memberFree && !using)}
+                    disabled={unavailable}
                     onChange={(e) =>
                       e.target.value && onFree({ voucherId: v.id, productId: e.target.value })
                     }
@@ -236,14 +260,16 @@ export default function MemberPos({
                     <option value="">pakai untuk…</option>
                     {fitting.map((i) => (
                       <option key={i.id} value={i.id}>
-                        {i.name} ({money(i.price)})
+                        {i.name} ({money(i.price)}
+                        {i.price > rules.freeDrinkMax
+                          ? `, bayar selisih ${money(i.price - rules.freeDrinkMax)}`
+                          : ''}
+                        )
                       </option>
                     ))}
                   </select>
                 ) : (
-                  <small className="muted">
-                    tambahkan menu {v.type === 'kopi' ? 'kopi' : 'non-kopi'} dulu
-                  </small>
+                  <small className="muted">tambahkan menu minuman dulu</small>
                 )}
               </div>
             );
@@ -267,8 +293,10 @@ export default function MemberPos({
           {preview && (
             <small className={preview.qualifies ? 'member-earn' : 'muted'}>
               {preview.qualifies
-                ? `Transaksi ini: +1 stamp, +${preview.points} poin`
-                : `Belum dapat stamp: ${stampRule(rules).replace(/^1 stamp tiap transaksi dengan /, 'butuh ')} yang dibayar.`}
+                ? card!.stampDays.includes(businessDay())
+                  ? `Stamp hari ini sudah didapat. Transaksi ini: +${preview.points} poin`
+                  : `Transaksi ini: +1 stamp, +${preview.points} poin`
+                : `Belum dapat stamp: ${stampRule(rules).replace(/^1 stamp per hari untuk transaksi dengan /, 'butuh ')} yang dibayar.`}
             </small>
           )}
           <div className="row">

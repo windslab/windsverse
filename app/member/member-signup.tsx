@@ -2,7 +2,7 @@
 // Sign up for a member card from the QR in the café (windsverse.com/member/daftar). The card
 // opens right away; it becomes active with the first qualifying order at the till.
 import { useState } from 'react';
-import { Coffee, CupSoda, Gift } from 'lucide-react';
+import { CupSoda, Gift, Ticket } from 'lucide-react';
 import styles from './member.module.css';
 
 export default function MemberSignup() {
@@ -42,17 +42,18 @@ export default function MemberSignup() {
         </header>
         <ul className={styles.perks}>
           <li>
-            <CupSoda size={18} /> Stamp ke-5: minuman non-kopi gratis
+            <Ticket size={18} /> Stamp ke-5: potongan Rp5.000
           </li>
           <li>
-            <Coffee size={18} /> Stamp ke-10: minuman kopi gratis
+            <CupSoda size={18} /> Stamp ke-10: minuman gratis sampai Rp20.000
           </li>
           <li>
             <Gift size={18} /> Kumpulkan poin untuk hadiah tahunan, sampai T-shirt WINDS LAB
           </li>
         </ul>
         <p className={styles.fine}>
-          Gratis. 1 stamp tiap transaksi dengan minimal 1 minuman atau makanan ≥ Rp15.000.
+          Gratis. 1 stamp per hari untuk transaksi dengan minimal 1 minuman atau makanan ≥ Rp15.000.
+          Transaksi berikutnya di hari yang sama tetap mendapat poin.
         </p>
       </section>
       <form className={styles.block} onSubmit={submit}>

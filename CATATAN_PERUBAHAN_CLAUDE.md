@@ -1319,3 +1319,14 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
 - Periode yang gajinya sudah dibayar tidak berubah. Gaji yang belum dibayar perlu dihitung ulang
   (`OPERATIONS_VERSION` naik ke 3).
 - Admin mendapat ringkasan pengeluaran harian per tanggal di menu Pengeluaran.
+
+## 67. Aturan member: 1 stamp per hari, hadiah stamp diubah (3 Nov 2026)
+
+- Keputusan pemilik untuk menutup celah pembelian berulang di hari yang sama dan menjaga margin.
+- Maksimal 1 stamp per hari kerja kafe. Transaksi berikutnya di hari itu hanya mendapat poin. Bila
+  transaksi pertama dibatalkan, stamp pindah ke transaksi berikutnya.
+- Stamp ke-5: potongan Rp5.000. Stamp ke-10: minuman gratis sampai Rp20.000, kopi atau non-kopi; bila
+  lebih mahal, pelanggan membayar selisihnya. Nilainya bisa diatur di Member → Aturan.
+- Kasir menampilkan "Stamp hari ini sudah didapat" sebelum transaksi dicatat.
+- Teks kartu, pendaftaran, dan template kartu mengikuti aturan baru.
+- Aturan berlaku juga untuk pesanan member yang sudah ada, karena stamp dihitung dari pesanan.
