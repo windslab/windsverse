@@ -1289,3 +1289,15 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
   berdasarkan urutannya di playlist (cara yang juga berjalan di iPhone).
 - Diuji di windsverse.com dengan pemutar yang sama: alamat baru dipakai, playlist terbaca, lagu
   berputar. Belum diuji di iPhone sungguhan.
+
+## 65. Perbaikan: input pesanan lampau masuk ke tanggal yang dipilih (3 Nov 2026)
+
+- Penyebab: sejak aturan "transaksi ikut akun" (31 Okt), karyawan yang sedang cek in selalu masuk ke
+  shift berjalan, sehingga pilihan tanggal lampau di Kasir POS diabaikan tanpa pemberitahuan.
+- Kini shift lampau yang dipilih dihormati: pesanan masuk ke tanggal itu, langsung lunas dan selesai,
+  dan tidak masuk antrean. Karyawan tetap hanya bisa memilih shift yang menjadi jadwalnya.
+- Kasir POS menampilkan peringatan tanggal tujuan saat shift lampau dipilih, dan pilihan kembali ke
+  shift berjalan setelah pesanan dicatat.
+- Kartu pesanan lampau menampilkan tanggal transaksi beserta waktu input.
+- `typecheck`, `format:check`, `build` lulus; `engine.test` 29/33 (4 gagal lama), ditambah tes baru
+  untuk kasus ini.
