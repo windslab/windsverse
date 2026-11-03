@@ -1192,7 +1192,8 @@ export function apply(
     return;
   }
   if (action === 'order.create') {
-    // An order belongs to the shift its author is checked into, whenever it is entered.
+    // An order belongs to the shift its author is checked into, whenever it is entered, unless
+    // they chose a past shift on purpose to record its sales.
     const active = s.attendance.find(
       (at) =>
         at.employeeId === a.employeeId &&
@@ -1200,10 +1201,15 @@ export function apply(
         !at.checkOut &&
         s.shifts.some((x) => x.id === at.shiftId && x.status === 'open'),
     );
+    const chosen = s.shifts.find((x) => x.id === p.shiftId);
+    const chosePast =
+      !!chosen &&
+      (chosen.status === 'closed' ||
+        (chosen.status === 'planned' && now >= new Date(chosen.endAt)));
     const sh = find(
       s,
       'shifts',
-      a.role !== 'admin' && active ? active.shiftId : p.shiftId || active?.shiftId,
+      a.role !== 'admin' && active && !chosePast ? active.shiftId : p.shiftId || active?.shiftId,
     );
     canShift(sh);
     const pastPlanned = sh.status === 'planned' && now >= new Date(sh.endAt);

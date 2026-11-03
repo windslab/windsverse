@@ -847,6 +847,55 @@ test('orders go to the author’s own shift, whenever they are entered', () => {
   assert.equal(f.malam.status, 'open');
 });
 
+test('someone checked into today’s shift can still record sales on their past shift', () => {
+  const f = rosterDay();
+  const yesterday = apply(
+    f.s,
+    owner,
+    'save',
+    {
+      kind: 'shifts',
+      data: {
+        name: 'Malam',
+        startAt: '2026-10-07T16:00:00+08:00',
+        endAt: '2026-10-07T23:00:00+08:00',
+        employeeIds: [f.budi.employeeId],
+      },
+    },
+    wita('08:00'),
+  );
+  apply(f.s, f.budi, 'attendance.in', {}, wita('16:00'));
+  const sell = (shiftId: string, paid = true) =>
+    apply(
+      f.s,
+      f.budi,
+      'order.create',
+      {
+        shiftId,
+        items: [{ productId: f.s.products[0].id, quantity: 1 }],
+        discount: 0,
+        taxEnabled: false,
+        paymentMethod: 'qris',
+        orderType: 'takeaway',
+        paid,
+      },
+      wita('17:00'),
+    );
+  const past = sell(yesterday.id);
+  assert.equal(past.date, '2026-10-07');
+  assert.equal(past.shiftId, yesterday.id);
+  assert.equal(past.status, 'selesai');
+  assert.equal(past.historicalEntry, true);
+  assert.equal(f.malam.status, 'open');
+  // Without choosing a past shift, the order stays on the shift they are checked into.
+  assert.equal(sell('').shiftId, f.malam.id);
+  assert.throws(() => sell(f.pagi.id), /tidak dijadwalkan/);
+  // Not someone else's past shift, and a past shift cannot take an unpaid order.
+  assert.throws(() => sell(yesterday.id, false), /harus langsung dicatat sebagai lunas/);
+  yesterday.employeeIds = [];
+  assert.throws(() => sell(yesterday.id), /tidak dijadwalkan/);
+});
+
 test('a forgotten check-out ends when the employee checks into the next shift', () => {
   const f = rosterDay();
   apply(f.s, f.sari, 'attendance.in', {}, wita('08:00'));

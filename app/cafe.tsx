@@ -1031,6 +1031,8 @@ export default function Cafe({ name }: { name: string }) {
       setCustomerName('');
       setMemberId('');
       setMemberFree(null);
+      // Back to the running shift, so the next live order doesn't land on a past date.
+      if (sh.status !== 'open') setOrderShiftId('');
       if (result.id) setReceipt(result);
     }
   };
@@ -1785,9 +1787,12 @@ export default function Cafe({ name }: { name: string }) {
                 })),
               ]}
             />
-            {selectedOrderShift?.status === 'planned' && (
-              <small className="muted">
-                Shift lampau yang masih terjadwal akan ditutup otomatis setelah pembayaran dicatat.
+            {selectedOrderShift && selectedOrderShift.status !== 'open' && (
+              <small className="warning">
+                Pesanan masuk ke {fmtDate(selectedOrderShift.date)} · {selectedOrderShift.name},
+                langsung lunas dan selesai, tidak masuk antrean.
+                {selectedOrderShift.status === 'planned' &&
+                  ' Shift ini ditutup otomatis setelah pembayaran dicatat.'}
               </small>
             )}
             {!eligibleOrderShifts.length && (
@@ -1998,7 +2003,10 @@ export default function Cafe({ name }: { name: string }) {
                   <Badge value={o.status} />
                 </div>
                 <small>
-                  {dateTime(o.createdAt)} · {shiftName(o.shiftId)} ·{' '}
+                  {o.historicalEntry
+                    ? `${fmtDate(o.date)} (diinput ${dateTime(o.createdAt)})`
+                    : dateTime(o.createdAt)}{' '}
+                  · {shiftName(o.shiftId)} ·{' '}
                   {o.orderType === 'takeaway'
                     ? 'Bawa pulang'
                     : o.tableId
