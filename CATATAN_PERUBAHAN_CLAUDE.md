@@ -1301,3 +1301,21 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
 - Kartu pesanan lampau menampilkan tanggal transaksi beserta waktu input.
 - `typecheck`, `format:check`, `build` lulus; `engine.test` 29/33 (4 gagal lama), ditambah tes baru
   untuk kasus ini.
+
+## 66. Pengeluaran disatukan per hari dan dibagi rata ke semua shift (3 Nov 2026)
+
+- Permintaan pemilik: tidak adil bila belanja hanya mengurangi gaji shift yang kebetulan berbelanja.
+- Pilihan "Alokasi" ke shift dihapus. Perhitungan kini ditentukan kategori dan tanggal:
+  - **Operasional, lainnya**: pengeluaran harian, disatukan per tanggal lalu dibagi rata ke semua
+    shift hari itu. Sisa pembagian Rp1 masuk ke shift paling awal.
+  - **Sewa, utilitas**: bulanan, hanya mengurangi laba bulanan untuk bonus, supaya sewa sebulan tidak
+    menjatuhkan gaji satu hari.
+  - **Bahan baku**: tetap tidak mengurangi laba karena sudah lewat HPP.
+- Shift selesai yang tidak dikerjakan siapa pun dan tanpa penjualan tidak ikut menanggung. Hari tanpa
+  shift masuk ke perhitungan bulanan.
+- Tanggal bawaan pengeluaran mengikuti hari kerja kafe (sampai 05.00 WITA), supaya belanja lewat
+  tengah malam tetap masuk ke hari shift malam itu.
+- Menghapus shift tidak lagi menghapus catatan pengeluaran.
+- Periode yang gajinya sudah dibayar tidak berubah. Gaji yang belum dibayar perlu dihitung ulang
+  (`OPERATIONS_VERSION` naik ke 3).
+- Admin mendapat ringkasan pengeluaran harian per tanggal di menu Pengeluaran.
