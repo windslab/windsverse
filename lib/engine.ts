@@ -24,6 +24,8 @@ import {
   initial,
   localDate,
   businessDay,
+  localMidnight,
+  staleCheckIns,
   shiftSlot,
   shiftTotals,
   monthlyExpenses,
@@ -869,6 +871,18 @@ export function apply(
     for (const other of s.shifts) if (other.id !== sh.id) tryFinalize(other);
     return sh;
   }
+  if (action === 'attendance.midnight') {
+    // The day has changed: whoever is still checked in is checked out as of midnight.
+    assert(a.role === 'system', 'Hanya sistem yang menjalankan cek out tengah malam.');
+    const midnight = localMidnight(now).toISOString();
+    const stale = staleCheckIns(s, now);
+    for (const at of stale) {
+      at.checkOut = midnight;
+      at.notes = (at.notes ? at.notes + ' ' : '') + 'Cek out otomatis pukul 00.00.';
+    }
+    for (const sh of s.shifts) tryFinalize(sh);
+    return { checkedOut: stale.length };
+  }
   if (action === 'roster.fullday') {
     // Full day: the employee works every shift of that date and is paid for each of them.
     admin(a);
@@ -1222,10 +1236,14 @@ export function apply(
         s.shifts.some((x) => x.id === at.shiftId && x.status === 'open'),
     );
     const chosen = s.shifts.find((x) => x.id === p.shiftId);
+    // A shift that was left open counts as past too, once its hours are over and its author has
+    // moved on; only the shift they are still checked into takes live orders.
     const chosePast =
       !!chosen &&
       (chosen.status === 'closed' ||
-        (chosen.status === 'planned' && now >= new Date(chosen.endAt)));
+        (['planned', 'open'].includes(chosen.status) &&
+          now >= new Date(chosen.endAt) &&
+          chosen.id !== active?.shiftId));
     const sh = find(
       s,
       'shifts',
@@ -1233,7 +1251,12 @@ export function apply(
     );
     canShift(sh);
     const pastPlanned = sh.status === 'planned' && now >= new Date(sh.endAt);
-    const historical = sh.status === 'closed' || pastPlanned;
+    const pastOpen =
+      a.role !== 'admin' &&
+      sh.status === 'open' &&
+      now >= new Date(sh.endAt) &&
+      sh.id !== active?.shiftId;
+    const historical = sh.status === 'closed' || pastPlanned || pastOpen;
     assert(
       sh.status === 'open' || historical,
       'Pilih shift berjalan atau jadwal shift yang sudah lewat.',
@@ -1389,6 +1412,7 @@ export function apply(
     s.orders.push(order);
     activateMember(order);
     if (pastPlanned) maybeFinalizeShift(sh);
+    if (pastOpen) tryFinalize(sh);
     if (historical) refreshClosedShift(sh);
     return order;
   }
