@@ -822,6 +822,35 @@ a:focus-visible {
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 18px;
 }
+.order-day {
+  margin-bottom: 18px;
+}
+.order-day > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid #293447;
+  cursor: pointer;
+}
+.order-day > summary strong {
+  font-size: 1.05rem;
+}
+.order-day > summary small {
+  margin-left: auto;
+}
+.order-shift {
+  margin-top: 16px;
+}
+.order-shift-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-bottom: 10px;
+}
 .order-card {
   display: flex;
   flex-direction: column;

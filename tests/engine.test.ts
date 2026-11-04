@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { apply, validateTiers } from '../lib/engine';
-import { initial, monthlyExpenses, shiftTotals, type Actor } from '../lib/model';
+import { initial, monthlyExpenses, ordersByDate, shiftTotals, type Actor } from '../lib/model';
 const owner: Actor = {
   id: 'owner-identity',
   employeeId: 'owner',
@@ -1085,4 +1085,66 @@ test('per-employee roster: check morning, night, both or neither for each date',
   const kept = plan(f.sari, { '2026-10-08': { pagi: false, malam: false } });
   assert.deepEqual(kept.skipped, ['2026-10-08']);
   assert.ok(f.pagi.employeeIds.includes(f.sari.employeeId));
+});
+test('midnight checks out only those from before the day change and closes their shift', () => {
+  const f = fixture();
+  const system: Actor = { ...owner, id: 'system', employeeId: 'system', role: 'system' };
+  assert.throws(() => apply(f.s, owner, 'attendance.midnight', {}, morningOut), /sistem/);
+  // Same calendar day: nothing happens yet.
+  assert.deepEqual(apply(f.s, system, 'attendance.midnight', {}, morningOut), { checkedOut: 0 });
+  assert.equal(f.s.attendance[0].checkOut, null);
+  for (const o of f.s.orders) o.status = 'selesai';
+  const justAfter = new Date('2026-10-09T00:00:20+08:00');
+  assert.deepEqual(apply(f.s, system, 'attendance.midnight', {}, justAfter), { checkedOut: 1 });
+  assert.equal(f.s.attendance[0].checkOut, '2026-10-08T16:00:00.000Z');
+  assert.match(f.s.attendance[0].notes, /otomatis/);
+  assert.equal(f.s.shifts.find((x) => x.id === f.shift.id)?.status, 'closed');
+  assert.deepEqual(apply(f.s, system, 'attendance.midnight', {}, justAfter), { checkedOut: 0 });
+});
+test('midnight leaves a shift open while its order is unfinished', () => {
+  const f = fixture();
+  const system: Actor = { ...owner, id: 'system', employeeId: 'system', role: 'system' };
+  f.s.orders.push({
+    id: 'o-open',
+    shiftId: f.shift.id,
+    date: f.shift.date,
+    status: 'diproses',
+    items: [],
+  });
+  apply(f.s, system, 'attendance.midnight', {}, new Date('2026-10-09T00:00:20+08:00'));
+  assert.ok(f.s.attendance[0].checkOut);
+  assert.equal(f.s.shifts.find((x) => x.id === f.shift.id)?.status, 'open');
+});
+test('orders group by date then shift, newest first, counting only what was paid', () => {
+  const s = initial(owner);
+  s.shifts = [
+    { id: 'pagi', name: 'Pagi', startAt: '2026-10-08T00:00:00Z' },
+    { id: 'malam', name: 'Malam', startAt: '2026-10-08T08:00:00Z' },
+  ] as any;
+  const order = (id: string, date: string, shiftId: string, extra = {}) => ({
+    id,
+    date,
+    shiftId,
+    total: 10000,
+    paid: true,
+    status: 'selesai',
+    ...extra,
+  });
+  const groups = ordersByDate(s, [
+    order('a', '2026-10-08', 'pagi'),
+    order('b', '2026-10-09', 'pagi'),
+    order('c', '2026-10-08', 'malam'),
+    order('d', '2026-10-08', 'malam', { status: 'dibatalkan' }),
+  ]);
+  assert.deepEqual(
+    groups.map((d) => d.date),
+    ['2026-10-09', '2026-10-08'],
+  );
+  assert.deepEqual(
+    groups[1].shifts.map((g) => g.shiftId),
+    ['malam', 'pagi'],
+  );
+  assert.equal(groups[1].count, 3);
+  assert.equal(groups[1].total, 20000);
+  assert.equal(groups[1].shifts[0].total, 10000);
 });

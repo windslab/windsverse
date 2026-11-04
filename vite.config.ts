@@ -29,6 +29,8 @@ const localBindingConfig = {
         workers_dev: true,
         preview_urls: false,
         routes: cloudflareConfig.domains.map((pattern) => ({ pattern, custom_domain: true })),
+        // 00:00 WITA, and 00:10 in case the first run could not finish.
+        triggers: { crons: ['0 16 * * *', '10 16 * * *'] },
       }
     : {}),
   d1_databases: d1

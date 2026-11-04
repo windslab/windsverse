@@ -1330,3 +1330,15 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
 - Kasir menampilkan "Stamp hari ini sudah didapat" sebelum transaksi dicatat.
 - Teks kartu, pendaftaran, dan template kartu mengikuti aturan baru.
 - Aturan berlaku juga untuk pesanan member yang sudah ada, karena stamp dihitung dari pesanan.
+
+## 68. Pesanan dikelompokkan, cek out otomatis pukul 00.00 (4 Nov 2026)
+
+- Menu Pesanan kini dikelompokkan per tanggal lalu per shift, masing-masing dengan jumlah pesanan dan
+  total yang sudah dibayar. Tanggal terbaru terbuka, tanggal lama bisa dibuka dengan menekannya.
+  Saat mencari atau memakai filter, semua tanggal yang cocok terbuka.
+- Server menjalankan cek out otomatis pukul 00.00 WITA lewat Cron Trigger Cloudflare, dengan cadangan
+  pukul 00.10. Jam keluarnya tercatat 00.00 dan catatan absensi diberi keterangan.
+- Yang cek in setelah 00.00 tidak ikut keluar sampai tengah malam berikutnya. Periode yang gajinya
+  sudah dibayar tidak disentuh.
+- Shift dengan pesanan yang belum selesai tetap terbuka sampai pesanannya diselesaikan atau
+  dibatalkan. Pesanan tidak diselesaikan otomatis.

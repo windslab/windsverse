@@ -24,6 +24,8 @@ import {
   initial,
   localDate,
   businessDay,
+  localMidnight,
+  staleCheckIns,
   shiftSlot,
   shiftTotals,
   monthlyExpenses,
@@ -868,6 +870,18 @@ export function apply(
     // Shifts whose schedule is over and whose last present employee has left close now.
     for (const other of s.shifts) if (other.id !== sh.id) tryFinalize(other);
     return sh;
+  }
+  if (action === 'attendance.midnight') {
+    // The day has changed: whoever is still checked in is checked out as of midnight.
+    assert(a.role === 'system', 'Hanya sistem yang menjalankan cek out tengah malam.');
+    const midnight = localMidnight(now).toISOString();
+    const stale = staleCheckIns(s, now);
+    for (const at of stale) {
+      at.checkOut = midnight;
+      at.notes = (at.notes ? at.notes + ' ' : '') + 'Cek out otomatis pukul 00.00.';
+    }
+    for (const sh of s.shifts) tryFinalize(sh);
+    return { checkedOut: stale.length };
   }
   if (action === 'roster.fullday') {
     // Full day: the employee works every shift of that date and is paid for each of them.

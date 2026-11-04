@@ -108,6 +108,7 @@ import {
   money,
   localDate,
   businessDay,
+  ordersByDate,
   dateTime,
   labels,
   shiftTotals,
@@ -203,6 +204,12 @@ function Metric({
     </div>
   );
 }
+const clock = (value: string) =>
+  new Date(value).toLocaleTimeString('id-ID', {
+    timeZone: CAFE_TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 const fmtDate = (value: string) =>
   new Date(value + 'T12:00:00+08:00').toLocaleDateString('id-ID', {
     timeZone: CAFE_TIMEZONE,
@@ -1972,8 +1979,9 @@ export default function Cafe({ name }: { name: string }) {
             />
           </div>
         </div>
-        <div className="orders-grid">
-          {[...s.orders]
+        {ordersByDate(
+          s,
+          [...s.orders]
             .reverse()
             .filter(
               (o) =>
@@ -1982,150 +1990,187 @@ export default function Cafe({ name }: { name: string }) {
                   (orderFilter === 'hpp_incomplete'
                     ? o.paid && o.status !== 'dibatalkan' && hasMissingHpp(o)
                     : o.status === orderFilter)),
-            )
-            .map((o) => (
-              <article className="panel order-card" key={o.id}>
-                <div className="row between">
-                  <strong>{o.no}</strong>
-                  <Badge value={o.status} />
+            ),
+        ).map((day, dayIndex) => (
+          <details
+            className="order-day"
+            key={day.date}
+            open={dayIndex === 0 || !!search || orderFilter !== 'all'}
+          >
+            <summary>
+              <strong>{fmtDate(day.date)}</strong>
+              {day.date === businessDay() && <span className="badge">Hari ini</span>}
+              <small>
+                {day.count} pesanan · {money(day.total)}
+              </small>
+            </summary>
+            {day.shifts.map((group) => (
+              <section className="order-shift" key={group.shiftId}>
+                <div className="order-shift-head">
+                  <strong>{group.shift?.name || 'Umum'}</strong>
+                  <small>
+                    {group.shift &&
+                      clock(group.shift.startAt) + '–' + clock(group.shift.endAt) + ' · '}
+                    {group.orders.length} pesanan · {money(group.total)}
+                  </small>
                 </div>
-                <small>
-                  {o.historicalEntry
-                    ? `${fmtDate(o.date)} (diinput ${dateTime(o.createdAt)})`
-                    : dateTime(o.createdAt)}{' '}
-                  · {shiftName(o.shiftId)} ·{' '}
-                  {o.orderType === 'takeaway'
-                    ? 'Bawa pulang'
-                    : o.tableId
-                      ? 'Meja ' + s.tables.find((t) => t.id === o.tableId)?.number
-                      : 'Makan di tempat'}
-                  {o.customerName ? ' · ' + o.customerName : ''}
-                </small>
-                {hasMissingHpp(o) && (
-                  <div className="notice warning">
-                    HPP belum diisi saat transaksi. Menu tersebut tercatat dengan HPP Rp0 dan stok
-                    bahan tidak dipotong. Lengkapi HPP sebelum menghitung atau membayar gaji.
-                  </div>
-                )}
-                <ul>
-                  {o.items.map((i: any, n: number) => (
-                    <li key={n}>
-                      {i.quantity}× {i.name}
-                      {i.notes && <small> · {i.notes}</small>}
-                    </li>
-                  ))}
-                </ul>
-                <div className="row between">
-                  <strong>{money(o.total)}</strong>
-                  <button
-                    className="icon-button"
-                    aria-label="Lihat struk"
-                    onClick={() => setReceipt(o)}
-                  >
-                    <Printer size={18} />
-                  </button>
-                </div>
-                <div className="row wrap">
-                  {admin && o.status !== 'dibatalkan' && hasMissingHpp(o) && (
-                    <button
-                      className="button primary"
-                      disabled={
-                        busy ||
-                        s.payrolls.some(
-                          (pr) => pr.period === o.date.slice(0, 7) && pr.status === 'lunas',
-                        )
-                      }
-                      onClick={() => completeHpp(o)}
-                    >
-                      <ChefHat size={15} />
-                      Lengkapi HPP
-                    </button>
-                  )}
-                  {admin && o.status !== 'dibatalkan' && (
-                    <button className="button" disabled={busy} onClick={() => correctOrder(o)}>
-                      <Pencil size={15} />
-                      Koreksi
-                    </button>
-                  )}
-                  {admin && (
-                    <button
-                      className="button danger"
-                      disabled={busy}
-                      onClick={() => deleteOrder(o)}
-                    >
-                      <Trash2 size={15} />
-                      Hapus transaksi
-                    </button>
-                  )}
-                  {o.status === 'menunggu_pembayaran' && (
-                    <button className="button primary" disabled={busy} onClick={() => payOrder(o)}>
-                      Terima pembayaran
-                    </button>
-                  )}
-                  {(
-                    {
-                      diproses: 'sedang_dibuat',
-                      sedang_dibuat: 'siap_disajikan',
-                      siap_disajikan: 'selesai',
-                    } as any
-                  )[o.status] && (
-                    <button
-                      className="button primary"
-                      disabled={busy}
-                      onClick={() =>
-                        act('order.status', {
-                          id: o.id,
-                          status: (
-                            {
-                              diproses: 'sedang_dibuat',
-                              sedang_dibuat: 'siap_disajikan',
-                              siap_disajikan: 'selesai',
-                            } as any
-                          )[o.status],
-                        })
-                      }
-                    >
-                      {
-                        (
+                <div className="orders-grid">
+                  {group.orders.map((o) => (
+                    <article className="panel order-card" key={o.id}>
+                      <div className="row between">
+                        <strong>{o.no}</strong>
+                        <Badge value={o.status} />
+                      </div>
+                      <small>
+                        {o.historicalEntry
+                          ? `${fmtDate(o.date)} (diinput ${dateTime(o.createdAt)})`
+                          : dateTime(o.createdAt)}{' '}
+                        · {shiftName(o.shiftId)} ·{' '}
+                        {o.orderType === 'takeaway'
+                          ? 'Bawa pulang'
+                          : o.tableId
+                            ? 'Meja ' + s.tables.find((t) => t.id === o.tableId)?.number
+                            : 'Makan di tempat'}
+                        {o.customerName ? ' · ' + o.customerName : ''}
+                      </small>
+                      {hasMissingHpp(o) && (
+                        <div className="notice warning">
+                          HPP belum diisi saat transaksi. Menu tersebut tercatat dengan HPP Rp0 dan
+                          stok bahan tidak dipotong. Lengkapi HPP sebelum menghitung atau membayar
+                          gaji.
+                        </div>
+                      )}
+                      <ul>
+                        {o.items.map((i: any, n: number) => (
+                          <li key={n}>
+                            {i.quantity}× {i.name}
+                            {i.notes && <small> · {i.notes}</small>}
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="row between">
+                        <strong>{money(o.total)}</strong>
+                        <button
+                          className="icon-button"
+                          aria-label="Lihat struk"
+                          onClick={() => setReceipt(o)}
+                        >
+                          <Printer size={18} />
+                        </button>
+                      </div>
+                      <div className="row wrap">
+                        {admin && o.status !== 'dibatalkan' && hasMissingHpp(o) && (
+                          <button
+                            className="button primary"
+                            disabled={
+                              busy ||
+                              s.payrolls.some(
+                                (pr) => pr.period === o.date.slice(0, 7) && pr.status === 'lunas',
+                              )
+                            }
+                            onClick={() => completeHpp(o)}
+                          >
+                            <ChefHat size={15} />
+                            Lengkapi HPP
+                          </button>
+                        )}
+                        {admin && o.status !== 'dibatalkan' && (
+                          <button
+                            className="button"
+                            disabled={busy}
+                            onClick={() => correctOrder(o)}
+                          >
+                            <Pencil size={15} />
+                            Koreksi
+                          </button>
+                        )}
+                        {admin && (
+                          <button
+                            className="button danger"
+                            disabled={busy}
+                            onClick={() => deleteOrder(o)}
+                          >
+                            <Trash2 size={15} />
+                            Hapus transaksi
+                          </button>
+                        )}
+                        {o.status === 'menunggu_pembayaran' && (
+                          <button
+                            className="button primary"
+                            disabled={busy}
+                            onClick={() => payOrder(o)}
+                          >
+                            Terima pembayaran
+                          </button>
+                        )}
+                        {(
                           {
-                            diproses: 'Mulai buat',
-                            sedang_dibuat: 'Siap disajikan',
-                            siap_disajikan: 'Selesaikan',
+                            diproses: 'sedang_dibuat',
+                            sedang_dibuat: 'siap_disajikan',
+                            siap_disajikan: 'selesai',
                           } as any
-                        )[o.status]
-                      }
-                    </button>
-                  )}
-                  {admin && ['menunggu_pembayaran', 'diproses'].includes(o.status) && (
-                    <button
-                      className="button danger"
-                      onClick={() =>
-                        setModal({
-                          title: 'Batalkan pesanan',
-                          description: o.paid
-                            ? 'Lakukan pengembalian uang secara manual sebelum mengonfirmasi. Aplikasi tidak memproses refund bank.'
-                            : 'Stok pesanan akan dikembalikan.',
-                          fields: [
-                            { key: 'reason', label: 'Alasan pembatalan', required: true },
+                        )[o.status] && (
+                          <button
+                            className="button primary"
+                            disabled={busy}
+                            onClick={() =>
+                              act('order.status', {
+                                id: o.id,
+                                status: (
+                                  {
+                                    diproses: 'sedang_dibuat',
+                                    sedang_dibuat: 'siap_disajikan',
+                                    siap_disajikan: 'selesai',
+                                  } as any
+                                )[o.status],
+                              })
+                            }
+                          >
                             {
-                              key: 'refundRecorded',
-                              label: 'Pembayaran telah dikembalikan (jika sudah dibayar)',
-                              type: 'boolean',
-                            },
-                          ],
-                          initial: {},
-                          submit: (v: any) =>
-                            act('order.status', { id: o.id, status: 'dibatalkan', ...v }),
-                        })
-                      }
-                    >
-                      Batalkan
-                    </button>
-                  )}
+                              (
+                                {
+                                  diproses: 'Mulai buat',
+                                  sedang_dibuat: 'Siap disajikan',
+                                  siap_disajikan: 'Selesaikan',
+                                } as any
+                              )[o.status]
+                            }
+                          </button>
+                        )}
+                        {admin && ['menunggu_pembayaran', 'diproses'].includes(o.status) && (
+                          <button
+                            className="button danger"
+                            onClick={() =>
+                              setModal({
+                                title: 'Batalkan pesanan',
+                                description: o.paid
+                                  ? 'Lakukan pengembalian uang secara manual sebelum mengonfirmasi. Aplikasi tidak memproses refund bank.'
+                                  : 'Stok pesanan akan dikembalikan.',
+                                fields: [
+                                  { key: 'reason', label: 'Alasan pembatalan', required: true },
+                                  {
+                                    key: 'refundRecorded',
+                                    label: 'Pembayaran telah dikembalikan (jika sudah dibayar)',
+                                    type: 'boolean',
+                                  },
+                                ],
+                                initial: {},
+                                submit: (v: any) =>
+                                  act('order.status', { id: o.id, status: 'dibatalkan', ...v }),
+                              })
+                            }
+                          >
+                            Batalkan
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  ))}
                 </div>
-              </article>
+              </section>
             ))}
-        </div>
+          </details>
+        ))}
         {!s.orders.length && <Empty>Pesanan dari kasir akan tampil di sini.</Empty>}
       </>
     );
@@ -2159,8 +2204,9 @@ export default function Cafe({ name }: { name: string }) {
           Semua jam menggunakan WITA (Pangkep). Jadwal menjadi acuan absensi dan gaji: yang dihitung
           adalah kehadiran per shift, bukan jam kerja. Karyawan bisa cek in kapan saja dan otomatis
           masuk ke shift-nya hari itu; transaksi dari akunnya masuk ke shift tersebut. Shift selesai
-          setelah semua yang hadir cek out (dan pesanannya selesai), atau ditutup admin. Karyawan
-          full day masuk ke semua shift hari itu dan dibayar untuk setiap shift.
+          setelah semua yang hadir cek out (dan pesanannya selesai), atau ditutup admin. Yang masih
+          cek in saat pergantian hari otomatis cek out pukul 00.00. Karyawan full day masuk ke semua
+          shift hari itu dan dibayar untuk setiap shift.
         </div>
         {admin && s.shifts.some((sh) => !sh.scheduleTimezone) && (
           <div className="notice warning">

@@ -30,9 +30,17 @@ export type Actor = {
   id: string;
   employeeId: string;
   name: string;
-  role: 'admin' | 'karyawan';
+  role: 'admin' | 'karyawan' | 'system';
   email: string;
   sessionHash?: string;
+};
+/** The server itself, for scheduled work; no sign-in can ever produce this role. */
+export const SYSTEM_ACTOR: Actor = {
+  id: 'system',
+  employeeId: 'system',
+  name: 'Sistem',
+  email: '',
+  role: 'system',
 };
 export const blank = (): State => Object.fromEntries(kinds.map((k) => [k, []])) as unknown as State;
 export const defaultCategories = () =>
@@ -99,6 +107,47 @@ export const labels: Record<string, string> = {
   lunas: 'Lunas',
   belum_dibayar: 'Belum dibayar',
 };
+/** Start of the calendar day in WITA. */
+export const localMidnight = (d: Date = new Date()) => new Date(localDate(d) + 'T00:00:00+08:00');
+/** Who is still checked in from before today's midnight, in periods not yet paid. */
+export const staleCheckIns = (s: State, now: Date = new Date()) => {
+  const midnight = localMidnight(now);
+  return s.attendance.filter((at) => {
+    if (at.status !== 'hadir' || at.checkOut || new Date(at.checkIn) >= midnight) return false;
+    const sh = s.shifts.find((x) => x.id === at.shiftId);
+    return (
+      !!sh &&
+      sh.status !== 'closed' &&
+      !s.payrolls.some((pr) => pr.period === sh.date.slice(0, 7) && pr.status === 'lunas')
+    );
+  });
+};
+/** Orders by date and then by shift, newest first; the order within a shift is kept. */
+export function ordersByDate(s: State, orders: Row[]) {
+  const earning = (list: Row[]) =>
+    list.filter((o) => o.paid && o.status !== 'dibatalkan').reduce((v, o) => v + o.total, 0);
+  return [...new Set(orders.map((o) => o.date as string))]
+    .sort((a, b) => b.localeCompare(a))
+    .map((date) => {
+      const ofDate = orders.filter((o) => o.date === date);
+      return {
+        date,
+        count: ofDate.length,
+        total: earning(ofDate),
+        shifts: [...new Set(ofDate.map((o) => o.shiftId as string))]
+          .map((shiftId) => {
+            const list = ofDate.filter((o) => o.shiftId === shiftId);
+            return {
+              shiftId,
+              shift: s.shifts.find((sh) => sh.id === shiftId),
+              orders: list,
+              total: earning(list),
+            };
+          })
+          .sort((a, b) => (b.shift?.startAt || '').localeCompare(a.shift?.startAt || '')),
+      };
+    });
+}
 /**
  * How an expense reaches the wages: rent and utilities are monthly, stock purchases are already in
  * HPP, and everything else belongs to the whole day rather than to whoever went shopping.
