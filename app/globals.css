@@ -5110,6 +5110,10 @@ td {
 .audit-archive {
   min-width: 0;
 }
+/* The hidden file input stays inside its button, so it cannot widen the page. */
+.button:has(> .sr-only) {
+  position: relative;
+}
 .backup-panel > .muted,
 .audit-panel > .muted {
   line-height: 1.65;

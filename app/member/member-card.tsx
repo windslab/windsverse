@@ -113,7 +113,9 @@ export function useMemberCard(token: string) {
   );
   useEffect(() => {
     void load();
-    const t = setInterval(load, 15000);
+    const t = setInterval(() => {
+      if (!document.hidden) void load();
+    }, 15000);
     return () => clearInterval(t);
   }, [load]);
   return { card, error, fresh, reload: load };

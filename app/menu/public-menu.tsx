@@ -22,7 +22,9 @@ export default function PublicMenu() {
         })
         .catch((e) => setError(e.message));
     void load();
-    const t = setInterval(load, 10000);
+    const t = setInterval(() => {
+      if (!document.hidden) void load();
+    }, 10000);
     return () => clearInterval(t);
   }, []);
   return (

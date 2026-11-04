@@ -988,12 +988,11 @@ export default function Cafe({ name }: { name: string }) {
   // Mirrors the engine: a shift left open past its hours only takes past orders from staff.
   const isPastForOrder = (sh: Row) =>
     sh.status !== 'open' || (!admin && new Date(sh.endAt) <= new Date() && !checkedInto(sh));
+  // Only a shift the cashier is working on is preselected; a past date is always chosen on purpose.
   const selectedOrderShift =
     eligibleOrderShifts.find((sh) => sh.id === orderShiftId) ||
     eligibleOrderShifts.find(checkedInto) ||
-    eligibleOrderShifts.find((sh) => sh.status === 'open' && !isPastForOrder(sh)) ||
-    eligibleOrderShifts.find((sh) => sh.status === 'open') ||
-    eligibleOrderShifts[0];
+    eligibleOrderShifts.find((sh) => sh.status === 'open' && !isPastForOrder(sh));
   const checkout = async (paid: boolean) => {
     const sh = eligibleOrderShifts.find((item) => item.id === orderShiftId) || selectedOrderShift;
     if (!sh) {
@@ -2411,6 +2410,11 @@ export default function Cafe({ name }: { name: string }) {
         {!attendanceShifts.length && (
           <div className="panel">
             <Empty>Tidak ada jadwal shift untukmu hari ini.</Empty>
+          </div>
+        )}
+        {!s.attendance.some((at) => admin || at.employeeId === actor?.employeeId) && (
+          <div className="panel">
+            <Empty>Belum ada riwayat absensi.</Empty>
           </div>
         )}
         {[...new Set(s.attendance.map((at) => at.employeeId as string))]

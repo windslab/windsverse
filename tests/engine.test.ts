@@ -671,7 +671,7 @@ test('backup rejects tampered invoice totals and nonempty operational target', (
   );
   assert.throws(
     () => apply(f.s, owner, 'backup.restore', { backup: { format: 'winds-space-v1', data: f.s } }),
-    /sebelum operasional/,
+    /Pemulihan aktif/,
   );
 });
 test('cost edits invalidate unpaid payroll', () => {
@@ -711,7 +711,7 @@ test('admin can delete a test shift together with its activity', () => {
   assert.equal(f.s.orders.length, 1);
   assert.equal(f.s.attendance.length, 1);
   assert.equal(f.s.expenses.length, 1);
-  apply(f.s, owner, 'delete', { kind: 'shifts', id: f.shift.id }, morning);
+  apply(f.s, owner, 'delete', { kind: 'shifts', id: f.shift.id, reason: 'Shift uji' }, morning);
   assert.equal(f.s.shifts.length, 0);
   assert.equal(f.s.orders.length, 0);
   assert.equal(f.s.attendance.length, 0);
@@ -781,7 +781,7 @@ test('deleting a shift invalidates unpaid payroll but keeps paid periods locked'
   finish(f, sell(f));
   apply(f.s, f.staff, 'attendance.out', { id: f.s.attendance[0].id }, morningOut);
   apply(f.s, owner, 'payroll.generate', { period: '2026-10' }, morningOut);
-  apply(f.s, owner, 'delete', { kind: 'shifts', id: f.shift.id }, morning);
+  apply(f.s, owner, 'delete', { kind: 'shifts', id: f.shift.id, reason: 'Shift uji' }, morning);
   assert.equal(f.s.shifts.length, 0);
   assert.equal(f.s.payrolls.length, 0);
   const locked = fixture();
@@ -790,7 +790,14 @@ test('deleting a shift invalidates unpaid payroll but keeps paid periods locked'
   apply(locked.s, owner, 'payroll.generate', { period: '2026-10' }, morning);
   apply(locked.s, owner, 'payroll.pay', { id: locked.s.payrolls[0].id }, morningOut);
   assert.throws(
-    () => apply(locked.s, owner, 'delete', { kind: 'shifts', id: locked.shift.id }, morning),
+    () =>
+      apply(
+        locked.s,
+        owner,
+        'delete',
+        { kind: 'shifts', id: locked.shift.id, reason: 'Shift uji' },
+        morning,
+      ),
     /dibayar dan dikunci/,
   );
   assert.equal(locked.s.shifts.length, 1);
@@ -815,6 +822,7 @@ test('admin cannot disable or demote their own account', () => {
         apply(s, owner, 'save', {
           kind: 'employees',
           id: 'owner',
+          reason: 'Uji perubahan akun sendiri',
           data: { ...s.employees[0], ...change },
         }),
       /akunnya sendiri/,
