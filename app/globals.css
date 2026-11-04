@@ -2866,9 +2866,6 @@ td {
   .landing-header nav button {
     font-size: 11px;
   }
-  .landing-header nav > a:first-child {
-    display: none;
-  }
   .landing-header nav .staff-link {
     font-size: 10px;
   }
