@@ -1352,3 +1352,9 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
 - Penyebab 2: pilihan tanggal kembali ke shift berjalan setelah setiap pesanan, sehingga pesanan
   kedua dan seterusnya masuk hari ini. Kini pilihan tetap sampai diganti atau kasir meninggalkan menu
   Kasir, dengan peringatan yang terlihat. Pesan berhasil menyebut tanggal dan shift tujuan.
+
+## 70. Riwayat absensi dipisah per karyawan (4 Nov 2026)
+
+- Riwayat di menu Absensi tidak lagi tercampur dalam satu tabel: setiap karyawan punya tabel sendiri
+  yang bisa dibuka dan ditutup, dengan jumlah shift hadir dan kolom tanggal. Karyawan tetap hanya
+  melihat riwayatnya sendiri.

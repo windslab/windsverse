@@ -840,6 +840,20 @@ a:focus-visible {
 .order-day > summary small {
   margin-left: auto;
 }
+.person-log {
+  margin-top: 18px;
+}
+.person-log > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  cursor: pointer;
+}
+.person-log > summary small {
+  margin-left: auto;
+}
 .order-shift {
   margin-top: 16px;
 }
