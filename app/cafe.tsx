@@ -973,8 +973,25 @@ export default function Cafe({ name }: { name: string }) {
     .filter((sh) => admin || sh.employeeIds.includes(actor?.employeeId))
     .sort((a, b) => b.startAt.localeCompare(a.startAt));
   const [orderShiftId, setOrderShiftId] = useState('');
+  // A chosen past date stays for the next orders, until the cashier leaves the till.
+  useEffect(() => {
+    if (tab !== 'pos') setOrderShiftId('');
+  }, [tab]);
+  const checkedInto = (sh: Row) =>
+    s.attendance.some(
+      (at) =>
+        at.shiftId === sh.id &&
+        at.employeeId === actor?.employeeId &&
+        at.status === 'hadir' &&
+        !at.checkOut,
+    );
+  // Mirrors the engine: a shift left open past its hours only takes past orders from staff.
+  const isPastForOrder = (sh: Row) =>
+    sh.status !== 'open' || (!admin && new Date(sh.endAt) <= new Date() && !checkedInto(sh));
   const selectedOrderShift =
     eligibleOrderShifts.find((sh) => sh.id === orderShiftId) ||
+    eligibleOrderShifts.find(checkedInto) ||
+    eligibleOrderShifts.find((sh) => sh.status === 'open' && !isPastForOrder(sh)) ||
     eligibleOrderShifts.find((sh) => sh.status === 'open') ||
     eligibleOrderShifts[0];
   const checkout = async (paid: boolean) => {
@@ -985,7 +1002,7 @@ export default function Cafe({ name }: { name: string }) {
       );
       return;
     }
-    if (!paid && sh.status !== 'open') {
+    if (!paid && isPastForOrder(sh)) {
       toast.error('Pesanan yang belum lunas hanya dapat dicatat pada shift berjalan.');
       return;
     }
@@ -1009,7 +1026,7 @@ export default function Cafe({ name }: { name: string }) {
           ? { memberFree }
           : {}),
       },
-      'Pesanan tercatat',
+      `Pesanan tercatat di ${fmtDate(sh.date)} · ${sh.name}`,
     );
     if (result) {
       setCart([]);
@@ -1018,8 +1035,6 @@ export default function Cafe({ name }: { name: string }) {
       setCustomerName('');
       setMemberId('');
       setMemberFree(null);
-      // Back to the running shift, so the next live order doesn't land on a past date.
-      if (sh.status !== 'open') setOrderShiftId('');
       if (result.id) setReceipt(result);
     }
   };
@@ -1777,14 +1792,15 @@ export default function Cafe({ name }: { name: string }) {
                 },
                 ...eligibleOrderShifts.map((sh) => ({
                   value: sh.id,
-                  label: `${fmtDate(sh.date)} · ${sh.name} · ${sh.status === 'open' ? 'berjalan' : 'lampau'}`,
+                  label: `${fmtDate(sh.date)} · ${sh.name} · ${isPastForOrder(sh) ? 'lampau' : 'berjalan'}`,
                 })),
               ]}
             />
-            {selectedOrderShift && selectedOrderShift.status !== 'open' && (
+            {selectedOrderShift && isPastForOrder(selectedOrderShift) && (
               <small className="warning">
                 Pesanan masuk ke {fmtDate(selectedOrderShift.date)} · {selectedOrderShift.name},
-                langsung lunas dan selesai, tidak masuk antrean.
+                langsung lunas dan selesai, tidak masuk antrean. Tanggal ini tetap terpilih untuk
+                pesanan berikutnya; ganti pilihannya untuk kembali ke shift berjalan.
                 {selectedOrderShift.status === 'planned' &&
                   ' Shift ini ditutup otomatis setelah pembayaran dicatat.'}
               </small>
@@ -1943,7 +1959,7 @@ export default function Cafe({ name }: { name: string }) {
             <button
               className="button"
               disabled={
-                busy || !cart.length || !selectedOrderShift || selectedOrderShift.status !== 'open'
+                busy || !cart.length || !selectedOrderShift || isPastForOrder(selectedOrderShift)
               }
               onClick={() => checkout(false)}
             >

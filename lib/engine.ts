@@ -1236,10 +1236,14 @@ export function apply(
         s.shifts.some((x) => x.id === at.shiftId && x.status === 'open'),
     );
     const chosen = s.shifts.find((x) => x.id === p.shiftId);
+    // A shift that was left open counts as past too, once its hours are over and its author has
+    // moved on; only the shift they are still checked into takes live orders.
     const chosePast =
       !!chosen &&
       (chosen.status === 'closed' ||
-        (chosen.status === 'planned' && now >= new Date(chosen.endAt)));
+        (['planned', 'open'].includes(chosen.status) &&
+          now >= new Date(chosen.endAt) &&
+          chosen.id !== active?.shiftId));
     const sh = find(
       s,
       'shifts',
@@ -1247,7 +1251,12 @@ export function apply(
     );
     canShift(sh);
     const pastPlanned = sh.status === 'planned' && now >= new Date(sh.endAt);
-    const historical = sh.status === 'closed' || pastPlanned;
+    const pastOpen =
+      a.role !== 'admin' &&
+      sh.status === 'open' &&
+      now >= new Date(sh.endAt) &&
+      sh.id !== active?.shiftId;
+    const historical = sh.status === 'closed' || pastPlanned || pastOpen;
     assert(
       sh.status === 'open' || historical,
       'Pilih shift berjalan atau jadwal shift yang sudah lewat.',
@@ -1403,6 +1412,7 @@ export function apply(
     s.orders.push(order);
     activateMember(order);
     if (pastPlanned) maybeFinalizeShift(sh);
+    if (pastOpen) tryFinalize(sh);
     if (historical) refreshClosedShift(sh);
     return order;
   }

@@ -1342,3 +1342,13 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
   sudah dibayar tidak disentuh.
 - Shift dengan pesanan yang belum selesai tetap terbuka sampai pesanannya diselesaikan atau
   dibatalkan. Pesanan tidak diselesaikan otomatis.
+
+## 69. Pesanan tanggal lampau tidak lagi pindah ke hari ini (4 Nov 2026)
+
+- Laporan pemilik: karyawan memasukkan pesanan tanggal 3, tetapi tercatat tanggal 4.
+- Penyebab 1: shift tanggal lama yang masih terbuka (misalnya pesanannya belum selesai) dianggap
+  "berjalan", sehingga pesanan dialihkan diam-diam ke shift yang sedang diikuti karyawan. Kini shift
+  terbuka yang jamnya sudah lewat dan bukan shift karyawan saat ini diperlakukan sebagai lampau.
+- Penyebab 2: pilihan tanggal kembali ke shift berjalan setelah setiap pesanan, sehingga pesanan
+  kedua dan seterusnya masuk hari ini. Kini pilihan tetap sampai diganti atau kasir meninggalkan menu
+  Kasir, dengan peringatan yang terlihat. Pesan berhasil menyebut tanggal dan shift tujuan.
