@@ -2413,48 +2413,65 @@ export default function Cafe({ name }: { name: string }) {
             <Empty>Tidak ada jadwal shift untukmu hari ini.</Empty>
           </div>
         )}
-        {table(
-          [
-            'Karyawan',
-            'Shift',
-            'Status',
-            'Check-in',
-            'Check-out',
-            'Catatan',
-            ...(admin ? ['Aksi'] : []),
-          ],
-          [...s.attendance]
-            .reverse()
-            .filter((at) => admin || at.employeeId === actor?.employeeId)
-            .map((at) => [
-              employee(at.employeeId),
-              shiftName(at.shiftId),
-              <Badge value={at.status} key="s" />,
-              at.checkIn ? dateTime(at.checkIn) : '—',
-              at.checkOut ? dateTime(at.checkOut) : '—',
-              at.notes || '—',
-              ...(admin
-                ? [
-                    <div className="row" key="actions">
-                      <button
-                        className="icon-button"
-                        aria-label="Koreksi absensi"
-                        onClick={() => correctAttendance(at)}
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        className="icon-button danger"
-                        aria-label="Hapus absensi"
-                        onClick={() => deleteAttendance(at)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>,
-                  ]
-                : []),
-            ]),
-        )}
+        {[...new Set(s.attendance.map((at) => at.employeeId as string))]
+          .filter((id) => admin || id === actor?.employeeId)
+          .sort((x, y) => employee(x).localeCompare(employee(y)))
+          .map((id, index) => {
+            const shiftOf = (at: Row) => s.shifts.find((sh) => sh.id === at.shiftId);
+            const startOf = (at: Row) => shiftOf(at)?.startAt || '';
+            const dateOf = (at: Row): string | undefined => shiftOf(at)?.date;
+            const records = s.attendance
+              .filter((at) => at.employeeId === id)
+              .sort((x, y) => startOf(y).localeCompare(startOf(x)));
+            return (
+              <details className="person-log" key={id} open={index === 0}>
+                <summary>
+                  <div className="avatar">{employee(id).slice(0, 2).toUpperCase()}</div>
+                  <strong>{employee(id)}</strong>
+                  <small>{records.filter((at) => at.status === 'hadir').length} shift hadir</small>
+                </summary>
+                {table(
+                  [
+                    'Tanggal',
+                    'Shift',
+                    'Status',
+                    'Check-in',
+                    'Check-out',
+                    'Catatan',
+                    ...(admin ? ['Aksi'] : []),
+                  ],
+                  records.map((at) => [
+                    dateOf(at) ? fmtDate(dateOf(at)!) : '—',
+                    shiftName(at.shiftId),
+                    <Badge value={at.status} key="s" />,
+                    at.checkIn ? dateTime(at.checkIn) : '—',
+                    at.checkOut ? dateTime(at.checkOut) : '—',
+                    at.notes || '—',
+                    ...(admin
+                      ? [
+                          <div className="row" key="actions">
+                            <button
+                              className="icon-button"
+                              aria-label="Koreksi absensi"
+                              onClick={() => correctAttendance(at)}
+                            >
+                              <Pencil size={16} />
+                            </button>
+                            <button
+                              className="icon-button danger"
+                              aria-label="Hapus absensi"
+                              onClick={() => deleteAttendance(at)}
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>,
+                        ]
+                      : []),
+                  ]),
+                )}
+              </details>
+            );
+          })}
       </>
     );
   if (tab === 'expenses')
