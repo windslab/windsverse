@@ -1358,3 +1358,8 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
 - Riwayat di menu Absensi tidak lagi tercampur dalam satu tabel: setiap karyawan punya tabel sendiri
   yang bisa dibuka dan ditutup, dengan jumlah shift hadir dan kolom tanggal. Karyawan tetap hanya
   melihat riwayatnya sendiri.
+
+## 71. Tombol Area staf kembali muncul di HP (5 Nov 2026)
+
+- Aturan lama menyembunyikan tautan pertama di navigasi halaman utama pada layar kecil. Setelah
+  tautan lain dihapus, Area staf menjadi tautan pertama sehingga ikut tersembunyi. Aturan itu dihapus.
