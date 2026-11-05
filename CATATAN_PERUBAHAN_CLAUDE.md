@@ -1375,3 +1375,10 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
 - Menu Absensi kembali menampilkan pesan saat riwayat kosong, dan halaman Pengaturan tidak lagi melebar
   8 piksel karena input file tersembunyi.
 - Empat tes lama diperbaiki: tesnya belum mengikuti aturan alasan wajib dan pesan pemulihan terbaru.
+
+## 73. Karyawan boleh mengunggah gambar (5 Nov 2026)
+
+- Sebelumnya hanya admin yang bisa mengunggah, jadi sampul buku dari akun karyawan ditolak. Kini semua
+  akun staf bisa mengunggah gambar. Model 3D tetap khusus admin.
+- Foto lebih dari 2 MB dikecilkan otomatis di perangkat sebelum diunggah, supaya foto kamera HP tidak
+  ditolak karena batas 5 MB.
