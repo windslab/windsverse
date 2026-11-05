@@ -155,7 +155,9 @@ export default function PublicDashboard() {
   }, []);
   useEffect(() => {
     void refresh();
-    const timer = setInterval(() => void refresh(), 3500);
+    const timer = setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, 3500);
     return () => clearInterval(timer);
   }, [refresh]);
   const lookup = useCallback(async (orderNo: string) => {

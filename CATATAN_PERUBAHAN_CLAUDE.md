@@ -1363,3 +1363,15 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
 
 - Aturan lama menyembunyikan tautan pertama di navigasi halaman utama pada layar kecil. Setelah
   tautan lain dihapus, Area staf menjadi tautan pertama sehingga ikut tersembunyi. Aturan itu dihapus.
+
+## 72. Hasil debug (5 Nov 2026)
+
+- Kasir tidak lagi memilih shift lampau secara otomatis. Sebelumnya, karyawan yang belum cek in saat
+  tidak ada shift berjalan bisa mencatat pesanan ke shift lamanya tanpa memilih.
+- Lacak pesanan berdasarkan nama mengikuti hari kerja kafe, jadi pesanan shift malam tetap ditemukan
+  setelah pukul 00.00.
+- Tab yang tidak sedang dibuka berhenti meminta data di halaman utama, menu, dan kartu member.
+- Halaman tidak bisa ditanam di website lain (`X-Frame-Options`).
+- Menu Absensi kembali menampilkan pesan saat riwayat kosong, dan halaman Pengaturan tidak lagi melebar
+  8 piksel karena input file tersembunyi.
+- Empat tes lama diperbaiki: tesnya belum mengikuti aturan alasan wajib dan pesan pemulihan terbaru.

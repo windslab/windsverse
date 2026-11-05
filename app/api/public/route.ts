@@ -3,7 +3,7 @@ import {Fault} from '@/lib/engine';
 import {digest} from '@/lib/auth-crypto';
 import {sceneVisitors} from '@/lib/cafe-visitors';
 import {publicBooks} from '@/lib/public-books';
-import {localDate} from '@/lib/model';
+import {businessDay} from '@/lib/model';
 import {publicCard} from '@/lib/member';
 export const dynamic='force-dynamic';
 export async function GET(req:Request){try{
@@ -19,7 +19,7 @@ export async function GET(req:Request){try{
    // Lookup by name: today's paid orders only, first name + status + queue position, nothing else.
    const name=query.toLowerCase();
    if(name.length<2)throw new Fault('Ketik minimal 2 huruf nama pemesan.');
-   const today=localDate(),open=s.orders.filter(o=>o.paid&&!o.historicalEntry&&o.date===today&&o.status!=='dibatalkan').sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
+   const today=businessDay(),open=s.orders.filter(o=>o.paid&&!o.historicalEntry&&o.date===today&&o.status!=='dibatalkan').sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
    const waiting=open.filter(o=>['diproses','sedang_dibuat'].includes(o.status));
    const matches=open.filter(o=>(o.customerName||'').toLowerCase().split(/\s+/).some((w:string)=>w.startsWith(name))).slice(-10).map(o=>{const i=waiting.indexOf(o);return{name:(o.customerName||'').trim().split(/\s+/)[0],status:o.status,orderType:o.orderType,queue:i<0?null:i+1};});
    return Response.json({found:matches.length>0,matches},{headers:{'Cache-Control':'no-store'}});

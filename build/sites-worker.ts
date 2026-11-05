@@ -28,6 +28,7 @@ export default {
     const secured = new Response(response.body, response);
     secured.headers.set('X-Content-Type-Options', 'nosniff');
     secured.headers.set('Referrer-Policy', 'same-origin');
+    secured.headers.set('X-Frame-Options', 'SAMEORIGIN');
     const pathname = new URL(request.url).pathname;
     if (pathname === '/' || pathname.startsWith('/api/auth') || pathname.startsWith('/api/cafe')) {
       secured.headers.set('Cache-Control', 'no-store');
