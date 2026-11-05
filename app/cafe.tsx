@@ -1,5 +1,6 @@
 'use client';
 import QRCode from 'qrcode';
+import { shrinkImage } from '@/lib/shrink-image';
 import BackupPanel from './backup-panel';
 import AuditPanel from './audit-panel';
 import CameraAdmin from './camera-admin';
@@ -3839,10 +3840,11 @@ function Editor({
                     if (!file) return;
                     setUploading(true);
                     try {
+                      const image = await shrinkImage(file);
                       const r = await fetch('/api/upload', {
                         method: 'POST',
-                        headers: { 'Content-Type': file.type },
-                        body: file,
+                        headers: { 'Content-Type': image.type },
+                        body: image,
                       });
                       const d: any = await r.json();
                       if (!r.ok) throw Error(d.error);

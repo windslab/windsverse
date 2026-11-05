@@ -7,13 +7,13 @@ export async function POST(req: Request) {
     if (req.headers.get('origin') !== new URL(req.url).origin)
       throw new Fault('Asal permintaan tidak valid.', 403);
     const actor = await authenticate(req);
-    if (actor.role !== 'admin') throw new Fault('Hanya admin dapat mengunggah gambar.', 403);
     if (!env.BUCKET) throw new Fault('Penyimpanan gambar belum tersedia.', 503);
     const bytes = await req.arrayBuffer();
     const b = new Uint8Array(bytes);
     let type = '';
     // 3D models (binary glTF) for the member gift catalogue.
     if (new TextDecoder().decode(b.slice(0, 4)) === 'glTF') {
+      if (actor.role !== 'admin') throw new Fault('Hanya admin dapat mengunggah model 3D.', 403);
       if (bytes.byteLength > 20 * 1024 * 1024) throw new Fault('Model 3D maksimal 20 MB.', 413);
       type = 'model/gltf-binary';
     } else if (bytes.byteLength > 5 * 1024 * 1024) throw new Fault('Gambar maksimal 5 MB.', 413);
