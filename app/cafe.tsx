@@ -1,5 +1,6 @@
 'use client';
 import QRCode from 'qrcode';
+import { availabilityText, bookCopies, daysLate, libraryTotals } from '@/lib/library';
 import { shrinkImage } from '@/lib/shrink-image';
 import BackupPanel from './backup-panel';
 import AuditPanel from './audit-panel';
@@ -246,7 +247,7 @@ const nav = [
       ['products', 'Menu kafe', Coffee],
       ['recipes', 'Resep & HPP', ChefHat],
       ['ingredients', 'Bahan baku', Package],
-      ['books', 'Koleksi buku', BookOpen],
+      ['books', 'Perpustakaan', BookOpen],
       ['notes', 'Catatan tim', StickyNote],
       ['feedback', 'Kritik & saran', MessageCircle],
       ['camera', 'Story of Winds', Aperture],
@@ -974,6 +975,8 @@ export default function Cafe({ name }: { name: string }) {
     .filter((sh) => admin || sh.employeeIds.includes(actor?.employeeId))
     .sort((a, b) => b.startAt.localeCompare(a.startAt));
   const [orderShiftId, setOrderShiftId] = useState('');
+  const [bookFilter, setBookFilter] = useState('semua'),
+    [bookCategory, setBookCategory] = useState('semua');
   // A chosen past date stays for the next orders, until the cashier leaves the till.
   useEffect(() => {
     if (tab !== 'pos') setOrderShiftId('');
@@ -3094,68 +3097,190 @@ export default function Cafe({ name }: { name: string }) {
         )}
       </>
     );
-  if (tab === 'books')
+  if (tab === 'books') {
+    const today = localDate();
+    const copies = (b: Row) => bookCopies(b, s.loans);
+    const totals = libraryTotals(
+      s.books.map((b) => ({ ...copies(b), totalCopies: copies(b).total, status: b.status })),
+    );
+    const active = s.loans
+      .filter((l) => !l.returnDate)
+      .sort((x, y) => x.dueDate.localeCompare(y.dueDate));
+    const late = active.filter((l) => daysLate(l, today) > 0);
+    const history = s.loans
+      .filter((l) => l.returnDate)
+      .sort((x, y) => y.returnDate.localeCompare(x.returnDate));
+    const bookCategories = [...new Set(s.books.map((b) => b.category).filter(Boolean))].sort();
+    const shelf = filtered(s.books, 'title')
+      .filter((b) => bookCategory === 'semua' || b.category === bookCategory)
+      .filter((b) => bookFilter === 'semua' || copies(b).availability === bookFilter)
+      .sort((x, y) => x.title.localeCompare(y.title, 'id'));
+    const loanRow = (l: Row, withAction: boolean) => {
+      const lateBy = daysLate(l, today);
+      return [
+        l.bookTitle,
+        l.borrowerName,
+        l.borrowerContact,
+        fmtDate(l.borrowDate),
+        fmtDate(l.dueDate),
+        l.returnDate ? (
+          'Dikembalikan ' + fmtDate(l.returnDate)
+        ) : lateBy ? (
+          <span className="badge danger" key="s">
+            Terlambat {lateBy} hari
+          </span>
+        ) : (
+          <span className="badge" key="s">
+            Dipinjam
+          </span>
+        ),
+        ...(withAction
+          ? [
+              <button
+                className="button"
+                key="r"
+                disabled={busy}
+                onClick={() => act('book.return', { id: l.id }, 'Buku dikembalikan')}
+              >
+                Kembalikan
+              </button>,
+            ]
+          : []),
+      ];
+    };
     content = (
       <>
-        {toolbar('Koleksi & peminjaman buku', 'books')}
+        {toolbar('Perpustakaan', 'books')}
+        <div className="metrics">
+          <Metric
+            label="Judul buku"
+            value={String(totals.titles)}
+            detail={totals.copies + ' eksemplar'}
+            icon={BookOpen}
+          />
+          <Metric
+            label="Tersedia"
+            value={String(totals.available)}
+            detail="Eksemplar di rak"
+            icon={BookOpen}
+          />
+          <Metric
+            label="Sedang dipinjam"
+            value={String(totals.borrowed)}
+            detail={late.length ? late.length + ' terlambat' : 'Tidak ada yang terlambat'}
+            icon={Clock}
+          />
+          <Metric
+            label="Perawatan / hilang"
+            value={String(totals.away)}
+            detail="Tidak bisa dipinjam"
+            icon={BookOpen}
+          />
+        </div>
         <Tabs defaultValue="catalog">
           <TabsList>
             <TabsTrigger value="catalog">Katalog</TabsTrigger>
-            <TabsTrigger value="loans">Peminjaman</TabsTrigger>
+            <TabsTrigger value="loans">Sedang dipinjam ({active.length})</TabsTrigger>
+            <TabsTrigger value="history">Riwayat</TabsTrigger>
           </TabsList>
           <TabsContent value="catalog">
-            <div className="product-grid">
-              {filtered(s.books, 'title').map((b) => (
-                <article className="panel book-card" key={b.id}>
-                  {b.image ? <img src={b.image} alt={b.title} /> : <BookOpen size={36} />}
-                  <h2>{b.title}</h2>
-                  <p>{b.author}</p>
-                  <small>
-                    {b.category} · {b.shelfLocation}
-                  </small>
-                  <p>
-                    {b.totalCopies -
-                      s.loans.filter((l) => l.bookId === b.id && !l.returnDate).length}{' '}
-                    / {b.totalCopies} tersedia
-                  </p>
-                  <div className="row">
-                    <button className="button" onClick={() => borrow(b)}>
-                      Pinjamkan
-                    </button>
-                    {controls('books', b)}
-                  </div>
-                </article>
-              ))}
+            <div className="row wrap library-staff-filters">
+              <Choice
+                label="Ketersediaan"
+                value={bookFilter}
+                onChange={setBookFilter}
+                options={[
+                  { value: 'semua', label: 'Semua status' },
+                  { value: 'tersedia', label: 'Tersedia' },
+                  { value: 'dipinjam', label: 'Semua eksemplar dipinjam' },
+                  { value: 'perawatan', label: 'Dalam perawatan' },
+                  { value: 'hilang', label: 'Hilang' },
+                ]}
+              />
+              {bookCategories.length > 1 && (
+                <Choice
+                  label="Kategori buku"
+                  value={bookCategory}
+                  onChange={setBookCategory}
+                  options={[
+                    { value: 'semua', label: 'Semua kategori' },
+                    ...bookCategories.map((c) => ({ value: c, label: c })),
+                  ]}
+                />
+              )}
+              <small>
+                {shelf.length} dari {s.books.length} judul
+              </small>
             </div>
+            <div className="product-grid">
+              {shelf.map((b) => {
+                const c = copies(b);
+                return (
+                  <article className="panel book-card" key={b.id}>
+                    {b.image ? (
+                      <img src={b.image} alt={'Sampul ' + b.title} loading="lazy" />
+                    ) : (
+                      <BookOpen size={36} />
+                    )}
+                    <h2>{b.title}</h2>
+                    <p>{b.author}</p>
+                    <small>
+                      {b.category} · {b.shelfLocation}
+                    </small>
+                    <span
+                      className={'badge ' + (c.availability === 'tersedia' ? 'aktif' : 'danger')}
+                    >
+                      {availabilityText({ ...c, totalCopies: c.total })}
+                    </span>
+                    {c.borrowed > 0 && (
+                      <small>
+                        Dipinjam:{' '}
+                        {active
+                          .filter((l) => l.bookId === b.id)
+                          .map((l) => l.borrowerName + ' (s.d. ' + fmtDate(l.dueDate) + ')')
+                          .join(', ')}
+                      </small>
+                    )}
+                    <div className="row">
+                      <button
+                        className="button"
+                        disabled={busy || c.available < 1}
+                        onClick={() => borrow(b)}
+                      >
+                        Pinjamkan
+                      </button>
+                      {controls('books', b)}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            {!shelf.length && (
+              <div className="panel">
+                <Empty>
+                  {s.books.length
+                    ? 'Tidak ada buku yang cocok dengan pilihan ini.'
+                    : 'Belum ada buku. Tambahkan lewat tombol Tambah.'}
+                </Empty>
+              </div>
+            )}
           </TabsContent>
           <TabsContent value="loans">
             {table(
               ['Buku', 'Peminjam', 'Kontak', 'Dipinjam', 'Batas kembali', 'Status', 'Aksi'],
-              s.loans.map((l) => [
-                l.bookTitle,
-                l.borrowerName,
-                l.borrowerContact,
-                l.borrowDate,
-                l.dueDate,
-                l.returnDate ? 'Dikembalikan' : l.dueDate < localDate() ? 'Terlambat' : 'Dipinjam',
-                !l.returnDate ? (
-                  <button
-                    className="button"
-                    key="r"
-                    disabled={busy}
-                    onClick={() => act('book.return', { id: l.id })}
-                  >
-                    Kembalikan
-                  </button>
-                ) : (
-                  l.returnDate
-                ),
-              ]),
+              active.map((l) => loanRow(l, true)),
+            )}
+          </TabsContent>
+          <TabsContent value="history">
+            {table(
+              ['Buku', 'Peminjam', 'Kontak', 'Dipinjam', 'Batas kembali', 'Status'],
+              history.map((l) => loanRow(l, false)),
             )}
           </TabsContent>
         </Tabs>
       </>
     );
+  }
   if (tab === 'notes')
     content = (
       <>

@@ -1,4 +1,5 @@
 import type { State } from './model';
+import { bookCopies, type Availability } from './library';
 
 export type PublicBook = {
   id: string;
@@ -8,6 +9,8 @@ export type PublicBook = {
   shelfLocation: string;
   totalCopies: number;
   available: number;
+  borrowed: number;
+  availability: Availability;
   publisher: string;
   year: string;
   synopsis: string;
@@ -15,28 +18,27 @@ export type PublicBook = {
   status: string;
 };
 
-// Only the catalogue and an aggregate availability count are public.
+// Only the catalogue and aggregate counts are public; who borrowed a book never leaves the cafe.
 export function publicBooks(state: State): PublicBook[] {
-  const borrowed = new Map<string, number>();
-  for (const loan of state.loans)
-    if (!loan.returnDate) borrowed.set(loan.bookId, (borrowed.get(loan.bookId) || 0) + 1);
   return state.books
-    .map((book) => ({
-      id: book.id,
-      title: book.title,
-      author: book.author,
-      category: book.category,
-      shelfLocation: book.shelfLocation,
-      totalCopies: book.totalCopies,
-      available:
-        book.status === 'tersedia'
-          ? Math.max(0, book.totalCopies - (borrowed.get(book.id) || 0))
-          : 0,
-      publisher: book.publisher || '',
-      year: book.year || '',
-      synopsis: book.synopsis || '',
-      image: book.image || '',
-      status: book.status,
-    }))
+    .map((book) => {
+      const copies = bookCopies(book, state.loans);
+      return {
+        id: book.id,
+        title: book.title,
+        author: book.author,
+        category: book.category,
+        shelfLocation: book.shelfLocation,
+        totalCopies: copies.total,
+        available: copies.available,
+        borrowed: copies.borrowed,
+        availability: copies.availability,
+        publisher: book.publisher || '',
+        year: book.year || '',
+        synopsis: book.synopsis || '',
+        image: book.image || '',
+        status: book.status,
+      };
+    })
     .sort((a, b) => a.title.localeCompare(b.title, 'id'));
 }

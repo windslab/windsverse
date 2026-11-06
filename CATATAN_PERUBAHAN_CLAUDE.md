@@ -1387,3 +1387,14 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
 
 - Tab Rak buku di `/menu` hanya menampilkan ikon, walau buku sudah punya sampul. Kini sampulnya tampil;
   buku tanpa sampul tetap memakai ikon.
+
+## 75. Sistem perpustakaan (7 Nov 2026)
+
+- Pelanggan (`/menu` tab Rak buku dan dialog Library di halaman utama) melihat satu katalog yang sama:
+  jumlah judul, total eksemplar, tersedia, dan sedang dipinjam; filter ketersediaan dan kategori;
+  sampul, rak, penerbit, sinopsis, dan status "x dari y tersedia". Hanya melihat, tanpa nama peminjam.
+- Staf (menu Koleksi buku diganti nama menjadi Perpustakaan): ringkasan judul, tersedia, sedang
+  dipinjam (berapa yang terlambat), dan perawatan/hilang; katalog dengan filter; siapa yang meminjam
+  dan sampai kapan; tab Sedang dipinjam (urut batas kembali, keterlambatan dalam hari) dan Riwayat.
+  Tombol Pinjamkan mati bila tidak ada eksemplar tersedia.
+- Hitungan ada di `lib/library.ts` dan diuji di `tests/library.test.ts`.
