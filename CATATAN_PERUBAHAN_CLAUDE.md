@@ -1398,3 +1398,10 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
   dan sampai kapan; tab Sedang dipinjam (urut batas kembali, keterlambatan dalam hari) dan Riwayat.
   Tombol Pinjamkan mati bila tidak ada eksemplar tersedia.
 - Hitungan ada di `lib/library.ts` dan diuji di `tests/library.test.ts`.
+
+## 76. Perpustakaan dan menu pas di layar HP (7 Nov 2026)
+
+- Dialog Library terpotong ke kanan di HP: pilihan kategori selebar nama kategori terpanjang. Kini
+  pilihan itu mengikuti lebar layar dan nama kategori panjang dipatahkan ke baris berikutnya.
+- Foto menu di halaman utama menutupi nama menu di Safari iPhone. Kini foto dikunci di dalam
+  bingkainya.

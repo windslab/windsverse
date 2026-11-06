@@ -5877,3 +5877,28 @@ html:has(.cafe-scene-shell.exploring) [data-slot='dialog-content'] {
 .public-menu .library-list {
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
 }
+/* Phones: the photo stays inside its frame (Safari let it spill over the name), and long category
+   names wrap instead of widening the library past the screen. */
+.landing-menu-image {
+  overflow: hidden;
+}
+.landing-menu-image img {
+  position: absolute;
+  inset: 0;
+}
+.library > *,
+.library-filters > * {
+  min-width: 0;
+}
+.library-filters select {
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+.library .catalog-category {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 650px) {
+  .library-filters select {
+    width: 100%;
+  }
+}
