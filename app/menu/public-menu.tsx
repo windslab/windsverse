@@ -106,8 +106,12 @@ export default function PublicMenu() {
             {data?.books
               .filter((b: Row) => b.title.toLowerCase().includes(q.toLowerCase()))
               .map((b: Row) => (
-                <article className="panel" key={b.id}>
-                  <BookOpen />
+                <article className="panel book-card" key={b.id}>
+                  {b.image ? (
+                    <img src={b.image} alt={'Sampul ' + b.title} loading="lazy" />
+                  ) : (
+                    <BookOpen />
+                  )}
                   <h2>{b.title}</h2>
                   <p>{b.author}</p>
                   <small>

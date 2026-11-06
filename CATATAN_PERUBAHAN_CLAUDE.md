@@ -1382,3 +1382,8 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
   akun staf bisa mengunggah gambar. Model 3D tetap khusus admin.
 - Foto lebih dari 2 MB dikecilkan otomatis di perangkat sebelum diunggah, supaya foto kamera HP tidak
   ditolak karena batas 5 MB.
+
+## 74. Sampul buku tampil di halaman menu (6 Nov 2026)
+
+- Tab Rak buku di `/menu` hanya menampilkan ikon, walau buku sudah punya sampul. Kini sampulnya tampil;
+  buku tanpa sampul tetap memakai ikon.
