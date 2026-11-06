@@ -5785,3 +5785,95 @@ html:has(.cafe-scene-shell.exploring) [data-slot='dialog-content'] {
     top: 12px;
   }
 }
+
+/* Library (app/library-catalog.tsx): totals, filters and the shelf, for guests. */
+.library {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+.public-menu .library {
+  padding: 18px;
+  border-radius: 18px;
+  background: #faf7f0;
+  color: #514334;
+  color-scheme: light;
+}
+.library-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.library-stats div {
+  padding: 10px 12px;
+  border: 1px solid #e8dfd0;
+  border-radius: 12px;
+  background: #fffdf8;
+}
+.library-stats dt {
+  font-size: 0.75rem;
+  color: #8b765b;
+}
+.library-stats dd {
+  margin: 2px 0 0;
+  font-size: 1.35rem;
+  font-weight: 650;
+  color: #40382f;
+  font-variant-numeric: tabular-nums;
+}
+.library-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.library-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.library-chips button,
+.library-filters select {
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid #e2dacd;
+  border-radius: 999px;
+  background: #fffdf9;
+  color: #514334;
+  font-size: 0.85rem;
+}
+.library-chips button[aria-pressed='true'] {
+  background: #40382f;
+  border-color: #40382f;
+  color: #fffdf9;
+}
+.library .library-count {
+  margin: 0;
+}
+.library-staff-filters {
+  align-items: center;
+  margin: 12px 0;
+}
+.library-staff-filters [role='combobox'] {
+  width: auto;
+  min-width: 190px;
+}
+.badge.danger {
+  background: #45252c;
+  border-color: #63323c;
+  color: #f4a0a4;
+}
+.book-card > img {
+  width: 100%;
+  border-radius: 10px;
+}
+@media (max-width: 650px) {
+  .library-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.public-menu .library-list {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
+}

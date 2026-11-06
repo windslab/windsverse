@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Coffee, BookOpen, Star } from 'lucide-react';
+import { Coffee, Star } from 'lucide-react';
 import { money, type Row } from '@/lib/model';
+import LibraryCatalog from '../library-catalog';
 import { BrandMark } from '@/components/brand-mark';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
@@ -102,21 +103,7 @@ export default function PublicMenu() {
           {data?.products.length === 0 && <p className="empty">Menu belum tersedia.</p>}
         </TabsContent>
         <TabsContent value="books">
-          <div className="product-grid">
-            {data?.books
-              .filter((b: Row) => b.title.toLowerCase().includes(q.toLowerCase()))
-              .map((b: Row) => (
-                <article className="panel" key={b.id}>
-                  <BookOpen />
-                  <h2>{b.title}</h2>
-                  <p>{b.author}</p>
-                  <small>
-                    {b.shelfLocation} · {b.available} tersedia
-                  </small>
-                  <p>{b.synopsis}</p>
-                </article>
-              ))}
-          </div>
+          <LibraryCatalog books={data?.books || []} query={q} />
         </TabsContent>
         <TabsContent value="feedback">
           <form
