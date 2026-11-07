@@ -11,6 +11,9 @@ export function weekDays(today: string) {
   return days;
 }
 
+/** Items bought alongside a meal rather than for themselves, left out of the ranking. */
+const NOT_RANKED = /^air mineral$/i;
+
 /**
  * The menu items sold most over the last seven days, ranked by cups or plates sold. Only paid,
  * uncancelled orders count, and items no longer on the menu are skipped. Guests see the rank
@@ -29,7 +32,7 @@ export function weeklyBestSellers(
       sold.set(i.productId, (sold.get(i.productId) || 0) + (Number(i.quantity) || 0));
   }
   return s.products
-    .filter((p) => (sold.get(p.id) || 0) > 0)
+    .filter((p) => (sold.get(p.id) || 0) > 0 && !NOT_RANKED.test(String(p.name).trim()))
     .sort((a, b) => sold.get(b.id)! - sold.get(a.id)! || a.name.localeCompare(b.name, 'id'))
     .slice(0, limit)
     .map((p, i) => ({
