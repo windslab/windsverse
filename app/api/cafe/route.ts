@@ -1,6 +1,7 @@
 import { authenticate } from '@/lib/auth';
 import { publicOrder } from '@/lib/model';
 import { read, visible, checkMutation, body, commit, errorResponse } from '@/lib/store';
+import { estimatesFor } from '@/lib/payroll-estimate';
 export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
@@ -21,6 +22,7 @@ export async function GET(req: Request) {
         setup: !loaded.control,
         revision: loaded.control?.revision || 0,
         state: visible(loaded.state, actor),
+        estimates: estimatesFor(loaded.state, actor),
         audit: extra?.results,
       },
       { headers: { 'Cache-Control': 'no-store' } },
