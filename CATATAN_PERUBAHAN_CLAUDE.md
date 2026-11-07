@@ -1405,3 +1405,14 @@ Aturan lengkap ada di `RENCANA_MEMBER.md`. Ringkasnya:
   pilihan itu mengikuti lebar layar dan nama kategori panjang dipatahkan ke baris berikutnya.
 - Foto menu di halaman utama menutupi nama menu di Safari iPhone. Kini foto dikunci di dalam
   bingkainya.
+
+## 77. Kalender absensi bulanan (7 Nov 2026)
+
+- Menu Absensi punya tab Kalender bulanan: setiap tanggal menampilkan siapa yang dijadwalkan dan
+  statusnya (Hadir, Sakit, Izin, Libur, Tidak hadir, Terjadwal), dengan navigasi bulan dan, untuk
+  admin, filter per karyawan. Di bawahnya ada rekap jumlah shift per status per karyawan.
+- Tidak hadir berarti dijadwalkan tetapi tidak ada catatan absensi setelah shift lewat.
+- Admin bisa mengetuk nama di kalender untuk membuka koreksi absensi yang sudah terisi.
+- Karyawan hanya melihat jadwal dan absensinya sendiri. Di HP kalender menjadi daftar per hari.
+- Riwayat per karyawan pindah ke tab kedua. Logika ada di `lib/attendance.ts`, diuji di
+  `tests/attendance.test.ts`.

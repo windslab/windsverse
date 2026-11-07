@@ -1,5 +1,6 @@
 'use client';
 import QRCode from 'qrcode';
+import { monthAttendance, monthGrid, monthSummary, shiftMonth } from '@/lib/attendance';
 import { availabilityText, bookCopies, daysLate, libraryTotals } from '@/lib/library';
 import { shrinkImage } from '@/lib/shrink-image';
 import BackupPanel from './backup-panel';
@@ -212,6 +213,14 @@ const clock = (value: string) =>
     hour: '2-digit',
     minute: '2-digit',
   });
+const attLabel = {
+  hadir: 'Hadir',
+  sakit: 'Sakit',
+  izin: 'Izin',
+  libur: 'Libur',
+  absen: 'Tidak hadir',
+  terjadwal: 'Terjadwal',
+} as const;
 const fmtDate = (value: string) =>
   new Date(value + 'T12:00:00+08:00').toLocaleDateString('id-ID', {
     timeZone: CAFE_TIMEZONE,
@@ -975,6 +984,15 @@ export default function Cafe({ name }: { name: string }) {
     .filter((sh) => admin || sh.employeeIds.includes(actor?.employeeId))
     .sort((a, b) => b.startAt.localeCompare(a.startAt));
   const [orderShiftId, setOrderShiftId] = useState('');
+  const [attMonth, setAttMonth] = useState(() => localDate().slice(0, 7)),
+    [attPerson, setAttPerson] = useState('semua');
+  const attDays = monthAttendance(
+    s,
+    attMonth,
+    localDate(),
+    admin ? (attPerson === 'semua' ? undefined : attPerson) : actor?.employeeId,
+  );
+  const attSummary = monthSummary(attDays);
   const [bookFilter, setBookFilter] = useState('semua'),
     [bookCategory, setBookCategory] = useState('semua');
   // A chosen past date stays for the next orders, until the cashier leaves the till.
@@ -2416,70 +2434,216 @@ export default function Cafe({ name }: { name: string }) {
             <Empty>Tidak ada jadwal shift untukmu hari ini.</Empty>
           </div>
         )}
-        {!s.attendance.some((at) => admin || at.employeeId === actor?.employeeId) && (
-          <div className="panel">
-            <Empty>Belum ada riwayat absensi.</Empty>
-          </div>
-        )}
-        {[...new Set(s.attendance.map((at) => at.employeeId as string))]
-          .filter((id) => admin || id === actor?.employeeId)
-          .sort((x, y) => employee(x).localeCompare(employee(y)))
-          .map((id, index) => {
-            const shiftOf = (at: Row) => s.shifts.find((sh) => sh.id === at.shiftId);
-            const startOf = (at: Row) => shiftOf(at)?.startAt || '';
-            const dateOf = (at: Row): string | undefined => shiftOf(at)?.date;
-            const records = s.attendance
-              .filter((at) => at.employeeId === id)
-              .sort((x, y) => startOf(y).localeCompare(startOf(x)));
-            return (
-              <details className="person-log" key={id} open={index === 0}>
-                <summary>
-                  <div className="avatar">{employee(id).slice(0, 2).toUpperCase()}</div>
-                  <strong>{employee(id)}</strong>
-                  <small>{records.filter((at) => at.status === 'hadir').length} shift hadir</small>
-                </summary>
-                {table(
-                  [
-                    'Tanggal',
-                    'Shift',
-                    'Status',
-                    'Check-in',
-                    'Check-out',
-                    'Catatan',
-                    ...(admin ? ['Aksi'] : []),
-                  ],
-                  records.map((at) => [
-                    dateOf(at) ? fmtDate(dateOf(at)!) : '—',
-                    shiftName(at.shiftId),
-                    <Badge value={at.status} key="s" />,
-                    at.checkIn ? dateTime(at.checkIn) : '—',
-                    at.checkOut ? dateTime(at.checkOut) : '—',
-                    at.notes || '—',
-                    ...(admin
-                      ? [
-                          <div className="row" key="actions">
-                            <button
-                              className="icon-button"
-                              aria-label="Koreksi absensi"
-                              onClick={() => correctAttendance(at)}
-                            >
-                              <Pencil size={16} />
-                            </button>
-                            <button
-                              className="icon-button danger"
-                              aria-label="Hapus absensi"
-                              onClick={() => deleteAttendance(at)}
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>,
-                        ]
-                      : []),
-                  ]),
-                )}
-              </details>
-            );
-          })}
+        <Tabs defaultValue="month">
+          <TabsList>
+            <TabsTrigger value="month">Kalender bulanan</TabsTrigger>
+            <TabsTrigger value="history">Riwayat per karyawan</TabsTrigger>
+          </TabsList>
+          <TabsContent value="month">
+            <div className="row wrap att-month-bar">
+              <button
+                className="icon-button"
+                aria-label="Bulan sebelumnya"
+                onClick={() => setAttMonth(shiftMonth(attMonth, -1))}
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <strong className="att-month-title">
+                {new Date(attMonth + '-15T12:00:00+08:00').toLocaleDateString('id-ID', {
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </strong>
+              <button
+                className="icon-button"
+                aria-label="Bulan berikutnya"
+                onClick={() => setAttMonth(shiftMonth(attMonth, 1))}
+              >
+                <ChevronRight size={18} />
+              </button>
+              {attMonth !== today.slice(0, 7) && (
+                <button className="button" onClick={() => setAttMonth(today.slice(0, 7))}>
+                  Bulan ini
+                </button>
+              )}
+              {admin && (
+                <Choice
+                  label="Karyawan"
+                  value={attPerson}
+                  onChange={setAttPerson}
+                  options={[
+                    { value: 'semua', label: 'Semua karyawan' },
+                    ...s.employees.map((e) => ({ value: e.id, label: e.name })),
+                  ]}
+                />
+              )}
+            </div>
+            <div className="att-legend">
+              {(['hadir', 'sakit', 'izin', 'libur', 'absen', 'terjadwal'] as const).map((k) => (
+                <span key={k} className={'att-chip ' + k}>
+                  {attLabel[k]}
+                </span>
+              ))}
+            </div>
+            <div className="att-month" role="grid" aria-label="Kalender absensi bulanan">
+              {['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map((d) => (
+                <div className="att-weekday" key={d} role="columnheader">
+                  {d}
+                </div>
+              ))}
+              {monthGrid(attMonth).map((date, i) => {
+                const list = attDays.get(date) || [];
+                return (
+                  <div
+                    key={date || 'pad' + i}
+                    className={
+                      'att-day' +
+                      (!date ? ' pad' : '') +
+                      (date === today ? ' today' : '') +
+                      (!list.length ? ' no-shift' : '')
+                    }
+                    role="gridcell"
+                  >
+                    {date && (
+                      <span className="att-date">
+                        {Number(date.slice(8))}
+                        <small>
+                          {' '}
+                          {new Date(date + 'T12:00:00+08:00').toLocaleDateString('id-ID', {
+                            weekday: 'short',
+                          })}
+                        </small>
+                      </span>
+                    )}
+                    {list.map((e) => (
+                      <button
+                        type="button"
+                        key={e.shift.id + e.employeeId}
+                        className={'att-chip ' + e.status}
+                        disabled={!admin}
+                        title={
+                          employee(e.employeeId) +
+                          ' · ' +
+                          e.shift.name +
+                          ' · ' +
+                          attLabel[e.status] +
+                          (e.record?.checkIn ? ' · masuk ' + clock(e.record.checkIn) : '') +
+                          (e.record?.checkOut ? ', keluar ' + clock(e.record.checkOut) : '')
+                        }
+                        onClick={() =>
+                          correctAttendance(
+                            e.record || {
+                              id: '',
+                              shiftId: e.shift.id,
+                              employeeId: e.employeeId,
+                              status: 'hadir',
+                              checkIn: '',
+                              checkOut: '',
+                            },
+                          )
+                        }
+                      >
+                        {attPerson === 'semua' && admin
+                          ? employee(e.employeeId).split(' ')[0]
+                          : e.shift.name}
+                        {e.status === 'hadir' && e.record?.checkIn && attPerson !== 'semua'
+                          ? ' ' + clock(e.record.checkIn)
+                          : ''}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+            {table(
+              ['Karyawan', 'Hadir', 'Sakit', 'Izin', 'Libur', 'Tidak hadir', 'Terjadwal'],
+              [...attSummary.entries()]
+                .sort(([x], [y]) => employee(x).localeCompare(employee(y)))
+                .map(([id, c]) => [
+                  employee(id),
+                  c.hadir,
+                  c.sakit,
+                  c.izin,
+                  c.libur,
+                  c.absen,
+                  c.terjadwal,
+                ]),
+            )}
+            {admin && (
+              <small className="muted">
+                Ketuk nama di kalender untuk mengoreksi atau menambah absensinya.
+              </small>
+            )}
+          </TabsContent>
+          <TabsContent value="history">
+            {!s.attendance.some((at) => admin || at.employeeId === actor?.employeeId) && (
+              <div className="panel">
+                <Empty>Belum ada riwayat absensi.</Empty>
+              </div>
+            )}
+            {[...new Set(s.attendance.map((at) => at.employeeId as string))]
+              .filter((id) => admin || id === actor?.employeeId)
+              .sort((x, y) => employee(x).localeCompare(employee(y)))
+              .map((id, index) => {
+                const shiftOf = (at: Row) => s.shifts.find((sh) => sh.id === at.shiftId);
+                const startOf = (at: Row) => shiftOf(at)?.startAt || '';
+                const dateOf = (at: Row): string | undefined => shiftOf(at)?.date;
+                const records = s.attendance
+                  .filter((at) => at.employeeId === id)
+                  .sort((x, y) => startOf(y).localeCompare(startOf(x)));
+                return (
+                  <details className="person-log" key={id} open={index === 0}>
+                    <summary>
+                      <div className="avatar">{employee(id).slice(0, 2).toUpperCase()}</div>
+                      <strong>{employee(id)}</strong>
+                      <small>
+                        {records.filter((at) => at.status === 'hadir').length} shift hadir
+                      </small>
+                    </summary>
+                    {table(
+                      [
+                        'Tanggal',
+                        'Shift',
+                        'Status',
+                        'Check-in',
+                        'Check-out',
+                        'Catatan',
+                        ...(admin ? ['Aksi'] : []),
+                      ],
+                      records.map((at) => [
+                        dateOf(at) ? fmtDate(dateOf(at)!) : '—',
+                        shiftName(at.shiftId),
+                        <Badge value={at.status} key="s" />,
+                        at.checkIn ? dateTime(at.checkIn) : '—',
+                        at.checkOut ? dateTime(at.checkOut) : '—',
+                        at.notes || '—',
+                        ...(admin
+                          ? [
+                              <div className="row" key="actions">
+                                <button
+                                  className="icon-button"
+                                  aria-label="Koreksi absensi"
+                                  onClick={() => correctAttendance(at)}
+                                >
+                                  <Pencil size={16} />
+                                </button>
+                                <button
+                                  className="icon-button danger"
+                                  aria-label="Hapus absensi"
+                                  onClick={() => deleteAttendance(at)}
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>,
+                            ]
+                          : []),
+                      ]),
+                    )}
+                  </details>
+                );
+              })}
+          </TabsContent>
+        </Tabs>
       </>
     );
   if (tab === 'expenses')
