@@ -23,7 +23,7 @@ import TelescopeView from './telescope';
 const VintageCamera = dynamic(() => import('./vintage-camera'), { ssr: false });
 const Noisegasm = dynamic(() => import('./noisegasm'), { ssr: false });
 const MemberDialog = dynamic(() => import('./member/member-dialog'), { ssr: false });
-import PublicMenuSection from './public-menu-section';
+import BestSellers, { type BestSeller } from './best-sellers';
 import type { Row } from '@/lib/model';
 import { EMPTY_CAFE_ACTIVITY, type CafeActivity } from '@/lib/cafe-activity';
 const CafeScene = dynamic(() => import('./scene-3d'), {
@@ -58,7 +58,10 @@ export default function PublicDashboard() {
     [searching, setSearching] = useState(false),
     [trackError, setTrackError] = useState(''),
     [connection, setConnection] = useState(true);
-  const [catalog, setCatalog] = useState<{ categories: Row[]; products: Row[] } | null>(null),
+  const [catalog, setCatalog] = useState<{
+      categories: Row[];
+      bestSellers: BestSeller[];
+    } | null>(null),
     [catalogError, setCatalogError] = useState(''),
     [libraryOpen, setLibraryOpen] = useState(false),
     [cameraOpen, setCameraOpen] = useState(false),
@@ -87,7 +90,7 @@ export default function PublicDashboard() {
         data: any = await response.json();
       if (!response.ok) throw Error(data.error || 'Menu belum dapat dimuat.');
       setProfile(data.settings?.[0] || {});
-      setCatalog({ categories: data.categories || [], products: data.products || [] });
+      setCatalog({ categories: data.categories || [], bestSellers: data.bestSellers || [] });
       setCatalogError('');
     } catch (e) {
       setCatalogError((e as Error).message || 'Menu belum dapat dimuat.');
@@ -243,7 +246,7 @@ export default function PublicDashboard() {
             />
           </section>
           <div className="landing-destinations">
-            <a href="#menu" className="button primary landing-cta">
+            <a href="/menu" className="button primary landing-cta">
               <Coffee size={18} />
               Menu <ArrowRight size={18} />
             </a>
@@ -318,8 +321,9 @@ export default function PublicDashboard() {
             </div>
           </div>
         </div>
-        <PublicMenuSection
-          catalog={catalog}
+        <BestSellers
+          items={catalog?.bestSellers || null}
+          categories={catalog?.categories || []}
           error={catalogError}
           onRetry={() => void loadCatalog()}
         />
