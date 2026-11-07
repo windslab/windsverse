@@ -6086,6 +6086,114 @@ button.att-chip:disabled {
   border-color: #344052;
   color: #a4aec0;
 }
+.roster-month .att-day:not(.pad) {
+  cursor: pointer;
+}
+.roster-month .att-day.picked {
+  background: #172233;
+  box-shadow: inset 0 0 0 2px #7fa7e0;
+}
+.roster-month .att-day.today.picked {
+  box-shadow: inset 0 0 0 2px #c4ec81;
+}
+.roster-month .att-date {
+  align-self: flex-start;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.shift-chip {
+  cursor: pointer;
+}
+.shift-chip b {
+  font-weight: 600;
+}
+.shift-chip span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.8;
+}
+.shift-chip.planned {
+  background: transparent;
+  border-color: #3b4a61;
+  color: #c6d0e0;
+}
+.shift-chip.open {
+  background: #223b2f;
+  border-color: #355a40;
+  color: #bde59d;
+}
+.shift-chip.closed {
+  background: #1b2535;
+  border-color: #2c3a50;
+  color: #93a0b5;
+}
+.roster-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -6px 0 16px;
+}
+.roster-detail {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 520px;
+}
+.pay-person {
+  margin-top: 16px;
+}
+.pay-person-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.pay-person-head h3 {
+  margin: 0;
+}
+.pay-person-head > div:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+.pay-figures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.pay-figures > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #293447;
+  border-radius: 12px;
+  min-width: 0;
+}
+.pay-figures small {
+  color: #a4aec0;
+}
+.pay-figures strong {
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+.pay-figures .pay-total {
+  background: #223b2f;
+  border-color: #355a40;
+}
+.pay-figures .pay-total strong {
+  color: #c4ec81;
+}
+.pay-person .table-panel {
+  margin: 0;
+}
+.pay-person-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
 @media (max-width: 650px) {
   .att-month {
     display: block;
@@ -6112,5 +6220,17 @@ button.att-chip:disabled {
   .att-chip {
     font-size: 0.8rem;
     padding: 5px 8px;
+  }
+  .shift-chip {
+    width: 100%;
+  }
+  .roster-month .att-day.picked {
+    box-shadow: inset 3px 0 0 #7fa7e0;
+  }
+  .pay-figures {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .pay-figures .pay-total {
+    grid-column: 1 / -1;
   }
 }

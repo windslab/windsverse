@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { apply, validateTiers } from '../lib/engine';
+import { estimatesFor, payrollEstimate } from '../lib/payroll-estimate';
 import { initial, monthlyExpenses, ordersByDate, shiftTotals, type Actor } from '../lib/model';
 const owner: Actor = {
   id: 'owner-identity',
@@ -1200,4 +1201,29 @@ test('orders group by date then shift, newest first, counting only what was paid
   assert.equal(groups[1].count, 3);
   assert.equal(groups[1].total, 20000);
   assert.equal(groups[1].shifts[0].total, 10000);
+});
+test('payroll estimate matches the generated payroll, and staff see only their own', () => {
+  const f = fixture();
+  finish(f, sell(f));
+  apply(f.s, f.staff, 'attendance.out', { id: f.s.attendance[0].id }, morningOut);
+  const estimate = payrollEstimate(f.s, '2026-10');
+  apply(f.s, owner, 'payroll.generate', { period: '2026-10' });
+  assert.deepEqual(
+    estimate.map(({ employeeId, shifts, base, bonus, total }) => ({
+      employeeId,
+      shifts,
+      base,
+      bonus,
+      total,
+    })),
+    f.s.payrolls.map(({ employeeId, shifts, base, bonus, total }) => ({
+      employeeId,
+      shifts,
+      base,
+      bonus,
+      total,
+    })),
+  );
+  assert.ok(estimatesFor(f.s, f.staff).every((e) => e.employeeId === f.staff.employeeId));
+  assert.equal(estimatesFor(f.s, owner).length, estimate.length);
 });

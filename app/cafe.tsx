@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { monthAttendance, monthGrid, monthSummary, shiftMonth } from '@/lib/attendance';
 import { availabilityText, bookCopies, daysLate, libraryTotals } from '@/lib/library';
 import { shrinkImage } from '@/lib/shrink-image';
+import type { Estimate } from '@/lib/payroll-estimate';
 import BackupPanel from './backup-panel';
 import AuditPanel from './audit-panel';
 import CameraAdmin from './camera-admin';
@@ -24,6 +25,7 @@ import {
   Users,
   Clock,
   Wallet,
+  Banknote,
   TrendingUp,
   Coffee,
   BookOpen,
@@ -277,6 +279,7 @@ const restricted = [
 export default function Cafe({ name }: { name: string }) {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [s, setS] = useState<State>(blank()),
+    [estimates, setEstimates] = useState<Estimate[]>([]),
     [actor, setActor] = useState<Actor | null>(null),
     [setup, setSetup] = useState(false),
     [loading, setLoading] = useState(true),
@@ -289,7 +292,6 @@ export default function Cafe({ name }: { name: string }) {
     [modal, setModal] = useState<any>(null),
     [confirm, setConfirm] = useState<any>(null),
     [receipt, setReceipt] = useState<Row | null>(null),
-    [week, setWeek] = useState(0),
     [period, setPeriod] = useState(localDate().slice(0, 7)),
     [reportFrom, setReportFrom] = useState(localDate().slice(0, 7) + '-01'),
     [reportTo, setReportTo] = useState(localDate()),
@@ -380,6 +382,7 @@ export default function Cafe({ name }: { name: string }) {
       if (!mutation.current && d.revision >= revision.current) {
         revision.current = d.revision;
         setS(d.state);
+        setEstimates(d.estimates || []);
         setActor(d.actor);
         setSetup(d.setup);
       }
@@ -984,6 +987,13 @@ export default function Cafe({ name }: { name: string }) {
     .filter((sh) => admin || sh.employeeIds.includes(actor?.employeeId))
     .sort((a, b) => b.startAt.localeCompare(a.startAt));
   const [orderShiftId, setOrderShiftId] = useState('');
+  const [rosterMonth, setRosterMonth] = useState(() => localDate().slice(0, 7)),
+    [rosterDay, setRosterDay] = useState(() => localDate());
+  // Moving to another month opens today when it is this month, otherwise its first day.
+  const pickRosterMonth = (month: string) => {
+    setRosterMonth(month);
+    setRosterDay(month === localDate().slice(0, 7) ? localDate() : month + '-01');
+  };
   const [attMonth, setAttMonth] = useState(() => localDate().slice(0, 7)),
     [attPerson, setAttPerson] = useState('semua');
   const attDays = monthAttendance(
@@ -1116,7 +1126,7 @@ export default function Cafe({ name }: { name: string }) {
       submit: (data: any) => act('book.borrow', { bookId: b.id, ...data }),
     });
   const startOfWeek = new Date(localDate() + 'T12:00:00+08:00');
-  startOfWeek.setUTCDate(startOfWeek.getUTCDate() - ((startOfWeek.getUTCDay() + 6) % 7) + week * 7);
+  startOfWeek.setUTCDate(startOfWeek.getUTCDate() - ((startOfWeek.getUTCDay() + 6) % 7));
   const days = Array.from({ length: 7 }, (_, i) =>
     localDate(new Date(startOfWeek.getTime() + i * 86400000)),
   );
@@ -2220,21 +2230,29 @@ export default function Cafe({ name }: { name: string }) {
           <div className="row">
             <button
               className="icon-button"
-              aria-label="Minggu sebelumnya"
-              onClick={() => setWeek((w) => w - 1)}
+              aria-label="Bulan sebelumnya"
+              onClick={() => pickRosterMonth(shiftMonth(rosterMonth, -1))}
             >
               <ChevronLeft />
             </button>
-            <button className="button" onClick={() => setWeek(0)}>
-              Minggu ini
-            </button>
+            <strong className="att-month-title">
+              {new Date(rosterMonth + '-15T12:00:00+08:00').toLocaleDateString('id-ID', {
+                month: 'long',
+                year: 'numeric',
+              })}
+            </strong>
             <button
               className="icon-button"
-              aria-label="Minggu berikutnya"
-              onClick={() => setWeek((w) => w + 1)}
+              aria-label="Bulan berikutnya"
+              onClick={() => pickRosterMonth(shiftMonth(rosterMonth, 1))}
             >
               <ChevronRight />
             </button>
+            {rosterMonth !== localDate().slice(0, 7) && (
+              <button className="button" onClick={() => pickRosterMonth(localDate().slice(0, 7))}>
+                Bulan ini
+              </button>
+            )}
           </div>,
         )}
         <div className="notice">
@@ -2252,8 +2270,79 @@ export default function Cafe({ name }: { name: string }) {
             lokalnya perlu disesuaikan.
           </div>
         )}
-        <div className="calendar">
-          {days.map((d) => (
+        <div className="att-month roster-month" role="grid" aria-label="Kalender shift bulanan">
+          {['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map((d) => (
+            <div className="att-weekday" key={d} role="columnheader">
+              {d}
+            </div>
+          ))}
+          {monthGrid(rosterMonth).map((date, i) => {
+            const list = s.shifts
+              .filter((sh) => sh.date === date)
+              .sort((x, y) => x.startAt.localeCompare(y.startAt));
+            return (
+              <div
+                key={date || 'pad' + i}
+                className={
+                  'att-day' +
+                  (!date ? ' pad' : '') +
+                  (date === localDate() ? ' today' : '') +
+                  (date && date === rosterDay ? ' picked' : '') +
+                  (!list.length ? ' no-shift' : '')
+                }
+                role="gridcell"
+                onClick={date ? () => setRosterDay(date) : undefined}
+              >
+                {date && (
+                  <button
+                    type="button"
+                    className="att-date"
+                    aria-label={'Lihat shift ' + fmtDate(date)}
+                    onClick={() => setRosterDay(date)}
+                  >
+                    {Number(date.slice(8))}
+                    <small>
+                      {' '}
+                      {new Date(date + 'T12:00:00+08:00').toLocaleDateString('id-ID', {
+                        weekday: 'short',
+                      })}
+                    </small>
+                  </button>
+                )}
+                {list.map((sh) => (
+                  <button
+                    type="button"
+                    key={sh.id}
+                    className={'att-chip shift-chip ' + sh.status}
+                    title={
+                      sh.name + ' · ' + hours(sh) + ' · ' + sh.employeeIds.map(employee).join(', ')
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRosterDay(date);
+                      document
+                        .getElementById('roster-day')
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }}
+                  >
+                    <b>{clock(sh.startAt)}</b> {sh.name}
+                    <span>
+                      {sh.employeeIds.map((id: string) => employee(id).split(' ')[0]).join(', ') ||
+                        'Belum ada karyawan'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+        <div className="roster-legend">
+          <span className="att-chip shift-chip planned">Terjadwal</span>
+          <span className="att-chip shift-chip open">Berjalan</span>
+          <span className="att-chip shift-chip closed">Selesai</span>
+        </div>
+        <div className="calendar roster-detail" id="roster-day">
+          {[rosterDay].map((d) => (
             <section key={d} className={'calendar-day ' + (d === localDate() ? 'today' : '')}>
               <header>
                 <small>
@@ -2792,56 +2881,130 @@ export default function Cafe({ name }: { name: string }) {
             </p>
           </section>
         )}
-        {table(
-          ['Karyawan', 'Periode', 'Shift hadir', 'Gaji shift', 'Bonus', 'Total', 'Status', 'Aksi'],
-          s.payrolls
-            .filter((pr) => pr.period === period)
-            .map((pr) => [
-              employee(pr.employeeId),
-              pr.period,
-              pr.shifts,
-              money(pr.base),
-              money(pr.bonus),
-              <strong key="t">{money(pr.total)}</strong>,
-              <Badge value={pr.status} key="s" />,
-              admin && pr.status !== 'lunas' ? (
-                <button
-                  key="pay"
-                  className="button"
-                  disabled={busy || incompleteHppOrders.some((o) => o.date.startsWith(pr.period))}
-                  onClick={() =>
-                    setConfirm({
-                      title: 'Tandai gaji telah dibayar?',
-                      description:
-                        'Lakukan pembayaran terlebih dahulu. Rekaman pembayaran ini tidak mentransfer uang dan akan mengunci periode. Seluruh jadwal periode ini harus sudah selesai; hapus jadwal uji yang tidak digunakan.',
-                      run: () => act('payroll.pay', { id: pr.id }),
-                    })
-                  }
-                >
-                  Catat pembayaran
-                </button>
-              ) : pr.paidAt ? (
-                dateTime(pr.paidAt)
-              ) : (
-                '—'
-              ),
-            ]),
-        )}
-        <h2>Rincian pendapatan per karyawan dan shift</h2>
-        {table(
-          ['Tanggal', 'Shift', 'Karyawan', 'Laba shift', 'Gaji shift'],
-          s.shifts
+        {(() => {
+          const periodShifts = s.shifts
             .filter((sh) => sh.status === 'closed' && sh.date.startsWith(period))
-            .flatMap((sh) =>
-              (sh.snapshot.employees || []).map((e: any) => [
-                sh.date,
-                sh.name,
-                employee(e.employeeId),
-                admin ? money(sh.snapshot.profit) : '—',
-                money(e.wage),
-              ]),
-            ),
-        )}
+            .sort((a, b) => a.startAt.localeCompare(b.startAt));
+          const ests = estimates.filter((e) => e.period === period),
+            payrolls = s.payrolls.filter((pr) => pr.period === period);
+          const people = [
+            ...new Set([...ests.map((e) => e.employeeId), ...payrolls.map((pr) => pr.employeeId)]),
+          ]
+            .filter((id) => admin || id === actor?.employeeId)
+            .sort((x, y) => employee(x).localeCompare(employee(y)));
+          if (!people.length) return <Empty>Belum ada shift selesai pada periode ini.</Empty>;
+          const sum = (key: 'base' | 'bonus' | 'total') =>
+            people.reduce(
+              (n, id) =>
+                n +
+                ((payrolls.find((pr) => pr.employeeId === id) ||
+                  ests.find((e) => e.employeeId === id))?.[key] || 0),
+              0,
+            );
+          return (
+            <>
+              {admin && (
+                <div className="metrics">
+                  <Metric
+                    label="Gaji shift"
+                    value={money(sum('base'))}
+                    detail={people.length + ' karyawan'}
+                    icon={Wallet}
+                  />
+                  <Metric
+                    label="Estimasi bonus"
+                    value={money(sum('bonus'))}
+                    detail={settings?.bonusPercentage + '% laba bulan ini'}
+                  />
+                  <Metric
+                    label="Estimasi total"
+                    value={money(sum('total'))}
+                    detail="Gaji shift + bonus"
+                    icon={Banknote}
+                  />
+                </div>
+              )}
+              {people.map((id) => {
+                const pr = payrolls.find((x) => x.employeeId === id),
+                  est = ests.find((e) => e.employeeId === id);
+                // A recorded payroll is the official figure; until then the estimate stands in.
+                const figures = pr || est || { shifts: 0, base: 0, bonus: 0, total: 0 };
+                const worked = periodShifts.flatMap((sh) =>
+                  (sh.snapshot?.employees || [])
+                    .filter((e: any) => e.employeeId === id)
+                    .map((e: any) => ({ sh, wage: e.wage })),
+                );
+                return (
+                  <section className="panel pay-person" key={id}>
+                    <header className="pay-person-head">
+                      <div className="avatar">{employee(id).slice(0, 2).toUpperCase()}</div>
+                      <div>
+                        <h3>{employee(id)}</h3>
+                        <small>
+                          {figures.shifts} shift hadir ·{' '}
+                          {pr ? 'payroll sudah dihitung' : 'estimasi sementara'}
+                        </small>
+                      </div>
+                      {pr ? <Badge value={pr.status} /> : <span className="badge">Estimasi</span>}
+                    </header>
+                    <div className="pay-figures">
+                      <div>
+                        <small>Gaji shift</small>
+                        <strong>{money(figures.base)}</strong>
+                      </div>
+                      <div>
+                        <small>{pr ? 'Bonus' : 'Estimasi bonus'}</small>
+                        <strong>{money(figures.bonus)}</strong>
+                      </div>
+                      <div className="pay-total">
+                        <small>{pr ? 'Total' : 'Estimasi total'}</small>
+                        <strong>{money(figures.total)}</strong>
+                      </div>
+                    </div>
+                    {table(
+                      ['Tanggal', 'Shift', ...(admin ? ['Laba shift'] : []), 'Gaji shift'],
+                      worked.map(({ sh, wage }) => [
+                        fmtDate(sh.date),
+                        sh.name,
+                        ...(admin ? [money(sh.snapshot.profit)] : []),
+                        money(wage),
+                      ]),
+                    )}
+                    {pr && (
+                      <div className="pay-person-foot">
+                        {admin && pr.status !== 'lunas' ? (
+                          <button
+                            className="button"
+                            disabled={
+                              busy || incompleteHppOrders.some((o) => o.date.startsWith(pr.period))
+                            }
+                            onClick={() =>
+                              setConfirm({
+                                title: 'Tandai gaji telah dibayar?',
+                                description:
+                                  'Lakukan pembayaran terlebih dahulu. Rekaman pembayaran ini tidak mentransfer uang dan akan mengunci periode. Seluruh jadwal periode ini harus sudah selesai; hapus jadwal uji yang tidak digunakan.',
+                                run: () => act('payroll.pay', { id: pr.id }),
+                              })
+                            }
+                          >
+                            Catat pembayaran
+                          </button>
+                        ) : pr.paidAt ? (
+                          <small>Dibayar {dateTime(pr.paidAt)}</small>
+                        ) : null}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+              <p className="muted">
+                Estimasi dihitung dari shift yang sudah selesai dan bisa berubah sampai akhir bulan,
+                karena bonus mengikuti laba dan biaya bulanan. Angka resmi muncul setelah admin
+                menekan Hitung periode.
+              </p>
+            </>
+          );
+        })()}
       </>
     );
   if (tab === 'financials') {
