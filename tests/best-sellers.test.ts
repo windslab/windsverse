@@ -75,3 +75,17 @@ test('older, unpaid, cancelled and removed items do not count', () => {
     ['a'],
   );
 });
+
+test('bottled water is never ranked', () => {
+  const products = [product('w', 'Air Mineral'), product('a')];
+  const orders = [
+    order('2026-11-07', [
+      ['w', 20],
+      ['a', 1],
+    ]),
+  ];
+  assert.deepEqual(
+    weeklyBestSellers({ orders, products }, '2026-11-07').map((p) => p.id),
+    ['a'],
+  );
+});
