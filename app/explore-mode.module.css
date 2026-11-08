@@ -442,3 +442,128 @@
     animation: none;
   }
 }
+
+/* Windstopia points: a short line under the middle, and the day's missions top right. */
+.points {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  transform: translateX(-50%);
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #f6c06a;
+  white-space: nowrap;
+  text-shadow: 0 1px 6px #0009;
+}
+.missions {
+  position: absolute;
+  right: 14px;
+  top: 52px;
+  width: min(260px, calc(100% - 28px));
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #10151cdd;
+  color: #f3efe6;
+  pointer-events: auto;
+  font-size: 12px;
+}
+.missions header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.missions header button {
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0.8;
+}
+.missions ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.missions li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.missions li small {
+  margin-left: auto;
+  opacity: 0.7;
+}
+.missions .missionDone {
+  color: #a8e2a0;
+}
+.missions p {
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  opacity: 0.8;
+}
+
+.missionsTitle {
+  display: block;
+  margin: 14px 0 8px;
+}
+.wallet {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.wallet b {
+  font-size: 28px;
+  line-height: 1;
+  color: #f6c06a;
+}
+.wallet span {
+  display: grid;
+  gap: 2px;
+}
+.wallet small {
+  opacity: 0.7;
+  font-size: 11px;
+}
+.redeem {
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: #f6c06a;
+  color: #2a1f10;
+  font-weight: 700;
+  text-decoration: none !important;
+}
+.redeem:disabled {
+  opacity: 0.45;
+}
+.redeemForm {
+  display: grid;
+  gap: 8px;
+}
+.redeemForm p {
+  margin: 0;
+  opacity: 1;
+  font-size: 12px;
+}
+.redeemForm input {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #ffffff33;
+  background: #0006;
+  color: inherit;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+}
+.redeemForm > div {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+}
+.redeemError {
+  color: #f4a0a4;
+  opacity: 1 !important;
+}

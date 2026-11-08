@@ -6,6 +6,7 @@ import {publicBooks} from '@/lib/public-books';
 import {businessDay} from '@/lib/model';
 import {publicCard} from '@/lib/member';
 import {weeklyBestSellers} from '@/lib/best-sellers';
+import {earnGamePoint,gamePointsOn,gameWallet,maskName,redeemGamePoints,GAME_DAILY_CAP} from '@/lib/game-points';
 export const dynamic='force-dynamic';
 export async function GET(req:Request){try{
  const url=new URL(req.url),loaded=await read(),s=loaded.state;
@@ -54,6 +55,35 @@ export async function GET(req:Request){try{
  return Response.json({settings:s.settings.map(({name,tagline,logo,address,phone,whatsapp,mapsUrl,mapsEmbed,openTime,closeTime,closedDays})=>({name,tagline,logo,address,phone,whatsapp,mapsUrl,mapsEmbed,openTime,closeTime,closedDays})),categories:[...s.categories].sort((a,b)=>a.sortOrder-b.sortOrder||a.name.localeCompare(b.name)),products:s.products,tables:s.tables.map(({id,number,zone})=>({id,number,zone})),books:publicBooks(s),bestSellers:weeklyBestSellers(s)},{headers:{'Cache-Control':'no-store'}})
 }catch(e){return errorResponse(e)}}
 export async function POST(req:Request){try{checkMutation(req);const p=await body(req);const loaded=await read();if(!loaded.control)throw new Fault('Kafe belum disiapkan.',503);const ip=req.headers.get('cf-connecting-ip')||'local';const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(ip));const actorId='guest-'+Array.from(new Uint8Array(hash)).map(v=>v.toString(16).padStart(2,'0')).join('');const guest={id:actorId,employeeId:'',name:'Pelanggan',email:'',role:'karyawan' as const};
+ // Windstopia points: activities fill the player's game wallet (keyed by a random id kept on
+ // their device); redeeming moves the wallet onto a member card by its code. Written outside the
+ // café's revisioned records, so it never makes a staff screen reload.
+ if(typeof p?.action==='string'&&p.action.startsWith('game.')){
+  const ipKey='game:'+await digest(ip),now=Date.now();
+  const hits=await loaded.db.prepare('INSERT INTO auth_attempts(key,count,expires_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN expires_at<=? THEN 1 ELSE count+1 END,expires_at=CASE WHEN expires_at<=? THEN excluded.expires_at ELSE expires_at END RETURNING count').bind(ipKey,now+60_000,now,now).first<{count:number}>();
+  if((hits?.count||0)>60)throw new Fault('Terlalu banyak permintaan. Tunggu sebentar.',429);
+  if(typeof p.player!=='string'||!/^[A-Za-z0-9_-]{16,40}$/.test(p.player))throw new Fault('Data pemain tidak valid.');
+  const db=loaded.db as any,headers={'Cache-Control':'no-store'};
+  if(p.action==='game.point'){
+   if(typeof p.activity!=='string'||p.activity.length>40)throw new Fault('Kegiatan tidak valid.');
+   return Response.json({...await earnGamePoint(db,p.player,p.activity),cap:GAME_DAILY_CAP},{headers});
+  }
+  if(p.action==='game.wallet')return Response.json({...await gameWallet(db,p.player),cap:GAME_DAILY_CAP},{headers});
+  if(p.action==='game.redeem'){
+   const code=typeof p.code==='string'?p.code.trim().toUpperCase().replace(/\s+/g,''):'';
+   if(!/^WSM-?\d{1,6}$/.test(code))throw new Fault('Kode kartu member tidak valid. Contoh: WSM-0001.');
+   const wanted=code.includes('-')?code:'WSM-'+code.slice(3);
+   const member=loaded.state.members.find(m=>String(m.code).toUpperCase()===wanted);
+   if(!member)throw new Fault('Kartu member dengan kode ini tidak ditemukan.',404);
+   if(member.status==='nonaktif')throw new Fault('Kartu member ini tidak aktif.',403);
+   const day=businessDay(),room=Math.max(0,GAME_DAILY_CAP-gamePointsOn(loaded.state,member.id,day));
+   const card={code:member.code,name:maskName(member.name),room};
+   if(p.confirm!==true)return Response.json({card,...await gameWallet(db,p.player)},{headers});
+   const result=await redeemGamePoints(db,loaded.state,p.player,member.id);
+   return Response.json({card:{...card,room:result.room},...result},{headers});
+  }
+  throw new Fault('Permintaan tidak dikenali.');
+ }
  // Signing up for a member card from the QR form: a few per device per hour.
  if(p?.action==='member.signup'){const recent=await loaded.db.prepare("SELECT count(*) AS n FROM audit WHERE actor_id=? AND action='member.signup' AND created_at>?").bind(actorId,new Date(Date.now()-3600000).toISOString()).first<{n:number}>();if((recent?.n||0)>=3)throw new Fault('Terlalu banyak pendaftaran dari perangkat ini. Coba lagi nanti atau daftar di kasir.',429);const result=await commit(loaded,guest,'member.signup',{name:p.name,phone:p.phone,birthday:p.birthday},loaded.control.revision,crypto.randomUUID());return Response.json(result,{headers:{'Cache-Control':'no-store'}})}
  // A member asking for a gift on their own card (the card's secret link is the key).

@@ -25,6 +25,8 @@ import VintageCamera from './vintage-camera';
 import { Bag, Notebook, Reader, type BagItem } from './explore-bag';
 import BarStation from './explore-bar';
 import MemberDialog from './member/member-dialog';
+import { useGamePoints } from './use-game-points';
+import { PointsPanel } from './explore-points';
 
 export type ExploreApi = {
   setManual: (on: boolean) => void;
@@ -260,12 +262,20 @@ export default function ExploreMode({
     );
   }, [customers, api]);
 
+  // Windstopia points on the player's member card, and the day's missions.
+  const game = useGamePoints(),
+    [missionsOpen, setMissionsOpen] = useState(false);
+  const earnRef = useRef(game.earn);
+  useEffect(() => {
+    earnRef.current = game.earn;
+  });
   // Story of Winds from Luna's camera: keep the latest shot (small) for the tower's frame.
   const photoLens = useMemo(
     () => ({
       ...api.photo,
       onPhoto: (blob: Blob) => {
         void shrinkPhoto(blob).then((url) => (lastPhoto.current = url));
+        earnRef.current('photo');
       },
     }),
     [api],
@@ -423,8 +433,9 @@ export default function ExploreMode({
   }, []);
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      // Not while a sheet such as the member card is open over the game.
+      // Not while a sheet such as the member card is open over the game, or while typing.
       if (panel || document.querySelector('[role=dialog][aria-modal=true]')) return;
+      if ((e.target as HTMLElement | null)?.closest?.('input, textarea')) return;
       const key = e.key.toLowerCase();
       if (key === 'shift') {
         keyRun.current = true;
@@ -653,11 +664,13 @@ export default function ExploreMode({
           spot.box.getCenter(new THREE.Vector3()),
         );
         reward(verb === 'water' ? 'Tanaman segar' : 'Meja bersih', 3);
+        setTimeout(() => game.earn(verb), 3000);
       }
     }
     if (verb === 'sweep') {
       api.chore('sweeping', 4);
       reward('Lantai disapu', 4);
+      setTimeout(() => game.earn('sweep'), 4000);
     }
     if (verb === 'photo') setPhotoOpen(true);
     if (verb === 'hang' && lastPhoto.current) {
@@ -696,6 +709,7 @@ export default function ExploreMode({
         list.map((x) => (x.key === c.key ? { ...x, stage: 'served', servedAt: Date.now() } : x)),
       );
       setScore((s) => ({ ...s, served: s.served + 1 }));
+      game.earn('serve');
       setToast({ name: c.name, line: thanks });
       setTimeout(() => setToast(null), 5500);
       setHolding(false);
@@ -831,6 +845,9 @@ export default function ExploreMode({
           <button onClick={() => setBagOpen(true)}>tas</button>
           <button onClick={() => run('photo')}>kamera</button>
           <button onClick={() => run('sweep')}>sapu</button>
+          <button onClick={() => setMissionsOpen((o) => !o)} aria-pressed={missionsOpen}>
+            poin ({game.balance})
+          </button>
           <button onClick={() => setMemberOpen(true)}>kartu</button>
           <button onClick={onToggleSound} aria-pressed={sound}>
             {sound ? 'suara: on' : 'suara: off'}
@@ -864,6 +881,14 @@ export default function ExploreMode({
             {g.label} →
           </button>
         ))}
+      {game.note && (
+        <p className={styles.points} role="status">
+          {game.note}
+        </p>
+      )}
+      {missionsOpen && !panel && !photoOpen && (
+        <PointsPanel game={game} onClose={() => setMissionsOpen(false)} />
+      )}
       {toast && (
         <div className={styles.toast} role="status">
           <strong>{toast.name} ♡</strong>

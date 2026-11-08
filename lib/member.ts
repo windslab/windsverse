@@ -2,6 +2,7 @@
 // drink vouchers, points and which gifts can be claimed — is worked out from the member's paid
 // orders and gift claims, so cancelling or correcting an order adjusts the card by itself.
 import { businessDay, localDate, type Row, type State } from './model';
+import { GAME_DAILY_CAP, gameEvents, gamePointsOn } from './game-points';
 
 export type MemberRules = {
   /** A stamp needs at least one paid drink at this price or more… */
@@ -228,6 +229,8 @@ export function memberCard(s: State, member: Row, now = new Date()) {
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const events = [
     ...earnings.map((en) => ({ at: en.at, delta: en.points, earn: true })),
+    // Windstopia points redeemed onto the card add to the balance but do not keep points from expiring.
+    ...gameEvents(s, member.id).map((g) => ({ at: g.at, delta: g.points, earn: false })),
     ...claims.map((c) => ({
       at: c.createdAt as string,
       delta: -(c.points as number),
@@ -315,6 +318,7 @@ export function publicCard(s: State, member: Row, now = new Date()) {
     fullCards: card.fullCards,
     vouchers: card.vouchers.filter((v) => v.status === 'tersedia'),
     points: card.points,
+    game: { today: gamePointsOn(s, member.id, businessDay(now)), cap: GAME_DAILY_CAP },
     pointsExpireAt: card.pointsExpireAt,
     year: card.year,
     rewards: card.rewards,
