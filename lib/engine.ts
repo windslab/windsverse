@@ -35,6 +35,7 @@ import {
   OPERATIONS_VERSION,
 } from './model';
 import { mapsLink } from './maps';
+import { WEEKDAYS } from './hours';
 const str = z.string().trim().min(1).max(200),
   optional = z.string().trim().max(2000).default('');
 const amount = z.number().int().min(0).max(1_000_000_000);
@@ -160,6 +161,9 @@ const schemas: Partial<Record<Kind, z.ZodTypeAny>> = {
       (v) => !v || !!mapsLink(v),
       'Link lokasi harus berupa link Google Maps.',
     ),
+    openTime: z.union([z.literal(''), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)]).default(''),
+    closeTime: z.union([z.literal(''), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)]).default(''),
+    closedDays: z.array(z.enum(WEEKDAYS)).default([]),
     // Filled by the server from mapsUrl, never typed by hand.
     mapsEmbed: optional.refine(
       (v) => !v || v.startsWith('https://www.google.com/maps'),
