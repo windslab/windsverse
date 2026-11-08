@@ -25,6 +25,12 @@ Disepakati bersama pemilik pada 1 November 2026. Tahap 1 dibangun di branch `lun
 - Poin dihitung dari harga **sesudah diskon** (diskon biasa memotong poin secara proporsional).
 - Poin **dikumpulkan terus lintas kartu**.
 - Semua poin **hangus** bila **12 bulan** tidak ada transaksi yang memenuhi syarat.
+- **Poin Windstopia** (diputuskan 8 Nov 2026): di game, setiap kegiatan memberi 1 poin ke kartu
+  member yang tersimpan di perangkat pemain, yaitu melayani pelanggan, menyiram tanaman, mengelap
+  meja, menyapu dan memotret, ditambah 1 poin untuk setiap misi harian yang selesai (3 misi per
+  hari, sama untuk semua pemain). Batasnya **10 poin per kartu per hari**, dengan jeda minimal 8
+  detik antarpoin. Poin game bisa ditukar hadiah seperti poin belanja, tetapi hadiah tetap butuh
+  kartu stamp penuh, dan poin game tidak memperpanjang masa hangus.
 
 ### Hadiah tahunan
 

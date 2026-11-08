@@ -6,6 +6,7 @@ import {publicBooks} from '@/lib/public-books';
 import {businessDay} from '@/lib/model';
 import {publicCard} from '@/lib/member';
 import {weeklyBestSellers} from '@/lib/best-sellers';
+import {earnGamePoint,GAME_DAILY_CAP} from '@/lib/game-points';
 export const dynamic='force-dynamic';
 export async function GET(req:Request){try{
  const url=new URL(req.url),loaded=await read(),s=loaded.state;
@@ -54,6 +55,19 @@ export async function GET(req:Request){try{
  return Response.json({settings:s.settings.map(({name,tagline,logo,address,phone,whatsapp,mapsUrl,mapsEmbed,openTime,closeTime,closedDays})=>({name,tagline,logo,address,phone,whatsapp,mapsUrl,mapsEmbed,openTime,closeTime,closedDays})),categories:[...s.categories].sort((a,b)=>a.sortOrder-b.sortOrder||a.name.localeCompare(b.name)),products:s.products,tables:s.tables.map(({id,number,zone})=>({id,number,zone})),books:publicBooks(s),bestSellers:weeklyBestSellers(s)},{headers:{'Cache-Control':'no-store'}})
 }catch(e){return errorResponse(e)}}
 export async function POST(req:Request){try{checkMutation(req);const p=await body(req);const loaded=await read();if(!loaded.control)throw new Fault('Kafe belum disiapkan.',503);const ip=req.headers.get('cf-connecting-ip')||'local';const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(ip));const actorId='guest-'+Array.from(new Uint8Array(hash)).map(v=>v.toString(16).padStart(2,'0')).join('');const guest={id:actorId,employeeId:'',name:'Pelanggan',email:'',role:'karyawan' as const};
+ // A Windstopia activity earning a point on the player's own card (the card's secret link is the key).
+ // Stored outside the café's revisioned records, so it never makes a staff screen reload.
+ if(p?.action==='game.point'){
+  const ipKey='game:'+await digest(ip),now=Date.now();
+  const hits=await loaded.db.prepare('INSERT INTO auth_attempts(key,count,expires_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN expires_at<=? THEN 1 ELSE count+1 END,expires_at=CASE WHEN expires_at<=? THEN excluded.expires_at ELSE expires_at END RETURNING count').bind(ipKey,now+60_000,now,now).first<{count:number}>();
+  if((hits?.count||0)>60)throw new Fault('Terlalu banyak permintaan. Tunggu sebentar.',429);
+  if(typeof p.token!=='string'||!/^[A-Za-z0-9_-]{16,40}$/.test(p.token)||typeof p.activity!=='string'||p.activity.length>40)throw new Fault('Permintaan poin tidak valid.');
+  const member=loaded.state.members.find(m=>m.token===p.token);
+  if(!member)throw new Fault('Kartu member tidak ditemukan.',404);
+  if(member.status==='nonaktif')throw new Fault('Kartu member ini tidak aktif.',403);
+  const earned=await earnGamePoint(loaded.db as any,member.id,p.activity);
+  return Response.json({...earned,cap:GAME_DAILY_CAP},{headers:{'Cache-Control':'no-store'}});
+ }
  // Signing up for a member card from the QR form: a few per device per hour.
  if(p?.action==='member.signup'){const recent=await loaded.db.prepare("SELECT count(*) AS n FROM audit WHERE actor_id=? AND action='member.signup' AND created_at>?").bind(actorId,new Date(Date.now()-3600000).toISOString()).first<{n:number}>();if((recent?.n||0)>=3)throw new Fault('Terlalu banyak pendaftaran dari perangkat ini. Coba lagi nanti atau daftar di kasir.',429);const result=await commit(loaded,guest,'member.signup',{name:p.name,phone:p.phone,birthday:p.birthday},loaded.control.revision,crypto.randomUUID());return Response.json(result,{headers:{'Cache-Control':'no-store'}})}
  // A member asking for a gift on their own card (the card's secret link is the key).
