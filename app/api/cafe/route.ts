@@ -2,6 +2,7 @@ import { authenticate } from '@/lib/auth';
 import { publicOrder } from '@/lib/model';
 import { read, visible, checkMutation, body, commit, errorResponse } from '@/lib/store';
 import { estimatesFor } from '@/lib/payroll-estimate';
+import { settingsMap } from '@/lib/settings-map';
 export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
@@ -37,6 +38,8 @@ export async function POST(req: Request) {
     const actor = await authenticate(req);
     const data = await body(req);
     const loaded = await read();
+    if (data.action === 'save' && data.payload?.kind === 'settings' && data.payload.data)
+      data.payload.data = await settingsMap(data.payload.data, loaded.state.settings[0]);
     const result = await commit(
       loaded,
       actor,

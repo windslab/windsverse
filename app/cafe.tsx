@@ -798,6 +798,11 @@ export default function Cafe({ name }: { name: string }) {
         { key: 'address', label: 'Alamat' },
         { key: 'phone', label: 'Telepon' },
         { key: 'whatsapp', label: 'WhatsApp' },
+        {
+          key: 'mapsUrl',
+          label: 'Link Google Maps',
+          hint: 'Buka lokasi kafe di Google Maps, tekan Bagikan, lalu tempel linknya di sini. Petanya akan tampil di halaman depan.',
+        },
         { key: 'taxPercentage', label: 'Pajak (%)', type: 'number', default: 10 },
         { key: 'bonusPercentage', label: 'Bonus laba bulanan (%)', type: 'number', default: 5 },
         { key: 'receiptFooter', label: 'Pesan struk', type: 'textarea' },
@@ -3775,6 +3780,10 @@ export default function Cafe({ name }: { name: string }) {
             <p>{settings?.tagline}</p>
             <p>{settings?.address || 'Alamat belum diisi'}</p>
             <p>{settings?.phone}</p>
+            <div className="list-row">
+              <span>Peta lokasi</span>
+              <strong>{settings?.mapsEmbed ? 'Tampil di halaman depan' : 'Belum diatur'}</strong>
+            </div>
             <div className="list-row">
               <span>Pajak</span>
               <strong>{settings?.taxPercentage}%</strong>

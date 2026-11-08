@@ -24,6 +24,7 @@ const VintageCamera = dynamic(() => import('./vintage-camera'), { ssr: false });
 const Noisegasm = dynamic(() => import('./noisegasm'), { ssr: false });
 const MemberDialog = dynamic(() => import('./member/member-dialog'), { ssr: false });
 import BestSellers, { type BestSeller } from './best-sellers';
+import LocationSection from './location-section';
 import type { Row } from '@/lib/model';
 import { EMPTY_CAFE_ACTIVITY, type CafeActivity } from '@/lib/cafe-activity';
 const CafeScene = dynamic(() => import('./scene-3d'), {
@@ -327,6 +328,7 @@ export default function PublicDashboard() {
           error={catalogError}
           onRetry={() => void loadCatalog()}
         />
+        <LocationSection profile={profile} />
         <section className="landing-below">
           <article className="track-card">
             <div className="track-icon">
