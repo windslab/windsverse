@@ -26,6 +26,7 @@ import { Bag, Notebook, Reader, type BagItem } from './explore-bag';
 import BarStation from './explore-bar';
 import MemberDialog from './member/member-dialog';
 import { useGamePoints } from './use-game-points';
+import { PointsPanel } from './explore-points';
 
 export type ExploreApi = {
   setManual: (on: boolean) => void;
@@ -432,8 +433,9 @@ export default function ExploreMode({
   }, []);
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      // Not while a sheet such as the member card is open over the game.
+      // Not while a sheet such as the member card is open over the game, or while typing.
       if (panel || document.querySelector('[role=dialog][aria-modal=true]')) return;
+      if ((e.target as HTMLElement | null)?.closest?.('input, textarea')) return;
       const key = e.key.toLowerCase();
       if (key === 'shift') {
         keyRun.current = true;
@@ -844,7 +846,7 @@ export default function ExploreMode({
           <button onClick={() => run('photo')}>kamera</button>
           <button onClick={() => run('sweep')}>sapu</button>
           <button onClick={() => setMissionsOpen((o) => !o)} aria-pressed={missionsOpen}>
-            misi
+            poin ({game.balance})
           </button>
           <button onClick={() => setMemberOpen(true)}>kartu</button>
           <button onClick={onToggleSound} aria-pressed={sound}>
@@ -885,30 +887,7 @@ export default function ExploreMode({
         </p>
       )}
       {missionsOpen && !panel && !photoOpen && (
-        <aside className={styles.missions} aria-label="Misi hari ini">
-          <header>
-            <strong>Misi hari ini</strong>
-            <button onClick={() => setMissionsOpen(false)} aria-label="Tutup misi">
-              ×
-            </button>
-          </header>
-          <ul>
-            {game.missions.map((m) => (
-              <li key={m.id} className={m.done ? styles.missionDone : ''}>
-                <span>{m.done ? '✓' : '○'}</span>
-                {m.label}
-                <small>
-                  {m.progress}/{m.count}
-                </small>
-              </li>
-            ))}
-          </ul>
-          <p>
-            {game.hasCard
-              ? `Setiap kegiatan dan misi = 1 poin kartu member${game.today !== null ? ` · ${game.today}/${game.cap} hari ini` : ` · maks. ${game.cap} per hari`}.`
-              : 'Simpan kartu member lewat tombol kartu supaya kegiatanmu jadi poin.'}
-          </p>
-        </aside>
+        <PointsPanel game={game} onClose={() => setMissionsOpen(false)} />
       )}
       {toast && (
         <div className={styles.toast} role="status">

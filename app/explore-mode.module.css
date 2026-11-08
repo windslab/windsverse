@@ -504,3 +504,66 @@
   line-height: 1.5;
   opacity: 0.8;
 }
+
+.missionsTitle {
+  display: block;
+  margin: 14px 0 8px;
+}
+.wallet {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.wallet b {
+  font-size: 28px;
+  line-height: 1;
+  color: #f6c06a;
+}
+.wallet span {
+  display: grid;
+  gap: 2px;
+}
+.wallet small {
+  opacity: 0.7;
+  font-size: 11px;
+}
+.redeem {
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: #f6c06a;
+  color: #2a1f10;
+  font-weight: 700;
+  text-decoration: none !important;
+}
+.redeem:disabled {
+  opacity: 0.45;
+}
+.redeemForm {
+  display: grid;
+  gap: 8px;
+}
+.redeemForm p {
+  margin: 0;
+  opacity: 1;
+  font-size: 12px;
+}
+.redeemForm input {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #ffffff33;
+  background: #0006;
+  color: inherit;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+}
+.redeemForm > div {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+}
+.redeemError {
+  color: #f4a0a4;
+  opacity: 1 !important;
+}

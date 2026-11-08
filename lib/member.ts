@@ -229,7 +229,7 @@ export function memberCard(s: State, member: Row, now = new Date()) {
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const events = [
     ...earnings.map((en) => ({ at: en.at, delta: en.points, earn: true })),
-    // Windstopia points add to the balance but, like gifts, do not keep points from expiring.
+    // Windstopia points redeemed onto the card add to the balance but do not keep points from expiring.
     ...gameEvents(s, member.id).map((g) => ({ at: g.at, delta: g.points, earn: false })),
     ...claims.map((c) => ({
       at: c.createdAt as string,
