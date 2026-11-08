@@ -4,6 +4,7 @@ import { monthAttendance, monthGrid, monthSummary, shiftMonth } from '@/lib/atte
 import { availabilityText, bookCopies, daysLate, libraryTotals } from '@/lib/library';
 import { shrinkImage } from '@/lib/shrink-image';
 import type { Estimate } from '@/lib/payroll-estimate';
+import { DAY_LABEL, hoursRange, openDays } from '@/lib/hours';
 import BackupPanel from './backup-panel';
 import AuditPanel from './audit-panel';
 import CameraAdmin from './camera-admin';
@@ -798,6 +799,31 @@ export default function Cafe({ name }: { name: string }) {
         { key: 'address', label: 'Alamat' },
         { key: 'phone', label: 'Telepon' },
         { key: 'whatsapp', label: 'WhatsApp' },
+        {
+          key: 'openTime',
+          label: 'Jam buka',
+          type: 'time',
+          step: '60',
+          hint: 'Kosongkan jam buka dan tutup bila belum ingin ditampilkan.',
+        },
+        {
+          key: 'closeTime',
+          label: 'Jam tutup',
+          type: 'time',
+          step: '60',
+          hint: 'Lewat tengah malam juga bisa, misalnya buka 16.00 tutup 01.00.',
+        },
+        {
+          key: 'closedDays',
+          label: 'Hari libur',
+          type: 'multi',
+          options: Object.entries(DAY_LABEL).map(([value, label]) => ({ value, label })),
+        },
+        {
+          key: 'mapsUrl',
+          label: 'Link Google Maps',
+          hint: 'Buka lokasi kafe di Google Maps, tekan Bagikan, lalu tempel linknya di sini. Petanya akan tampil di halaman depan.',
+        },
         { key: 'taxPercentage', label: 'Pajak (%)', type: 'number', default: 10 },
         { key: 'bonusPercentage', label: 'Bonus laba bulanan (%)', type: 'number', default: 5 },
         { key: 'receiptFooter', label: 'Pesan struk', type: 'textarea' },
@@ -3775,6 +3801,18 @@ export default function Cafe({ name }: { name: string }) {
             <p>{settings?.tagline}</p>
             <p>{settings?.address || 'Alamat belum diisi'}</p>
             <p>{settings?.phone}</p>
+            <div className="list-row">
+              <span>Jam buka</span>
+              <strong>
+                {settings?.openTime && settings?.closeTime
+                  ? hoursRange(settings) + ' · ' + openDays(settings)
+                  : 'Belum diatur'}
+              </strong>
+            </div>
+            <div className="list-row">
+              <span>Peta lokasi</span>
+              <strong>{settings?.mapsEmbed ? 'Tampil di halaman depan' : 'Belum diatur'}</strong>
+            </div>
             <div className="list-row">
               <span>Pajak</span>
               <strong>{settings?.taxPercentage}%</strong>

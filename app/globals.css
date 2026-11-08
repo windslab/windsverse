@@ -2833,6 +2833,112 @@ td {
     opacity: 1;
   }
 }
+.location-section {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 28px;
+  align-items: center;
+  border-top: 1px solid #e5ded2;
+  padding: 35px 0 45px;
+  scroll-margin-top: 24px;
+}
+.location-copy h2 {
+  font-family: Georgia, serif;
+  font-size: clamp(26px, 2.4vw, 36px);
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  margin: 10px 0 14px;
+}
+.location-address {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #6f6252;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 20px;
+}
+.location-address svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #59634b;
+}
+.location-section.no-map {
+  grid-template-columns: minmax(0, 1fr);
+}
+.location-hours {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin: -6px 0 20px;
+  color: #6f6252;
+  font-size: 13px;
+}
+.location-hours > svg {
+  color: #59634b;
+  flex-shrink: 0;
+}
+.location-hours > div {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.45;
+}
+.location-hours strong {
+  color: #514335;
+  font-weight: 600;
+}
+.location-hours span {
+  font-size: 12px;
+}
+.open-badge {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px !important;
+  font-weight: 600;
+}
+.open-badge.open {
+  background: #e7eedc;
+  color: #4d5a3d;
+}
+.open-badge.closed {
+  background: #f4e4dc;
+  color: #965b48;
+}
+.location-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.location-actions .button {
+  font-size: 12px;
+  min-height: 46px;
+  border-radius: 999px;
+  padding: 0 19px;
+}
+.location-map {
+  border: 1px solid #e5ddcf;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #efe8dc;
+  aspect-ratio: 16 / 10;
+}
+.location-map iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+@media (max-width: 760px) {
+  .location-section {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+    padding: 27px 0 30px;
+  }
+  .location-map {
+    aspect-ratio: 4 / 3;
+  }
+}
 .public-library-dialog {
   width: min(800px, calc(100vw - 32px)) !important;
   max-width: 800px !important;
