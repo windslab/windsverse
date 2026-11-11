@@ -4734,12 +4734,9 @@ td {
 .landing-scene-column .landing-tv-actions {
   grid-column: auto;
 }
-/* Seven destinations: Menu across the top, then three rows of two. */
+/* Eight destinations, Menu among them: four rows of two. */
 .landing-scene-column .landing-telescope-cta {
   grid-column: auto;
-}
-.landing-scene-column .landing-destinations > .landing-cta {
-  grid-column: 1 / -1;
 }
 
 /* Windstronout: controls follow the eyepiece on phones; object details have their own space. */
@@ -5727,6 +5724,12 @@ html:has(.cafe-scene-shell.exploring) [data-slot='dialog-content'] {
   color: #cfd8e6;
   font-size: 0.78rem;
 }
+.member-code-check {
+  display: grid;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: #f1d9a8;
+}
 .member-voucher {
   display: flex;
   align-items: center;
@@ -6293,6 +6296,49 @@ button.att-chip:disabled {
   color: #c4ec81;
 }
 .pay-person .table-panel {
+  margin: 0;
+}
+.day-report {
+  margin-top: 16px;
+}
+.day-report-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid #293447;
+}
+.day-report-head h3 {
+  margin: 0;
+}
+.day-report-sum {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  color: #a4aec0;
+  font-size: 0.9rem;
+}
+.day-report-sum strong {
+  color: #edf2f8;
+  margin-left: 4px;
+}
+.day-report-sum strong.accent {
+  color: #c4ec81;
+}
+.day-report-sum strong.danger {
+  color: #fda3a7;
+}
+.day-report h4 {
+  margin: 14px 0 8px;
+  color: #a4aec0;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.day-report .table-panel {
   margin: 0;
 }
 .pay-person-foot {

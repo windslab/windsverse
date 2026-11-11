@@ -247,7 +247,7 @@ export default function PublicDashboard() {
             />
           </section>
           <div className="landing-destinations">
-            <a href="/menu" className="button primary landing-cta">
+            <a href="/menu" className="button landing-library-cta">
               <Coffee size={18} />
               Menu <ArrowRight size={18} />
             </a>

@@ -36,6 +36,7 @@ import {
 } from './model';
 import { mapsLink } from './maps';
 import { WEEKDAYS } from './hours';
+import { isMemberCode, newMemberCode, normalizeMemberCode } from './member-code';
 const str = z.string().trim().min(1).max(200),
   optional = z.string().trim().max(2000).default('');
 const amount = z.number().int().min(0).max(1_000_000_000);
@@ -1043,11 +1044,9 @@ export function apply(
         ? 'Nomor ini sudah terdaftar. Tanyakan ke kasir untuk membuka kartu membermu.'
         : 'Nomor HP ini sudah terdaftar sebagai member.',
     );
-    const next =
-      s.members.reduce((n, m) => Math.max(n, Number(String(m.code).slice(4)) || 0), 0) + 1;
     const member = {
       id: id(),
-      code: 'WSM-' + String(next).padStart(4, '0'),
+      code: newMemberCode(s.members.map((m) => m.code)),
       ...fields,
       token: newToken(),
       status,
@@ -1075,6 +1074,14 @@ export function apply(
   if (action === 'member.signup') {
     const m = addMember(p, 'menunggu', 'mandiri');
     return { code: m.code, token: m.token };
+  }
+  if (action === 'member.recode') {
+    // Cards made before codes were random (WSM-0001 and on) get a random code once; their links
+    // stay the same, so members see the new code on their card.
+    assert(a.role === 'system', 'Hanya sistem yang mengganti kode kartu lama.');
+    for (const m of s.members)
+      if (!isMemberCode(m.code)) m.code = newMemberCode(s.members.map((x) => x.code));
+    return;
   }
   if (action === 'member.update') {
     admin(a);
@@ -1229,6 +1236,12 @@ export function apply(
   if (action === 'member.handover') {
     const c = find(s, 'memberClaims', p.id);
     assert(c.status === 'menunggu', 'Hadiah ini sudah diserahkan.');
+    // At the till the whole card code is needed; the admin hands over from the member list.
+    if (a.role !== 'admin')
+      assert(
+        normalizeMemberCode(p.code) === find(s, 'members', c.memberId).code,
+        'Untuk menyerahkan hadiah, masukkan atau scan kode kartu member lengkap.',
+      );
     Object.assign(c, { status: 'diserahkan', staffId: a.employeeId, handedAt: stamp });
     return;
   }
@@ -1334,6 +1347,12 @@ export function apply(
       memberId = m.id;
       if (p.memberFree?.voucherId) {
         assert(m.status === 'aktif', 'Kartu member belum aktif; hadiah stamp belum bisa dipakai.');
+        // A gift needs the whole card code (typed or scanned from the member's own card), not
+        // just a name or phone number someone else could know.
+        assert(
+          normalizeMemberCode(p.memberFree.code) === m.code,
+          'Untuk memakai hadiah, masukkan atau scan kode kartu member lengkap.',
+        );
         const voucher = memberCard(s, m, now).vouchers.find(
           (v) => v.id === p.memberFree.voucherId && v.status === 'tersedia',
         );

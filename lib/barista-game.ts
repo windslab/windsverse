@@ -2,6 +2,7 @@
 // customers judge the drink by taste against their stated preference, plus the cup, the
 // espresso machine for coffee, the change they got back and how long they waited.
 // The café's real recipes are never used here (they stay private).
+import { favoriteOn, regularNamed } from './regulars';
 
 export type Taste = { sweet: number; milky: number; coffee: number; flavor: number };
 export type FlavorId =
@@ -233,9 +234,11 @@ export type Order = {
   target: Taste;
   /** Cash the customer hands over. */
   paid: number;
+  /** A regular who never pays ('vvip') or pays for the whole café ('treat'). */
+  pays?: 'vvip' | 'treat';
 };
 
-const NAMES: { name: string; male: boolean }[] = [
+export const NAMES: { name: string; male: boolean }[] = [
   { name: 'Fajar', male: true },
   { name: 'Uli', male: false },
   { name: 'Ekki', male: true },
@@ -247,7 +250,7 @@ const NAMES: { name: string; male: boolean }[] = [
   { name: 'Fina', male: false },
   { name: 'Podding', male: false },
   { name: 'Adit', male: true },
-  { name: 'Acca', male: false },
+  { name: 'Acca', male: true },
   { name: 'Mamat', male: true },
   { name: 'Novy', male: true },
   { name: 'Ifnul', male: true },
@@ -293,10 +296,20 @@ export function describeItem(item: MenuItem) {
   };
 }
 
-/** A new customer and their order, with a personal twist on sweetness and strength. */
-/** `taken`: names already in the café, so two guests never share one. */
-export function newCustomer(menu: MenuItem[], rand = Math.random, taken: string[] = []) {
-  const item = menu[Math.floor(rand() * menu.length)],
+/**
+ * A new customer and their order, with a personal twist on sweetness and strength. `taken`:
+ * names already in the café, so two guests never share one. `who`: the guest, when already
+ * chosen; a regular mostly orders their favourite.
+ */
+export function newCustomer(
+  menu: MenuItem[],
+  rand = Math.random,
+  taken: string[] = [],
+  who?: { name: string; male: boolean },
+) {
+  const regular = who && regularNamed(who.name),
+    favorite = regular && favoriteOn(regular, menu);
+  const item = favorite && rand() < 0.85 ? favorite : menu[Math.floor(rand() * menu.length)],
     d = describeItem(item);
   const pick = <T>(list: T[]) => list[Math.floor(rand() * list.length)];
   const jitter = () => (rand() - 0.5) * 0.35;
@@ -375,10 +388,10 @@ export function newCustomer(menu: MenuItem[], rand = Math.random, taken: string[
     rand() < 0.15 ? item.price : (notes[Math.floor(rand() * notes.length)] ?? item.price);
   const free = NAMES.filter((n) => !taken.includes(n.name)),
     names = free.length ? free : NAMES;
-  const who = names[Math.floor(rand() * names.length)];
+  const guest = who ?? names[Math.floor(rand() * names.length)];
   return {
-    name: who.name,
-    male: who.male,
+    name: guest.name,
+    male: guest.male,
     order: {
       item,
       line,
@@ -387,7 +400,8 @@ export function newCustomer(menu: MenuItem[], rand = Math.random, taken: string[
       takeaway,
       flavor: d.flavor,
       target,
-      paid,
+      paid: regular?.pays === 'vvip' ? item.price : paid,
+      ...(regular?.pays ? { pays: regular.pays } : {}),
     } satisfies Order,
   };
 }

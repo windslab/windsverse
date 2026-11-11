@@ -1,66 +1,21 @@
-// Windstopia points: things done in the game earn one point each into the player's game wallet,
-// up to a daily cap, and the player redeems the wallet onto a member card by its code. A card
-// takes in at most the same daily cap, so points gathered on many devices cannot pile onto one
-// card. Wallets and card totals are written apart from the café's revisioned records, so a
-// player never makes a cashier's screen reload.
+// Windstopia points: three things earn a point into the player's game wallet, each at most once
+// a café day: opening the café, a photo from Luna's camera that went up on Memoirs, and playing
+// through a whole game day. The player redeems the wallet onto a member card by its code. A card takes in at most the
+// same daily cap, so points gathered on many devices cannot pile onto one card. Wallets and card
+// totals are written apart from the café's revisioned records, so a player never makes a
+// cashier's screen reload.
 import { businessDay, type Row, type State } from './model';
 
-export const GAME_DAILY_CAP = 10;
-/** Shortest time between two points for one player; every activity takes longer than this. */
-export const GAME_MIN_GAP_MS = 8000;
-export const GAME_ACTIVITIES = ['serve', 'water', 'wipe', 'sweep', 'photo'] as const;
+export const GAME_ACTIVITIES = ['open', 'photo', 'day'] as const;
 export type GameActivity = (typeof GAME_ACTIVITIES)[number];
-export type Mission = { id: string; activity: GameActivity; count: number; label: string };
+/** One point per activity per day, so the cap is simply their number. */
+export const GAME_DAILY_CAP = GAME_ACTIVITIES.length;
+/** A game day lasts 24 real minutes; the claim needs the game opened at least this long ago. */
+export const GAME_DAY_MS = 23 * 60_000;
 
-const MISSION_POOL: { activity: GameActivity; counts: number[]; label: (n: number) => string }[] = [
-  { activity: 'serve', counts: [2, 3, 4], label: (n) => `Layani ${n} pelanggan` },
-  { activity: 'water', counts: [1, 2, 3], label: (n) => `Siram ${n} tanaman` },
-  { activity: 'wipe', counts: [1, 2, 3], label: (n) => `Lap ${n} meja` },
-  {
-    activity: 'sweep',
-    counts: [1, 2],
-    label: (n) => (n > 1 ? `Sapu lantai ${n} kali` : 'Sapu lantai'),
-  },
-  { activity: 'photo', counts: [1, 2], label: (n) => (n > 1 ? `Ambil ${n} foto` : 'Ambil 1 foto') },
-];
-
-/** A small repeatable number from a string, so every player gets the same missions each day. */
-function seed(text: string) {
-  let h = 2166136261;
-  for (const ch of text) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
-  return () => {
-    h = Math.imul(h ^ (h >>> 15), 2246822507);
-    h = Math.imul(h ^ (h >>> 13), 3266489909);
-    return ((h ^= h >>> 16) >>> 0) / 4294967296;
-  };
-}
-
-/** The day's three missions, each a different activity, the same for everyone. */
-export function dailyMissions(day: string): Mission[] {
-  const random = seed('windstopia-' + day);
-  const pool = [...MISSION_POOL];
-  const picked: Mission[] = [];
-  while (picked.length < 3) {
-    const [m] = pool.splice(Math.floor(random() * pool.length), 1);
-    const count = m.counts[Math.floor(random() * m.counts.length)];
-    picked.push({
-      id: `${m.activity}-${count}`,
-      activity: m.activity,
-      count,
-      label: m.label(count),
-    });
-  }
-  return picked;
-}
-
-/** Whether something sent by the game can earn a point today. */
-export function validActivity(activity: string, day: string) {
-  if ((GAME_ACTIVITIES as readonly string[]).includes(activity)) return true;
-  return (
-    activity.startsWith('mission:') &&
-    dailyMissions(day).some((m) => 'mission:' + m.id === activity)
-  );
-}
+/** Whether something sent by the game can earn a point. */
+export const validActivity = (activity: string): activity is GameActivity =>
+  (GAME_ACTIVITIES as readonly string[]).includes(activity);
 
 /** One record per card per month holds the game points it received, by day. */
 export const gameRecordId = (memberId: string, day: string) => `gp-${memberId}-${day.slice(0, 7)}`;
@@ -93,45 +48,85 @@ type Db = { prepare: (sql: string) => { bind: (...values: unknown[]) => Statemen
 const walletId = (player: string) => 'gw-' + player;
 const WALLET_KIND = 'gameWallet';
 
-/** Points waiting in a player's wallet, and how many they earned today. */
+/** Points waiting in a player's wallet, today's points, and which activities already earned one. */
 export async function gameWallet(db: Db, player: string, now = new Date()) {
   const day = businessDay(now);
   const row = await db
     .prepare(
-      `SELECT json_extract(data,'$.balance') AS balance, json_extract(data,?2) AS today FROM records WHERE id=?1 AND kind='${WALLET_KIND}'`,
+      `SELECT json_extract(data,'$.balance') AS balance, json_extract(data,?2) AS today, json_extract(data,'$.done') AS done FROM records WHERE id=?1 AND kind='${WALLET_KIND}'`,
     )
     .bind(walletId(player), `$.days."${day}"`)
-    .first<{ balance: number; today: number }>();
-  return { balance: Number(row?.balance) || 0, today: Number(row?.today) || 0 };
+    .first<{ balance: number; today: number; done: string | null }>();
+  const done: Record<string, number> = row?.done ? JSON.parse(row.done) : {};
+  return {
+    balance: Number(row?.balance) || 0,
+    today: Number(row?.today) || 0,
+    done: Object.fromEntries(GAME_ACTIVITIES.map((a) => [a, !!done[`${day}|${a}`]])) as Record<
+      GameActivity,
+      boolean
+    >,
+  };
+}
+
+/** Notes when the player first opened the game today, which the game-day point is timed from. */
+export async function markGameOpened(db: Db, player: string, now = new Date()) {
+  const day = businessDay(now),
+    at = now.toISOString();
+  await db
+    .prepare(
+      `INSERT INTO records(id,kind,data) VALUES(?1,'${WALLET_KIND}',?2)
+       ON CONFLICT(id) DO UPDATE SET data=json_set(data,?3,coalesce(json_extract(data,?3),?4))
+       WHERE kind='${WALLET_KIND}'`,
+    )
+    .bind(
+      walletId(player),
+      JSON.stringify({
+        id: walletId(player),
+        balance: 0,
+        days: {},
+        done: {},
+        opened: { [day]: at },
+      }),
+      `$.opened."${day}"`,
+      at,
+    )
+    .run();
 }
 
 /**
- * Adds one point to a player's wallet for an activity, in a single statement that also enforces
- * the daily cap, the gap between points and one point per mission.
+ * Adds one point to a player's wallet for an activity, once per activity per café day, in a
+ * single statement. The game-day point also needs the game opened long enough ago today.
  */
 export async function earnGamePoint(db: Db, player: string, activity: string, now = new Date()) {
   const day = businessDay(now);
-  if (!validActivity(activity, day))
-    return { counted: false, ...(await gameWallet(db, player, now)) };
+  if (!validActivity(activity)) return { counted: false, ...(await gameWallet(db, player, now)) };
   const dayPath = `$.days."${day}"`,
-    mission = activity.startsWith('mission:') ? `$.missions."${day}|${activity.slice(8)}"` : '',
-    at = now.toISOString(),
-    cutoff = new Date(now.getTime() - GAME_MIN_GAP_MS).toISOString();
+    donePath = `$.done."${day}|${activity}"`,
+    openedBy = new Date(now.getTime() - GAME_DAY_MS).toISOString();
   const fresh = JSON.stringify({
     id: walletId(player),
     balance: 1,
     days: { [day]: 1 },
-    missions: mission ? { [`${day}|${activity.slice(8)}`]: 1 } : {},
-    last: at,
+    done: { [`${day}|${activity}`]: 1 },
   });
-  const result = await db
-    .prepare(
-      `INSERT INTO records(id,kind,data) VALUES(?1,'${WALLET_KIND}',?2)
-       ON CONFLICT(id) DO UPDATE SET data=json_set(data,?3,coalesce(json_extract(data,?3),0)+1,'$.balance',coalesce(json_extract(data,'$.balance'),0)+1,'$.last',?4${mission ? ',?6,1' : ''})
-       WHERE kind='${WALLET_KIND}' AND coalesce(json_extract(data,?3),0)<?5 AND coalesce(json_extract(data,'$.last'),'')<?7${mission ? ' AND json_extract(data,?6) IS NULL' : ''}`,
-    )
-    .bind(walletId(player), fresh, dayPath, at, GAME_DAILY_CAP, mission || null, cutoff)
-    .run();
+  const set = `json_set(data,?2,coalesce(json_extract(data,?2),0)+1,'$.balance',coalesce(json_extract(data,'$.balance'),0)+1,?3,1)`;
+  // The game-day point only updates a wallet the game opened (and timed) earlier today.
+  const result =
+    activity === 'day'
+      ? await db
+          .prepare(
+            `UPDATE records SET data=${set} WHERE id=?1 AND kind='${WALLET_KIND}' AND json_extract(data,?3) IS NULL AND json_extract(data,?4)<=?5`,
+          )
+          .bind(walletId(player), dayPath, donePath, `$.opened."${day}"`, openedBy)
+          .run()
+      : await db
+          .prepare(
+            `INSERT INTO records(id,kind,data) VALUES(?1,'${WALLET_KIND}',?4)
+             ON CONFLICT(id) DO UPDATE SET data=${set}
+             WHERE kind='${WALLET_KIND}' AND json_extract(data,?3) IS NULL`,
+          )
+          .bind(walletId(player), dayPath, donePath, fresh)
+          .run();
   return { counted: (result.meta.changes || 0) > 0, ...(await gameWallet(db, player, now)) };
 }
 

@@ -6,7 +6,8 @@ import {publicBooks} from '@/lib/public-books';
 import {businessDay} from '@/lib/model';
 import {publicCard} from '@/lib/member';
 import {weeklyBestSellers} from '@/lib/best-sellers';
-import {earnGamePoint,gamePointsOn,gameWallet,maskName,redeemGamePoints,GAME_DAILY_CAP} from '@/lib/game-points';
+import {normalizeMemberCode} from '@/lib/member-code';
+import {earnGamePoint,gamePointsOn,gameWallet,markGameOpened,maskName,redeemGamePoints,GAME_DAILY_CAP} from '@/lib/game-points';
 export const dynamic='force-dynamic';
 export async function GET(req:Request){try{
  const url=new URL(req.url),loaded=await read(),s=loaded.state;
@@ -64,16 +65,16 @@ export async function POST(req:Request){try{checkMutation(req);const p=await bod
   if((hits?.count||0)>60)throw new Fault('Terlalu banyak permintaan. Tunggu sebentar.',429);
   if(typeof p.player!=='string'||!/^[A-Za-z0-9_-]{16,40}$/.test(p.player))throw new Fault('Data pemain tidak valid.');
   const db=loaded.db as any,headers={'Cache-Control':'no-store'};
+  // The game sends the café-opening and game-day points; the photo point comes with putting a photo on Memoirs.
   if(p.action==='game.point'){
-   if(typeof p.activity!=='string'||p.activity.length>40)throw new Fault('Kegiatan tidak valid.');
+   if(p.activity!=='day'&&p.activity!=='open')throw new Fault('Kegiatan tidak valid.');
    return Response.json({...await earnGamePoint(db,p.player,p.activity),cap:GAME_DAILY_CAP},{headers});
   }
-  if(p.action==='game.wallet')return Response.json({...await gameWallet(db,p.player),cap:GAME_DAILY_CAP},{headers});
+  if(p.action==='game.wallet'){await markGameOpened(db,p.player);return Response.json({...await gameWallet(db,p.player),cap:GAME_DAILY_CAP},{headers})}
   if(p.action==='game.redeem'){
-   const code=typeof p.code==='string'?p.code.trim().toUpperCase().replace(/\s+/g,''):'';
-   if(!/^WSM-?\d{1,6}$/.test(code))throw new Fault('Kode kartu member tidak valid. Contoh: WSM-0001.');
-   const wanted=code.includes('-')?code:'WSM-'+code.slice(3);
-   const member=loaded.state.members.find(m=>String(m.code).toUpperCase()===wanted);
+   const wanted=normalizeMemberCode(p.code);
+   if(!wanted)throw new Fault('Kode kartu member tidak valid. Contoh: WSM-7KQ4.');
+   const member=loaded.state.members.find(m=>m.code===wanted);
    if(!member)throw new Fault('Kartu member dengan kode ini tidak ditemukan.',404);
    if(member.status==='nonaktif')throw new Fault('Kartu member ini tidak aktif.',403);
    const day=businessDay(),room=Math.max(0,GAME_DAILY_CAP-gamePointsOn(loaded.state,member.id,day));

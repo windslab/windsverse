@@ -528,7 +528,7 @@
   opacity: 0.7;
   font-size: 11px;
 }
-.redeem {
+.missions .redeem {
   padding: 7px 12px;
   border-radius: 999px;
   background: #f6c06a;
@@ -536,7 +536,7 @@
   font-weight: 700;
   text-decoration: none !important;
 }
-.redeem:disabled {
+.missions .redeem:disabled {
   opacity: 0.45;
 }
 .redeemForm {
@@ -566,4 +566,67 @@
 .redeemError {
   color: #f4a0a4;
   opacity: 1 !important;
+}
+
+/* A piece of a regular's story, and Luna's guest book. */
+.story {
+  position: absolute;
+  left: 50%;
+  top: 24%;
+  transform: translateX(-50%);
+  width: min(360px, 86vw);
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(18, 14, 10, 0.82);
+  color: #f6efe4;
+  text-align: center;
+  pointer-events: auto;
+  z-index: 5;
+}
+.story small {
+  color: #f6c06a;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.story p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.story button {
+  justify-self: center;
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: #f6c06a;
+  color: #2a1f10;
+  font-weight: 700;
+}
+.missions .friends {
+  max-height: 52vh;
+  overflow: auto;
+}
+.missions .friends li {
+  display: grid;
+  gap: 4px;
+}
+.missions .friends li > button {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  text-align: left;
+}
+.missions .friends li span {
+  color: #f6c06a;
+  letter-spacing: 0.1em;
+}
+.missions .friends li div p {
+  margin: 0 0 4px;
+  font-size: 12px;
+  opacity: 0.9;
+}
+.missions .friends li small {
+  margin: 0;
+  opacity: 0.7;
 }

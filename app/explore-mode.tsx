@@ -11,6 +11,7 @@ import {
   crowdFor,
   windstopiaMenu,
   GAME_MINUTES_PER_SECOND,
+  NAMES,
   newCustomer,
   rupiah,
   type Crowd,
@@ -25,8 +26,10 @@ import VintageCamera from './vintage-camera';
 import { Bag, Notebook, Reader, type BagItem } from './explore-bag';
 import BarStation from './explore-bar';
 import MemberDialog from './member/member-dialog';
-import { useGamePoints } from './use-game-points';
+import { playerId, useGamePoints, type GameWallet } from './use-game-points';
 import { PointsPanel } from './explore-points';
+import { FriendsPanel, StoryCard, useFriends, type NewStory } from './explore-regulars';
+import { pickGuest } from '@/lib/regulars';
 
 export type ExploreApi = {
   setManual: (on: boolean) => void;
@@ -262,24 +265,48 @@ export default function ExploreMode({
     );
   }, [customers, api]);
 
-  // Windstopia points on the player's member card, and the day's missions.
+  // Windstopia points, redeemed onto a member card: opening the café, a photo on Memoirs and a
+  // whole game day.
   const game = useGamePoints(),
     [missionsOpen, setMissionsOpen] = useState(false);
-  const earnRef = useRef(game.earn);
+  // The regulars Luna knows, and a piece of someone's story that just opened.
+  const friends = useFriends(),
+    [friendsOpen, setFriendsOpen] = useState(false),
+    [story, setStory] = useState<NewStory | null>(null);
+  const countedRef = useRef(game.counted);
   useEffect(() => {
-    earnRef.current = game.earn;
+    countedRef.current = game.counted;
   });
-  // Story of Winds from Luna's camera: keep the latest shot (small) for the tower's frame.
+  // Story of Winds from Luna's camera: keep the latest shot (small) for the tower's frame. A photo
+  // the player keeps goes up on Memoirs, which earns the day's photo point.
   const photoLens = useMemo(
     () => ({
       ...api.photo,
       onPhoto: (blob: Blob) => {
         void shrinkPhoto(blob).then((url) => (lastPhoto.current = url));
-        earnRef.current('photo');
       },
+      player: playerId,
+      onShared: (wallet: unknown) =>
+        countedRef.current(wallet as GameWallet & { counted: boolean }, 'foto masuk Memoirs'),
     }),
     [api],
   );
+  // A whole game day (24 real minutes) played since the game opened earns the day's point.
+  const earn = game.earn;
+  useEffect(() => {
+    let played = 0,
+      last = performance.now(),
+      claimed = false;
+    const t = setInterval(() => {
+      const now = performance.now();
+      played += ((now - last) / 1000) * GAME_MINUTES_PER_SECOND;
+      last = now;
+      if (claimed || played < 24 * 60) return;
+      played = 0;
+      void earn('day').then((done) => (claimed = done));
+    }, 5000);
+    return () => clearInterval(t);
+  }, [earn]);
   // The frame keeps the last photo hung in it (on this device).
   useEffect(() => {
     try {
@@ -352,10 +379,12 @@ export default function ExploreMode({
       const crowd = crowdRef.current,
         waiting = customersRef.current.filter((c) => c.stage !== 'served').length;
       if (waiting >= crowd.max || Math.random() > crowd.chance) return;
+      const taken = customersRef.current.filter((c) => c.stage !== 'served').map((c) => c.name);
       const { name, male, order } = newCustomer(
         menu,
         Math.random,
-        customersRef.current.filter((c) => c.stage !== 'served').map((c) => c.name),
+        taken,
+        pickGuest(h, NAMES, taken),
       );
       counter.current += 1;
       setCustomers((list) => [
@@ -387,7 +416,7 @@ export default function ExploreMode({
       setPanel(null);
       setNote('Kafe tutup · sampai jumpa besok');
       setTimeout(() => setNote(''), 2500);
-    }
+    } else void game.earn('open');
     setOpen(!open);
   };
 
@@ -664,13 +693,11 @@ export default function ExploreMode({
           spot.box.getCenter(new THREE.Vector3()),
         );
         reward(verb === 'water' ? 'Tanaman segar' : 'Meja bersih', 3);
-        setTimeout(() => game.earn(verb), 3000);
       }
     }
     if (verb === 'sweep') {
       api.chore('sweeping', 4);
       reward('Lantai disapu', 4);
-      setTimeout(() => game.earn('sweep'), 4000);
     }
     if (verb === 'photo') setPhotoOpen(true);
     if (verb === 'hang' && lastPhoto.current) {
@@ -709,9 +736,13 @@ export default function ExploreMode({
         list.map((x) => (x.key === c.key ? { ...x, stage: 'served', servedAt: Date.now() } : x)),
       );
       setScore((s) => ({ ...s, served: s.served + 1 }));
-      game.earn('serve');
-      setToast({ name: c.name, line: thanks });
-      setTimeout(() => setToast(null), 5500);
+      // A regular may tell Luna the next piece of their story instead of a plain thank-you.
+      const opened = friends.serve(c.name);
+      if (opened) setStory(opened);
+      else {
+        setToast({ name: c.name, line: thanks });
+        setTimeout(() => setToast(null), 5500);
+      }
       setHolding(false);
       setTicket(null);
       setDrink(emptyDrink());
@@ -848,6 +879,9 @@ export default function ExploreMode({
           <button onClick={() => setMissionsOpen((o) => !o)} aria-pressed={missionsOpen}>
             poin ({game.balance})
           </button>
+          <button onClick={() => setFriendsOpen((o) => !o)} aria-pressed={friendsOpen}>
+            teman
+          </button>
           <button onClick={() => setMemberOpen(true)}>kartu</button>
           <button onClick={onToggleSound} aria-pressed={sound}>
             {sound ? 'suara: on' : 'suara: off'}
@@ -889,6 +923,10 @@ export default function ExploreMode({
       {missionsOpen && !panel && !photoOpen && (
         <PointsPanel game={game} onClose={() => setMissionsOpen(false)} />
       )}
+      {friendsOpen && !panel && !photoOpen && (
+        <FriendsPanel served={friends.served} onClose={() => setFriendsOpen(false)} />
+      )}
+      {story && !photoOpen && <StoryCard story={story} onClose={() => setStory(null)} />}
       {toast && (
         <div className={styles.toast} role="status">
           <strong>{toast.name} ♡</strong>
@@ -917,10 +955,19 @@ export default function ExploreMode({
           menu={menu}
           onClose={() => setPanel(null)}
           onDone={(wrongItem, change) => {
-            // Every purchase goes into the till.
-            const price = queueCustomer.order.item.price;
+            // Every purchase goes into the till; VVIP friends drink free, and the owner pays for
+            // everyone in the café.
+            const { pays, item } = queueCustomer.order,
+              guests = customersRef.current.filter((c) => c.stage !== 'served').length,
+              price = pays === 'vvip' ? 0 : pays === 'treat' ? item.price * guests : item.price;
             setScore((s) => ({ ...s, money: s.money + price }));
-            setNote(`+${rupiah(price)}`);
+            setNote(
+              pays === 'vvip'
+                ? 'VVIP · gratis untuk sahabat kafe'
+                : pays === 'treat'
+                  ? `${queueCustomer.name} mentraktir semua · +${rupiah(price)}`
+                  : `+${rupiah(price)}`,
+            );
             setTimeout(() => setNote(''), 2200);
             setCustomers((list) =>
               list.map((c) =>
@@ -1020,7 +1067,14 @@ function CashierPanel({
       <p className={styles.speech}>
         <b>{customer.name}</b> “{customer.order.line}”
       </p>
-      <small className={styles.label}>catat pesanan · {rupiah(customer.order.item.price)}</small>
+      <small className={styles.label}>
+        catat pesanan ·{' '}
+        {customer.order.pays === 'vvip'
+          ? 'gratis, tamu VVIP'
+          : customer.order.pays === 'treat'
+            ? `${rupiah(customer.order.item.price)} · mentraktir satu kafe`
+            : rupiah(customer.order.item.price)}
+      </small>
       <div className={styles.choices}>
         {menu.map((m) => (
           <button

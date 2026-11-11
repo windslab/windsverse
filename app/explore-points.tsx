@@ -3,7 +3,7 @@ import { useState } from 'react';
 import styles from './explore-mode.module.css';
 import type { RedeemCard, useGamePoints } from './use-game-points';
 
-/** The poin panel: the wallet, redeeming it onto a member card by code, and today's missions. */
+/** The poin panel: the wallet, redeeming it onto a member card by code, and today's two tasks. */
 export function PointsPanel({
   game,
   onClose,
@@ -11,7 +11,7 @@ export function PointsPanel({
   game: ReturnType<typeof useGamePoints>;
   onClose: () => void;
 }) {
-  const [step, setStep] = useState<'wallet' | 'code' | 'confirm' | 'done'>('wallet'),
+  const [step, setStep] = useState<'code' | 'confirm' | 'done'>('code'),
     [code, setCode] = useState(() => game.lastCode()),
     [card, setCard] = useState<RedeemCard | null>(null),
     [moved, setMoved] = useState(0),
@@ -45,11 +45,6 @@ export function PointsPanel({
           </small>
         </span>
       </div>
-      {step === 'wallet' && (
-        <button className={styles.redeem} disabled={!game.balance} onClick={() => setStep('code')}>
-          Redeem ke kartu member
-        </button>
-      )}
       {step === 'code' && (
         <form
           className={styles.redeemForm}
@@ -61,20 +56,17 @@ export function PointsPanel({
             });
           }}
         >
-          <label htmlFor="redeem-code">Kode kartu member</label>
+          <label htmlFor="redeem-code">Redeem ke kartu member · masukkan kodenya</label>
           <input
             id="redeem-code"
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
-            placeholder="WSM-0001"
+            placeholder="WSM-XXXX"
             autoComplete="off"
-            maxLength={12}
+            maxLength={10}
           />
           <div>
-            <button type="button" onClick={() => setStep('wallet')}>
-              batal
-            </button>
-            <button className={styles.redeem} disabled={busy || !code.trim()}>
+            <button className={styles.redeem} disabled={busy || !code.trim() || !game.balance}>
               {busy ? 'Mencari…' : 'Cek kartu'}
             </button>
           </div>
@@ -121,7 +113,7 @@ export function PointsPanel({
               ? `✓ ${moved} poin masuk ke kartu ${card.code}.`
               : 'Belum ada poin yang dipindahkan. Coba lagi nanti.'}
           </p>
-          <button className={styles.redeem} onClick={() => setStep('wallet')}>
+          <button className={styles.redeem} onClick={() => setStep('code')}>
             selesai
           </button>
         </div>
@@ -131,21 +123,24 @@ export function PointsPanel({
           {error}
         </p>
       )}
-      <strong className={styles.missionsTitle}>Misi hari ini</strong>
+      <strong className={styles.missionsTitle}>Poin hari ini</strong>
       <ul>
-        {game.missions.map((m) => (
-          <li key={m.id} className={m.done ? styles.missionDone : ''}>
-            <span>{m.done ? '✓' : '○'}</span>
-            {m.label}
-            <small>
-              {m.progress}/{m.count}
-            </small>
+        {[
+          { done: game.done.open, label: 'Buka kafe' },
+          { done: game.done.photo, label: 'Foto Luna masuk Memoirs' },
+          { done: game.done.day, label: 'Main sampai hari di Windstopia berganti' },
+        ].map((t) => (
+          <li key={t.label} className={t.done ? styles.missionDone : ''}>
+            <span>{t.done ? '✓' : '○'}</span>
+            {t.label}
+            <small>{t.done ? 1 : 0}/1</small>
           </li>
         ))}
       </ul>
       <p>
-        Setiap kegiatan dan misi = 1 poin, maks. {game.cap} per hari. Satu kartu member bisa
-        menerima {game.cap} poin game per hari.
+        Masing-masing 1 poin per hari, jadi maks. {game.cap} poin sehari. Foto masuk Memoirs saat
+        kamu menekan OK pada foto di kamera. Kartu tidak perlu tersimpan di perangkat ini: cukup
+        kodenya.
       </p>
     </aside>
   );

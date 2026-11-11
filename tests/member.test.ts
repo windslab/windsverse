@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { apply } from '../lib/engine';
 import { initial, type Actor, type Row } from '../lib/model';
 import { memberCard, memberRules } from '../lib/member';
+import { isMemberCode, normalizeMemberCode } from '../lib/member-code';
 
 const owner: Actor = {
   id: 'owner-identity',
@@ -80,7 +81,7 @@ test('members: phone numbers are normalised and unique', () => {
   const { s } = fixture();
   const m = join(s, '+62 812-3456-7890');
   assert.equal(s.members[0].phone, '081234567890');
-  assert.equal(s.members[0].code, 'WSM-0001');
+  assert.ok(isMemberCode(s.members[0].code));
   assert.ok(m.id);
   assert.throws(() => join(s, '0812 3456 7890'), /sudah terdaftar/);
 });
@@ -154,7 +155,9 @@ test('members: stamp 5 takes money off, stamp 10 pays a drink up to the limit', 
   assert.equal(voucher.type, 'potongan');
   // Rp5.000 off a paid order that still earns its stamp, with points after the discount.
   const before = card.points;
-  const paid = f.sell([[f.coffee, 1]], m.id, { memberFree: { voucherId: voucher.id } });
+  const paid = f.sell([[f.coffee, 1]], m.id, {
+    memberFree: { voucherId: voucher.id, code: f.s.members[0].code },
+  });
   assert.equal(paid.discount, 5000);
   assert.equal(paid.total, 13000);
   card = memberCard(f.s, f.s.members[0]);
@@ -162,7 +165,10 @@ test('members: stamp 5 takes money off, stamp 10 pays a drink up to the limit', 
   assert.equal(card.points, before + Math.floor((18 * 13000) / 18000));
   assert.equal(card.vouchers[0].status, 'terpakai');
   assert.throws(
-    () => f.sell([[f.coffee, 1]], m.id, { memberFree: { voucherId: voucher.id } }),
+    () =>
+      f.sell([[f.coffee, 1]], m.id, {
+        memberFree: { voucherId: voucher.id, code: f.s.members[0].code },
+      }),
     /sudah dipakai/,
   );
   for (let i = 0; i < 4; i++) f.sell([[f.coffee, 1]], m.id);
@@ -175,7 +181,7 @@ test('members: stamp 5 takes money off, stamp 10 pays a drink up to the limit', 
   assert.throws(
     () =>
       f.sell([[f.bread, 1]], m.id, {
-        memberFree: { voucherId: drink.id, productId: f.bread.id },
+        memberFree: { voucherId: drink.id, productId: f.bread.id, code: f.s.members[0].code },
       }),
     /menu minuman/,
   );
@@ -192,7 +198,7 @@ test('members: stamp 5 takes money off, stamp 10 pays a drink up to the limit', 
   ) as Row;
   const stampsBefore = card.stampCount;
   const free = f.sell([[pricey, 1]], m.id, {
-    memberFree: { voucherId: drink.id, productId: pricey.id },
+    memberFree: { voucherId: drink.id, productId: pricey.id, code: f.s.members[0].code },
   });
   assert.equal(free.discount, 20000);
   assert.equal(free.total, 3000);
@@ -332,6 +338,17 @@ test('members: a gift claimed on the card waits for staff, and can be cancelled'
   const again = apply(f.s, guest, 'member.request', { token, rewardId: reward.id }, morning) as {
     id: string;
   };
+  // A cashier needs the whole card code; the admin hands over from the member list.
+  const cashier: Actor = {
+    ...owner,
+    id: 'cashier-identity',
+    employeeId: 'cashier',
+    role: 'karyawan',
+  };
+  assert.throws(
+    () => apply(f.s, cashier, 'member.handover', { id: again.id, code: '081234567890' }, morning),
+    /kode kartu member lengkap/,
+  );
   apply(f.s, owner, 'member.handover', { id: again.id }, morning);
   assert.equal(memberCard(f.s, f.s.members[0], morning).rewards[0].claimStatus, 'diserahkan');
   assert.throws(
@@ -408,4 +425,51 @@ test('members: saving the rules drops categories the café no longer has', () =>
   );
   assert.deepEqual(f.s.settings[0].member.drinkCategories, [ice.id]);
   assert.deepEqual(memberRules(f.s).coffeeCategories, [ice.id]);
+});
+
+test('members: card codes are random, unique, and typed or scanned in any form', () => {
+  const { s } = fixture();
+  for (let i = 0; i < 40; i++) join(s, '0812' + String(10000000 + i));
+  const codes = s.members.map((m) => m.code);
+  assert.equal(new Set(codes).size, codes.length);
+  assert.ok(codes.every(isMemberCode));
+  assert.ok(codes.every((c) => !/[01IO]/.test(c.slice(4))));
+  const code = codes[0];
+  assert.equal(normalizeMemberCode(code.toLowerCase().replaceAll('-', ' ')), code);
+  assert.equal(normalizeMemberCode(code.slice(4)), code);
+  assert.equal(normalizeMemberCode('WSM-0001'), '');
+  assert.equal(normalizeMemberCode('WSM-2345'), '');
+  assert.ok(codes.every((c) => /^WSM-[A-Z2-9]{4}$/.test(c) && /[A-Z]/.test(c.slice(4))));
+});
+
+test('members: cards from before random codes get one, keeping their link', () => {
+  const { s } = fixture();
+  join(s);
+  join(s, '0812 9999 0000');
+  s.members[0].code = 'WSM-2345';
+  const token = s.members[0].token;
+  const system: Actor = { ...owner, role: 'system' };
+  assert.throws(() => apply(s, owner, 'member.recode', {}, morning), /sistem/);
+  const kept = s.members[1].code;
+  apply(s, system, 'member.recode', {}, morning);
+  assert.ok(isMemberCode(s.members[0].code));
+  assert.equal(s.members[0].token, token);
+  assert.equal(s.members[1].code, kept);
+});
+
+test('members: a gift at the till needs the whole card code', () => {
+  const f = fixture();
+  const m = join(f.s);
+  for (let i = 0; i < 5; i++) f.sell([[f.coffee, 1]], m.id);
+  const voucher = memberCard(f.s, f.s.members[0]).vouchers[0];
+  for (const code of [undefined, '', '0812 3456 7890', 'WSM-0001'])
+    assert.throws(
+      () => f.sell([[f.coffee, 1]], m.id, { memberFree: { voucherId: voucher.id, code } }),
+      /kode kartu member lengkap/,
+    );
+  const code = f.s.members[0].code.toLowerCase();
+  assert.equal(
+    f.sell([[f.coffee, 1]], m.id, { memberFree: { voucherId: voucher.id, code } }).discount,
+    5000,
+  );
 });

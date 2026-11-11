@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { lunaCafeRig } from './cafe-rig';
+import { regularNamed } from '@/lib/regulars';
 
 const MALE_HAIR = ['crop', 'spiky', 'sidepart', 'buzz', 'cap', 'curly'] as const;
 const FEMALE_HAIR = ['long', 'ponytail', 'bun', 'bob', 'hijab', 'pigtails'] as const;
@@ -32,7 +33,7 @@ export type GuestLook = {
     blush: boolean;
     freckles: boolean;
     glasses: boolean;
-    beard: 'none' | 'mustache' | 'goatee' | 'stubble';
+    beard: 'none' | 'mustache' | 'goatee' | 'stubble' | 'full';
   };
 };
 
@@ -72,8 +73,27 @@ function seeded(seed: string) {
   };
 }
 
-/** Stable look for a guest (by name when known); `male` from the guest's name when known. */
+/**
+ * Stable look for a guest (by name when known); `male` from the guest's name when known. The
+ * café's regulars look the way their friends describe them.
+ */
 export function lookFor(seed: string, male?: boolean): GuestLook {
+  const look = randomLook(seed, male),
+    regular = regularNamed(seed);
+  if (!regular) return look;
+  const { glasses, beard, ...body } = regular.look;
+  return {
+    ...look,
+    ...body,
+    male: regular.male,
+    face: {
+      ...look.face,
+      ...(glasses !== undefined ? { glasses } : {}),
+      beard: beard ?? (regular.male ? look.face.beard : 'none'),
+    },
+  };
+}
+function randomLook(seed: string, male?: boolean): GuestLook {
   const r = seeded(seed);
   const pick = <T>(list: readonly T[]) => list[Math.floor(r() * list.length)];
   const man = male ?? r() < 0.5;
@@ -384,6 +404,15 @@ function drawFace(ctx: CanvasRenderingContext2D, look: GuestLook) {
   }
   if (f.beard === 'mustache') px(13, 23, hair, 6, 1);
   if (f.beard === 'goatee') px(15, 27, hair, 2, 2);
+  if (f.beard === 'full') {
+    // Moustache joined to a beard along the jaw and chin.
+    px(12, 23, hair, 8, 1);
+    px(8, 20, hair, 2, 9);
+    px(22, 20, hair, 2, 9);
+    px(10, 27, hair, 12, 3);
+    px(9, 26, hair, 3, 2);
+    px(20, 26, hair, 3, 2);
+  }
   if (f.beard === 'stubble')
     for (let y = 26; y < 31; y += 2) for (let x = 9 + (y % 4); x < 23; x += 3) px(x, y, dark);
   px(0, 31, dark, 32, 1); // jaw shade

@@ -3,13 +3,12 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import {
   GAME_DAILY_CAP,
-  dailyMissions,
   earnGamePoint,
   gamePointsOn,
   gameWallet,
+  markGameOpened,
   maskName,
   redeemGamePoints,
-  validActivity,
 } from '../lib/game-points';
 import { memberCard, publicCard } from '../lib/member';
 import { blank } from '../lib/model';
@@ -37,75 +36,77 @@ function memoryDb() {
   };
   return { db, state };
 }
-// 9 Nov 2026, 10:00 WITA, and a clock that moves on 10 seconds per call.
-const clock = (start = Date.parse('2026-11-09T10:00:00+08:00')) => {
-  let t = start;
-  return () => new Date((t += 10_000));
-};
+const at = (time: string, day = '2026-11-09') => new Date(`${day}T${time}:00+08:00`);
 
-test('each activity earns one wallet point, up to the daily cap', async () => {
-  const { db } = memoryDb(),
-    tick = clock();
-  for (let i = 0; i < GAME_DAILY_CAP; i++) {
-    const r = await earnGamePoint(db, 'player-a', 'serve', tick());
-    assert.deepEqual([r.counted, r.today, r.balance], [true, i + 1, i + 1]);
-  }
-  const over = await earnGamePoint(db, 'player-a', 'water', tick());
-  assert.deepEqual([over.counted, over.balance], [false, GAME_DAILY_CAP]);
-  // Another player is counted on their own.
-  assert.equal((await earnGamePoint(db, 'player-b', 'sweep', tick())).balance, 1);
+/** A device that opened the café, put a photo on Memoirs and played a whole game day. */
+async function fullDay(db: Parameters<typeof earnGamePoint>[0], player: string, day: string) {
+  await markGameOpened(db, player, at('10:00', day));
+  await earnGamePoint(db, player, 'open', at('10:01', day));
+  await earnGamePoint(db, player, 'photo', at('10:05', day));
+  await earnGamePoint(db, player, 'day', at('10:30', day));
+}
+
+test('opening the café, a Memoirs photo and a whole game day earn one point each, once a day', async () => {
+  const { db } = memoryDb();
+  await markGameOpened(db, 'player-a', at('10:00'));
+  assert.equal((await earnGamePoint(db, 'player-a', 'photo', at('10:01'))).counted, true);
+  // Fifteen more photos the same day still make one point.
+  for (let i = 0; i < 15; i++)
+    assert.equal((await earnGamePoint(db, 'player-a', 'photo', at('10:02'))).counted, false);
+  assert.equal((await earnGamePoint(db, 'player-a', 'open', at('10:03'))).counted, true);
+  assert.equal((await earnGamePoint(db, 'player-a', 'open', at('10:04'))).counted, false);
+  const day = await earnGamePoint(db, 'player-a', 'day', at('10:25'));
+  assert.equal(day.counted, true);
+  assert.deepEqual(day.done, { open: true, photo: true, day: true });
+  assert.equal(day.today, GAME_DAILY_CAP);
+  assert.equal((await earnGamePoint(db, 'player-a', 'day', at('11:00'))).counted, false);
+  assert.equal((await earnGamePoint(db, 'player-a', 'serve', at('11:00'))).counted, false);
+  // A new café day, new points.
+  assert.equal(
+    (await earnGamePoint(db, 'player-a', 'photo', at('10:00', '2026-11-10'))).counted,
+    true,
+  );
+  assert.equal((await gameWallet(db, 'player-a', at('10:01', '2026-11-10'))).balance, 4);
 });
 
-test('points too close together, unknown activities and repeated missions do not count', async () => {
-  const { db } = memoryDb(),
-    at = new Date('2026-11-09T10:00:00+08:00');
-  const later = (ms: number) => new Date(at.getTime() + ms);
-  assert.equal((await earnGamePoint(db, 'p', 'photo', at)).counted, true);
-  assert.equal((await earnGamePoint(db, 'p', 'photo', later(2000))).counted, false);
-  assert.equal((await earnGamePoint(db, 'p', 'cheat', later(20_000))).counted, false);
-  const mission = 'mission:' + dailyMissions('2026-11-09')[0].id;
-  assert.equal((await earnGamePoint(db, 'p', mission, later(30_000))).counted, true);
-  assert.equal((await earnGamePoint(db, 'p', mission, later(60_000))).counted, false);
+test('the game-day point needs the game opened a game day earlier', async () => {
+  const { db } = memoryDb();
+  // Never opened today: nothing to time it from.
+  assert.equal((await earnGamePoint(db, 'player-a', 'day', at('10:00'))).counted, false);
+  await markGameOpened(db, 'player-a', at('10:00'));
+  assert.equal((await earnGamePoint(db, 'player-a', 'day', at('10:10'))).counted, false);
+  // Opening again later does not move the start.
+  await markGameOpened(db, 'player-a', at('10:20'));
+  assert.equal((await earnGamePoint(db, 'player-a', 'day', at('10:24'))).counted, true);
 });
 
 test('redeeming moves the wallet onto a card, at most the daily cap per card', async () => {
-  const { db, state } = memoryDb(),
-    tick = clock();
-  // Two devices with 10 and 4 points both redeem onto card m1 on the same day.
-  for (let i = 0; i < 10; i++) await earnGamePoint(db, 'phone-1', 'serve', tick());
-  for (let i = 0; i < 4; i++) await earnGamePoint(db, 'phone-2', 'wipe', tick());
-  const now = new Date('2026-11-09T18:00:00+08:00');
+  const { db, state } = memoryDb();
+  // Two devices, each with two days of points, redeem onto card m1 on the same day.
+  for (const player of ['phone-1', 'phone-2'])
+    for (const day of ['2026-11-08', '2026-11-09']) await fullDay(db, player, day);
+  const now = at('18:00');
   const first = await redeemGamePoints(db, state(), 'phone-2', 'm1', now);
-  assert.deepEqual([first.moved, first.balance, first.room], [4, 0, 6]);
+  assert.deepEqual([first.moved, first.balance, first.room], [3, 3, 0]);
   const second = await redeemGamePoints(db, state(), 'phone-1', 'm1', now);
-  assert.deepEqual([second.moved, second.balance, second.room], [6, 4, 0]);
+  assert.deepEqual([second.moved, second.balance, second.room], [0, 6, 0]);
   assert.equal(gamePointsOn(state(), 'm1', '2026-11-09'), GAME_DAILY_CAP);
-  // The card is full for today, so the rest waits in the wallet.
-  assert.equal((await redeemGamePoints(db, state(), 'phone-1', 'm1', now)).moved, 0);
-  assert.equal((await gameWallet(db, 'phone-1', now)).balance, 4);
-  // The next day the card takes them in.
-  const tomorrow = new Date('2026-11-10T18:00:00+08:00');
-  assert.equal((await redeemGamePoints(db, state(), 'phone-1', 'm1', tomorrow)).moved, 4);
+  // The next day the card takes in more.
+  assert.equal(
+    (await redeemGamePoints(db, state(), 'phone-1', 'm1', at('18:00', '2026-11-10'))).moved,
+    3,
+  );
 });
 
 test('a masked name is enough to recognise a card', () => {
   assert.equal(maskName('Rina Sari Dewi'), 'R*** S.');
   assert.equal(maskName('Budi'), 'B***');
 });
-test('missions are three different activities, the same for everyone on a day', () => {
-  const day = dailyMissions('2026-11-09');
-  assert.equal(day.length, 3);
-  assert.equal(new Set(day.map((m) => m.activity)).size, 3);
-  assert.deepEqual(dailyMissions('2026-11-09'), day);
-  assert.ok(validActivity('mission:' + day[1].id, '2026-11-09'));
-  assert.ok(!validActivity('mission:serve-99', '2026-11-09'));
-});
 
 test('redeemed points join the member card balance and show today’s progress', async () => {
-  const { db, state } = memoryDb(),
-    tick = clock();
-  for (let i = 0; i < 3; i++) await earnGamePoint(db, 'phone', 'wipe', tick());
-  await redeemGamePoints(db, state(), 'phone', 'm1', new Date('2026-11-09T11:00:00+08:00'));
+  const { db, state } = memoryDb();
+  await fullDay(db, 'phone', '2026-11-09');
+  await redeemGamePoints(db, state(), 'phone', 'm1', at('11:00'));
   const s = state();
   const member = {
     id: 'm1',
@@ -116,7 +117,7 @@ test('redeemed points join the member card balance and show today’s progress',
     createdAt: '',
   };
   s.members.push(member);
-  const now = new Date('2026-11-09T12:00:00+08:00');
+  const now = at('12:00');
   assert.equal(memberCard(s, member, now).points, 3);
   assert.deepEqual(publicCard(s, member, now).game, { today: 3, cap: GAME_DAILY_CAP });
 });

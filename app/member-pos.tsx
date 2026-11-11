@@ -1,6 +1,7 @@
 'use client';
 // The member box in the till (Kasir POS): find a member by phone, code or name, sign up a new one,
-// see their card at a glance, use a free drink, and see what this order will earn.
+// see their card at a glance, use a free drink, and see what this order will earn. Gifts need the
+// card's whole code (typed or scanned from the member's own card), not just a name or number.
 import { useMemo, useState } from 'react';
 import { CupSoda, Gift, Ticket, UserPlus, X } from 'lucide-react';
 import { businessDay, money, type Row, type State } from '@/lib/model';
@@ -15,8 +16,9 @@ import {
   voucherValue,
   STAMPS_PER_CARD,
 } from '@/lib/member';
+import { normalizeMemberCode } from '@/lib/member-code';
 
-export type MemberFree = { voucherId: string; productId: string } | null;
+export type MemberFree = { voucherId: string; productId: string; code: string } | null;
 
 export default function MemberPos({
   s,
@@ -41,7 +43,10 @@ export default function MemberPos({
 }) {
   const [query, setQuery] = useState(''),
     [signup, setSignup] = useState(false),
-    [form, setForm] = useState({ name: '', phone: '', birthday: '' });
+    [form, setForm] = useState({ name: '', phone: '', birthday: '' }),
+    // The member whose whole card code was entered, and what is being typed to check it.
+    [verified, setVerified] = useState(''),
+    [codeInput, setCodeInput] = useState('');
   const rules = memberRules(s);
   const member = s.members.find((m) => m.id === memberId);
   const card = useMemo(() => (member ? memberCard(s, member) : null), [s, member]);
@@ -91,9 +96,18 @@ export default function MemberPos({
           Member (opsional)
           <input
             value={query}
-            placeholder="Nomor HP, kode WSM-…, atau nama"
+            placeholder="Scan QR, kode WSM-…, nomor HP, atau nama"
             autoComplete="off"
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              // A scanned QR (or the whole code typed) picks the card straight away.
+              const exact = s.members.find((m) => m.code === normalizeMemberCode(e.target.value));
+              if (exact) {
+                onMember(exact.id, exact.name);
+                setVerified(exact.id);
+                setCodeInput('');
+                setQuery('');
+              } else setQuery(e.target.value);
+            }}
           />
         </label>
         {matches.length > 0 && (
@@ -104,6 +118,8 @@ export default function MemberPos({
                   type="button"
                   onClick={() => {
                     onMember(m.id, m.name);
+                    setVerified(normalizeMemberCode(query) === m.code ? m.id : '');
+                    setCodeInput('');
                     setQuery('');
                   }}
                 >
@@ -158,6 +174,7 @@ export default function MemberPos({
                     | false;
                   if (result && result.id) {
                     onMember(result.id, form.name);
+                    setVerified(result.id);
                     setForm({ name: '', phone: '', birthday: '' });
                     setSignup(false);
                   }
@@ -175,6 +192,8 @@ export default function MemberPos({
     );
 
   const vouchers = card!.vouchers.filter((v) => v.status === 'tersedia');
+  const pendingClaims = card!.claims.filter((c) => claimStatus(c) === 'menunggu');
+  const codeOk = verified === member.id;
   const stamps = card!.current.stamps.length;
   const link = typeof location !== 'undefined' ? `${location.origin}/member/${member.token}` : '';
   const whatsapp =
@@ -218,6 +237,23 @@ export default function MemberPos({
             <span>{card!.points.toLocaleString('id-ID')} poin</span>
             <span>{card!.fullCards} kartu penuh</span>
           </div>
+          {!codeOk && (vouchers.length > 0 || pendingClaims.length > 0) && (
+            <label className="member-code-check">
+              Untuk memakai hadiah, scan QR atau ketik kode kartu lengkap dari HP member
+              <input
+                value={codeInput}
+                placeholder="WSM-XXXX"
+                autoComplete="off"
+                onChange={(e) => {
+                  setCodeInput(e.target.value);
+                  if (normalizeMemberCode(e.target.value) === member.code) setVerified(member.id);
+                }}
+              />
+              {normalizeMemberCode(codeInput) && normalizeMemberCode(codeInput) !== member.code && (
+                <small className="warning">Kode tidak cocok dengan kartu ini.</small>
+              )}
+            </label>
+          )}
           {vouchers.map((v) => {
             const fitting = cart.filter((i) =>
               voucherFits(
@@ -226,7 +262,7 @@ export default function MemberPos({
               ),
             );
             const using = memberFree?.voucherId === v.id;
-            const unavailable = member.status !== 'aktif' || (!!memberFree && !using);
+            const unavailable = member.status !== 'aktif' || !codeOk || (!!memberFree && !using);
             return (
               <div key={v.id} className="member-voucher" data-using={using || undefined}>
                 {v.type === 'potongan' ? <Ticket size={15} /> : <CupSoda size={15} />}
@@ -244,7 +280,7 @@ export default function MemberPos({
                     type="button"
                     className="button"
                     disabled={unavailable || !cart.length}
-                    onClick={() => onFree({ voucherId: v.id, productId: '' })}
+                    onClick={() => onFree({ voucherId: v.id, productId: '', code: member.code })}
                   >
                     pakai
                   </button>
@@ -254,7 +290,8 @@ export default function MemberPos({
                     value=""
                     disabled={unavailable}
                     onChange={(e) =>
-                      e.target.value && onFree({ voucherId: v.id, productId: e.target.value })
+                      e.target.value &&
+                      onFree({ voucherId: v.id, productId: e.target.value, code: member.code })
                     }
                   >
                     <option value="">pakai untuk…</option>
@@ -274,22 +311,22 @@ export default function MemberPos({
               </div>
             );
           })}
-          {card!.claims
-            .filter((c) => claimStatus(c) === 'menunggu')
-            .map((c) => (
-              <div key={c.id} className="member-voucher" data-gift>
-                <Gift size={15} />
-                <span>{c.name}: diklaim lewat kartu</span>
-                <button
-                  type="button"
-                  className="button primary"
-                  disabled={busy}
-                  onClick={() => act('member.handover', { id: c.id }, `${c.name} diserahkan`)}
-                >
-                  Serahkan
-                </button>
-              </div>
-            ))}
+          {pendingClaims.map((c) => (
+            <div key={c.id} className="member-voucher" data-gift>
+              <Gift size={15} />
+              <span>{c.name}: diklaim lewat kartu</span>
+              <button
+                type="button"
+                className="button primary"
+                disabled={busy || !codeOk}
+                onClick={() =>
+                  act('member.handover', { id: c.id, code: member.code }, `${c.name} diserahkan`)
+                }
+              >
+                Serahkan
+              </button>
+            </div>
+          ))}
           {preview && (
             <small className={preview.qualifies ? 'member-earn' : 'muted'}>
               {preview.qualifies
