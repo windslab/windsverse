@@ -247,16 +247,23 @@ export function createWeather(groundY: number) {
       uniform float opacity;
       varying float band;
       varying float rise;
+      vec3 spectrum(float t) {
+        // Violet inside to red outside, each colour blending softly into the next.
+        vec3 c = mix(vec3(0.52, 0.32, 0.86), vec3(0.28, 0.5, 1.0), smoothstep(0.0, 0.2, t));
+        c = mix(c, vec3(0.32, 0.82, 0.42), smoothstep(0.18, 0.4, t));
+        c = mix(c, vec3(1.0, 0.9, 0.32), smoothstep(0.38, 0.58, t));
+        c = mix(c, vec3(1.0, 0.56, 0.2), smoothstep(0.56, 0.74, t));
+        return mix(c, vec3(1.0, 0.18, 0.16), smoothstep(0.72, 0.9, t));
+      }
       void main() {
-        // Violet inside to red outside, pastel, with a wide soft glow on both edges.
         float t = clamp(band, 0.0, 1.0);
-        vec3 c = clamp(abs(mod(vec3(0.0, 4.0, 2.0) + (1.0 - t) * 4.6, 6.0) - 3.0) - 1.0, 0.0, 1.0);
-        c = mix(vec3(1.0), c, 0.72);
-        float edge = smoothstep(0.0, 0.32, band) * (1.0 - smoothstep(0.68, 1.0, band));
-        // Both ends melt away into the air long before they reach the ground.
-        float ends = smoothstep(4.0, 55.0, rise);
-        float a = pow(edge, 1.4) * opacity * ends;
-        gl_FragColor = vec4(c, a * 0.62);
+        vec3 c = spectrum(t);
+        // A soft band with no hard rims (the red edge kept a little stronger).
+        float edge = exp(-pow((t - 0.52) / 0.42, 4.0)) * (1.0 + 0.35 * smoothstep(0.7, 0.9, t));
+        // Both ends fade away into the air, well before they reach the ground.
+        float ends = smoothstep(0.03, 0.48, rise / ${(RAINBOW * Math.tan((44.2 * Math.PI) / 180)).toFixed(2)});
+        float a = edge * opacity * ends;
+        gl_FragColor = vec4(c, a * 0.58);
       }`,
   });
   const rainbow = new THREE.Mesh(

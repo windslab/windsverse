@@ -63,10 +63,28 @@ export type ExploreApi = {
   trayCups: (count: number) => void;
   /** Friends out with Luna, placed and posed by the game ([] = none). */
   companions: (
-    list: { name: string; male: boolean; position: THREE.Vector3; heading: number; sit: boolean }[],
+    list: {
+      name: string;
+      male: boolean;
+      position: THREE.Vector3;
+      heading: number;
+      sit: boolean;
+      /** Walk along behind Luna. */
+      follow?: boolean;
+    }[],
   ) => void;
   /** Put Luna somewhere at once. */
   teleport: (point: THREE.Vector3) => void;
+  /** The camp on the mountain: the fire (rain puts it out), the tents, and where friends meet. */
+  camp: {
+    fire: THREE.Vector3;
+    lit: () => boolean;
+    light: () => void;
+    tents: (progress: number) => void;
+    meetingPoint: THREE.Vector3;
+  } | null;
+  /** How hard it is raining (0–1). */
+  rain: () => number;
   /** A free seat within reach, then sit / stand. */
   seatNear: () => { id: string; position: THREE.Vector3 } | null;
   sit: (id: string) => boolean;
@@ -316,100 +334,183 @@ export default function ExploreMode({
   useEffect(() => {
     towerNoteRef.current = `Terkunci · dengarkan semua cerita teman-teman dulu (${knownFriends}/${REGULARS.length} ♥ penuh)`;
   }, [knownFriends]);
-  // Outings: at the right game hour a friend Luna knows may invite her along (once a game day
-  // each). Joining takes her there, sitting among the friends while they chat; standing up, or
-  // the outing running its course, ends it, and each friend there counts it as time together.
+  // Outings: at the right game hour one of the crew Luna knows may invite her (once a game day
+  // each). The friends gather in front of the café, walk with her (the sea by the footbridge,
+  // the mountain by the trail), and once there sit together and chat; at the camp they pitch the
+  // tents first. Walking away, or the evening running its course, ends it, and each friend
+  // there counts it as time together.
+  type OutingPhase = 'gather' | 'walk' | 'there';
   const [invite, setInvite] = useState<{ outing: Outing; friends: string[] } | null>(null),
-    [outing, setOuting] = useState<{ outing: Outing; friends: string[]; since: number } | null>(
-      null,
-    );
-  const outingDay = useRef({ day: 0, last: -1, asked: new Set<string>() });
+    [outing, setOuting] = useState<{
+      outing: Outing;
+      friends: string[];
+      phase: OutingPhase;
+      since: number;
+    } | null>(null);
+  const outingDay = useRef({ last: -1, asked: new Set<string>() });
   useEffect(() => {
     const d = outingDay.current;
-    if (minutes < d.last) {
-      d.day++;
-      d.asked.clear();
-    }
+    if (minutes < d.last) d.asked.clear();
     d.last = minutes;
-    if (invite || outing || panel || photoOpen) return;
+    if (invite || outing || panel || photoOpen || !api.camp) return;
     const known = REGULARS.filter((r) => (friends.served[r.name] || 0) > 0).map((r) => r.name);
-    const due = OUTINGS.find(
-      (o) => Math.floor(minutes / 60) === o.hour && !d.asked.has(o.id) && known.length,
-    );
+    const due = OUTINGS.find((o) => Math.floor(minutes / 60) === o.hour && !d.asked.has(o.id));
     if (!due) return;
+    const who = outingFriends(due, known);
+    if (!who.length) return;
     d.asked.add(due.id);
     if (Math.random() < 0.3) return;
-    setInvite({ outing: due, friends: outingFriends(due, known) });
-  }, [minutes, invite, outing, panel, photoOpen, friends.served]);
+    setInvite({ outing: due, friends: who });
+  }, [minutes, invite, outing, panel, photoOpen, friends.served, api]);
   const joinOuting = () => {
-    if (!invite) return;
+    if (!invite || !api.camp) return;
     const { outing: o, friends: who } = invite;
     setInvite(null);
-    const spot = api.restSpots.find((r) => r.name === o.place);
-    if (!spot) return;
-    api.teleport(spot.position);
-    api.settle(o.place);
-    // Friends side by side with Luna (facing the same way), or round the campfire.
-    const right = new THREE.Vector3(Math.cos(spot.heading), 0, -Math.sin(spot.heading));
-    const logs = api.restSpots.filter((r) => r.name.startsWith('campLog') && r.name !== o.place);
+    // Waiting together in front of the café, facing it.
+    const meet = api.camp.meetingPoint,
+      face = Math.atan2(api.luna().x - meet.x, api.luna().z - meet.z);
     api.companions(
-      who.map((name, i) => {
-        const log = o.id === 'camp' ? logs[i] : undefined;
-        const offset = (i % 2 ? -1 : 1) * (0.85 + Math.floor(i / 2) * 0.8);
-        return {
-          name,
-          male: regularNamed(name)?.male ?? true,
-          position: log
-            ? log.position.clone()
-            : o.id === 'camp'
-              ? spot.position
-                  .clone()
-                  .addScaledVector(right, offset * 1.6)
-                  .setY(spot.position.y - 0.36)
-              : spot.position.clone().addScaledVector(right, offset),
-          heading: log ? log.heading : spot.heading,
-          sit: o.id !== 'camp' || !!log,
-        };
-      }),
+      who.map((name, i) => ({
+        name,
+        male: regularNamed(name)?.male ?? true,
+        position: meet
+          .clone()
+          .add(
+            new THREE.Vector3(
+              Math.cos(face) * (i - (who.length - 1) / 2) * 0.9,
+              0,
+              -Math.sin(face) * (i - (who.length - 1) / 2) * 0.9,
+            ),
+          ),
+        heading: face,
+        sit: false,
+      })),
     );
-    setPlace({
-      name: o.id === 'camp' ? 'Berkemah bersama' : 'Sunset bersama',
-      note: who.join(', '),
-      first: true,
-    });
-    setTimeout(() => setPlace(null), 4200);
-    setOuting({ outing: o, friends: who, since: Date.now() });
+    setNote(`${who.join(', ')} menunggu di depan kafe, dekat zebra cross.`);
+    setTimeout(() => setNote(''), 4500);
+    setOuting({ outing: o, friends: who, phase: 'gather', since: Date.now() });
   };
-  // While out together: a friend says something now and then; it ends when Luna gets up.
+  // What the hint line says during an outing (empty otherwise).
+  const outingHint = useRef('');
+  useEffect(() => {
+    if (!outing) outingHint.current = '';
+    else if (outing.phase === 'gather')
+      outingHint.current = 'Teman-teman menunggu di depan kafe, dekat zebra cross.';
+    else if (outing.phase === 'walk')
+      outingHint.current =
+        outing.outing.id === 'camp'
+          ? 'Ikuti jalan setapak di seberang zebra cross sampai Area Perkemahan.'
+          : 'Ke dermaga: lewat jembatan kecil di belakang kafe, lalu ke pantai.';
+    else
+      outingHint.current =
+        outing.outing.id === 'camp'
+          ? 'Duduk di batang kayu dekat api unggun. Kalau hujan, berteduh di tenda.'
+          : 'Duduk di ujung dermaga bersama teman-teman.';
+  }, [outing]);
   const friendsRef = useRef(friends);
   useEffect(() => {
     friendsRef.current = friends;
   });
+  // The outing's progress, checked a few times a second.
   useEffect(() => {
-    if (!outing) return;
-    let said = 0;
-    const t = setInterval(() => {
-      const over = Date.now() - outing.since > 120_000;
-      if (over || (Date.now() - outing.since > 2000 && api.activity() === '')) {
-        clearInterval(t);
-        api.companions([]);
-        if (over) api.stand();
+    if (!outing || !api.camp) return;
+    const camp = api.camp,
+      spot = api.restSpots.find((r) => r.name === outing.outing.place);
+    let said = 0,
+      lastLine = Date.now();
+    const end = (done: boolean) => {
+      api.companions([]);
+      camp.tents(0);
+      if (done) {
         let opened: NewStory | null = null;
         for (const name of outing.friends) opened = friendsRef.current.serve(name) ?? opened;
         if (opened) setStory(opened);
         setNote(outing.outing.done);
-        setTimeout(() => setNote(''), 3500);
-        setOuting(null);
+      } else setNote('Teman-teman pulang duluan. Lain kali ikut ya!');
+      setTimeout(() => setNote(''), 3500);
+      setOuting(null);
+    };
+    const t = setInterval(() => {
+      const at = api.luna(),
+        elapsed = Date.now() - outing.since;
+      if (outing.phase === 'gather') {
+        if (flat(at, camp.meetingPoint) < 2.4) {
+          setOuting((o) => (o ? { ...o, phase: 'walk', since: Date.now() } : o));
+          api.companions(
+            outing.friends.map((name, i) => ({
+              name,
+              male: regularNamed(name)?.male ?? true,
+              position: camp.meetingPoint.clone().add(new THREE.Vector3(i * 0.6 - 0.9, 0, 0.6)),
+              heading: 0,
+              sit: false,
+              follow: true,
+            })),
+          );
+          setToast({
+            name: outing.friends[0],
+            line:
+              outing.outing.id === 'camp'
+                ? 'Ayo berangkat! Ikuti jalan setapak di seberang jalan.'
+                : 'Ayo ke dermaga! Lewat jembatan di belakang kafe.',
+          });
+          setTimeout(() => setToast(null), 5000);
+        } else if (elapsed > 300_000) end(false);
         return;
       }
-      const who = outing.friends[said % outing.friends.length],
-        line = outing.outing.lines[said % outing.outing.lines.length];
-      said++;
-      setToast({ name: who, line });
-      setTimeout(() => setToast(null), 5200);
-    }, 7000);
+      if (outing.phase === 'walk') {
+        const target = outing.outing.id === 'camp' ? camp.fire : spot?.position;
+        if (target && flat(at, target) < (outing.outing.id === 'camp' ? 9 : 6)) {
+          setOuting((o) => (o ? { ...o, phase: 'there', since: Date.now() } : o));
+          // The friends take their places: along the end of the pier, or on the logs round the fire.
+          const right = spot
+            ? new THREE.Vector3(Math.cos(spot.heading), 0, -Math.sin(spot.heading))
+            : new THREE.Vector3(1, 0, 0);
+          const logs = api.restSpots.filter(
+            (r) => r.name.startsWith('campLog') && r.name !== outing.outing.place,
+          );
+          api.companions(
+            outing.friends.map((name, i) => {
+              const log = outing.outing.id === 'camp' ? logs[i] : undefined,
+                offset = (i % 2 ? -1 : 1) * (0.85 + Math.floor(i / 2) * 0.8);
+              return {
+                name,
+                male: regularNamed(name)?.male ?? true,
+                position: log
+                  ? log.position.clone()
+                  : spot!.position.clone().addScaledVector(right, offset),
+                heading: log ? log.heading : spot!.heading,
+                sit: true,
+              };
+            }),
+          );
+          setPlace({
+            name: outing.outing.id === 'camp' ? 'Berkemah bersama' : 'Sunset bersama',
+            note:
+              outing.outing.id === 'camp'
+                ? 'Teman-teman mendirikan tenda. Duduk di dekat api unggun.'
+                : 'Duduk di ujung dermaga bersama teman-teman.',
+            first: true,
+          });
+          setTimeout(() => setPlace(null), 4500);
+        } else if (elapsed > 420_000) end(false);
+        return;
+      }
+      // There: tents going up, friends chatting; it ends when Luna walks off or after a while.
+      // At the camp the friends pitch the tents first (over the first few seconds there).
+      if (outing.outing.id === 'camp') camp.tents(Math.min(1, elapsed / 7000));
+      const away = spot ? flat(at, outing.outing.id === 'camp' ? camp.fire : spot.position) : 0;
+      if (away > 25 || elapsed > 240_000) return end(true);
+      if (Date.now() - lastLine > 8000) {
+        lastLine = Date.now();
+        const who = outing.friends[said % outing.friends.length],
+          line = outing.outing.lines[said % outing.outing.lines.length];
+        said++;
+        setToast({ name: who, line });
+        setTimeout(() => setToast(null), 5200);
+      }
+    }, 400);
     return () => clearInterval(t);
-  }, [outing, api]);
+  }, [outing?.phase, outing?.outing.id, api]); // eslint-disable-line react-hooks/exhaustive-deps
   // The very first visit starts upstairs: Luna sitting on the floor, reading a book.
   useEffect(() => {
     try {
@@ -701,6 +802,9 @@ export default function ExploreMode({
         if (guest && who && flat(at, guest.position) < NEAR + 0.25)
           list.push({ id: 'serve:' + key, label: `Antar ke ${who.name}` });
       }
+      // The campfire, once rain has put it out and the rain has stopped.
+      if (api.camp && flat(at, api.camp.fire) < 1.9 && !api.camp.lit() && api.rain() < 0.05)
+        list.push({ id: 'light-fire', label: 'Nyalakan api unggun' });
       // Around the café: telescope, plants, tables, seats.
       const scope = api.spots.telescope;
       if (scope && spotDistance(at, scope.box) < 0.7)
@@ -800,19 +904,20 @@ export default function ExploreMode({
       );
       setGoals((old) => (JSON.stringify(old) === JSON.stringify(nextList) ? old : nextList));
       setHint(
-        holding
-          ? tray.length < TRAY_MAX && tickets.length
-            ? `Nampan: ${tray.length} minuman. Antar sekarang, atau racik pesanan berikutnya.`
-            : 'Antar minumannya ke meja tamu.'
-          : tickets.length && !ticket
-            ? 'Ada pesanan. Ke meja bar untuk meracik.'
-            : queue
-              ? `${queue.name} menunggu di kasir.`
-              : tickets.length
-                ? 'Lanjutkan racikan di meja bar.'
-                : open
-                  ? `Kafe buka (${crowdLabel}). Tunggu tamu, atau jalan-jalan dulu.`
-                  : 'Kafe tutup. Ketuk "buka kafe" kapan saja.',
+        outingHint.current ||
+          (holding
+            ? tray.length < TRAY_MAX && tickets.length
+              ? `Nampan: ${tray.length} minuman. Antar sekarang, atau racik pesanan berikutnya.`
+              : 'Antar minumannya ke meja tamu.'
+            : tickets.length && !ticket
+              ? 'Ada pesanan. Ke meja bar untuk meracik.'
+              : queue
+                ? `${queue.name} menunggu di kasir.`
+                : tickets.length
+                  ? 'Lanjutkan racikan di meja bar.'
+                  : open
+                    ? `Kafe buka (${crowdLabel}). Tunggu tamu, atau jalan-jalan dulu.`
+                    : 'Kafe tutup. Ketuk "buka kafe" kapan saja.'),
       );
     }, 200);
     return () => clearInterval(t);
@@ -884,6 +989,11 @@ export default function ExploreMode({
       setTimeout(() => setNote(''), 2200);
     }
     if (id === 'cashier') setPanel('cashier');
+    if (id === 'light-fire' && api.camp) {
+      api.camp.light();
+      setNote('Api unggun menyala lagi');
+      setTimeout(() => setNote(''), 2500);
+    }
     if (id === 'cup' || id === 'prep' || id === 'espresso') {
       if (!ticket) {
         const next = customersRef.current.find(

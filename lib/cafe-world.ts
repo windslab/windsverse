@@ -2253,13 +2253,51 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     group.add(sign);
   }
 
+  /**
+   * The ground as drawn: the terrain mesh is a 2.5-unit grid, so between its points the surface
+   * is a little below (or above) the true height. Things standing on the slopes use the lower of
+   * the two, so none float.
+   */
+  const groundShown = (x: number, z: number) => {
+    const cell = size / segments,
+      fx = (x - (islandCentre.x - size / 2)) / cell,
+      fz = (z - (islandCentre.z - size / 2)) / cell,
+      ix = Math.floor(fx),
+      iz = Math.floor(fz),
+      tx = fx - ix,
+      tz = fz - iz,
+      corner = (i: number, k: number) =>
+        height(islandCentre.x - size / 2 + i * cell, islandCentre.z - size / 2 + k * cell);
+    // The grid's triangles: the one this point falls in.
+    const a = corner(ix, iz),
+      b = corner(ix + 1, iz),
+      c = corner(ix, iz + 1),
+      d = corner(ix + 1, iz + 1);
+    return tx + tz < 1
+      ? a + (b - a) * tx + (c - a) * tz
+      : d + (c - d) * (1 - tx) + (b - d) * (1 - tz);
+  };
+  const plantY = (x: number, z: number) => Math.min(height(x, z), groundShown(x, z)) - 0.04;
+
   // --- Along the mountain trail: the faint path itself, lanterns, viewpoint benches, a
   // signpost at the crossing and the camping ground near the top. ----------------------------
   const trailNight = { value: 0 };
   /** Places to sit along the trail (benches at the viewpoints, logs by the campfire). */
   const trailSeats: Record<string, { position: THREE.Vector3; heading: number; lie: boolean }> = {};
   let campfireLight: THREE.PointLight | null = null,
-    campFlame: THREE.Mesh | null = null;
+    campSparks: THREE.ShaderMaterial | null = null,
+    campFlames: THREE.Mesh[] = [];
+  const campEmbers: THREE.Mesh[] = [];
+  /** The tents the friends pitch at the camp (hidden until then). */
+  const tents: {
+    group: THREE.Group;
+    canvas: THREE.Group;
+    poles: THREE.Group;
+    at: THREE.Vector3;
+    heading: number;
+  }[] = [];
+  /** The campfire burns until rain puts it out; then someone has to light it again. */
+  let campfireLit = true;
   {
     // The footpath: a soft, patchy strip of bare earth laid on the ground, worn in the middle.
     const across: number[] = [-0.85, -0.4, 0, 0.4, 0.85],
@@ -2339,7 +2377,6 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
 
     // Things along the way, all wood and lamplight, merged into a few meshes.
     const woodParts: THREE.BufferGeometry[] = [],
-      glassParts: THREE.BufferGeometry[] = [],
       canvasParts: THREE.BufferGeometry[] = [];
     const place = (g: THREE.BufferGeometry, x: number, y: number, z: number, turn = 0) => {
       g.rotateY(turn);
@@ -2356,21 +2393,10 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
         z = p.z + (dx / len) * offset;
       return { x, z, y: height(x, z), heading: Math.atan2(dx, dz) };
     };
-    // Little lanterns on posts every so often, on alternating sides, glowing after dark.
     const campIndex = trailPoints.reduce(
       (best, p, i) => (p.distanceTo(campAt) < trailPoints[best].distanceTo(campAt) ? i : best),
       0,
     );
-    for (let i = 12, k = 0; i < trailPoints.length - 3; i += 18, k++) {
-      if (Math.abs(i - campIndex) < 8) continue;
-      const spot = sideOf(i, k % 2 ? 1.45 : -1.45);
-      woodParts.push(place(new THREE.BoxGeometry(0.07, 1.05, 0.07), spot.x, spot.y + 0.52, spot.z));
-      woodParts.push(place(new THREE.BoxGeometry(0.2, 0.03, 0.2), spot.x, spot.y + 1.06, spot.z));
-      woodParts.push(
-        place(new THREE.ConeGeometry(0.15, 0.1, 4), spot.x, spot.y + 1.33, spot.z, Math.PI / 4),
-      );
-      glassParts.push(place(new THREE.BoxGeometry(0.13, 0.2, 0.13), spot.x, spot.y + 1.18, spot.z));
-    }
     // Viewpoint benches looking back over the island: one on the meadow, one halfway up.
     const bench = (i: number, name: string) => {
       const spot = sideOf(i, -2.3),
@@ -2425,76 +2451,231 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       board.name = 'World_Trail_Sign';
       group.add(board);
     }
-    // The camping ground: two tents, a ring of stones round a fire and logs to sit on.
+    // The camping ground: a fire in a ring of stones with logs round it to sit on, facing the
+    // flames. The friends bring the tents and pitch them when they arrive (see setTents).
     {
       const toCafe = Math.atan2(trailFrom.x - campAt.x, trailFrom.z - campAt.z);
-      const ring = (r: number, a: number) => ({
-        x: campAt.x + Math.sin(toCafe + a) * r,
-        z: campAt.z + Math.cos(toCafe + a) * r,
-      });
-      for (const [a, r, colour] of [
-        [2.3, 3.6, 0],
-        [-2.5, 3.9, 1],
-      ] as const) {
-        const p = ring(r, a);
-        const tent = new THREE.CylinderGeometry(1.05, 1.05, 2.1, 3, 1, false);
-        tent.rotateZ(Math.PI / 2);
-        tent.rotateX(Math.PI / 6);
-        tent.translate(0, 0.52, 0);
-        const g = place(tent, p.x, campY, p.z, toCafe + a + Math.PI / 2);
-        tint(g, colour ? 0.86 : 0.95, colour ? 0.52 : 0.78, colour ? 0.34 : 0.42);
-        canvasParts.push(g);
-      }
-      for (let k = 0; k < 9; k++) {
-        const a = (k / 9) * Math.PI * 2,
-          stone = new THREE.DodecahedronGeometry(0.16, 0);
-        stone.scale(1.2, 0.6, 1);
+      // Stones round the fire, uneven in size, and a bed of ash and embers inside.
+      for (let k = 0; k < 11; k++) {
+        const a = (k / 11) * Math.PI * 2 + noise(k, 3) * 0.2,
+          stone = new THREE.DodecahedronGeometry(0.13 + noise(k, 5) * 0.07, 0);
+        stone.scale(1.25, 0.6, 1);
+        stone.rotateY(noise(k, 7) * 6.28);
+        const shade = 0.48 + noise(k, 9) * 0.14;
         canvasParts.push(
           tint(
-            place(
-              stone,
-              campAt.x + Math.sin(a) * 0.55,
-              campY + 0.06,
-              campAt.z + Math.cos(a) * 0.55,
-            ),
-            0.55,
-            0.56,
-            0.54,
+            place(stone, campAt.x + Math.sin(a) * 0.6, campY + 0.05, campAt.z + Math.cos(a) * 0.6),
+            shade,
+            shade,
+            shade * 0.97,
           ),
         );
       }
-      for (let k = 0; k < 3; k++) {
-        const log = new THREE.CylinderGeometry(0.05, 0.06, 0.7, 6);
-        log.rotateZ(Math.PI / 2 - 0.35);
-        woodParts.push(place(log, campAt.x, campY + 0.16, campAt.z, (k / 3) * Math.PI * 2));
+      canvasParts.push(
+        tint(
+          place(new THREE.CylinderGeometry(0.5, 0.52, 0.03, 14), campAt.x, campY + 0.015, campAt.z),
+          0.2,
+          0.18,
+          0.17,
+        ),
+      );
+      // Firewood stacked as a little tepee, plus a spare pile beside the ring.
+      for (let k = 0; k < 6; k++) {
+        const log = new THREE.CylinderGeometry(0.035, 0.05, 0.72, 6);
+        log.translate(0, 0.36, 0);
+        log.rotateX(0.55);
+        woodParts.push(place(log, campAt.x, campY + 0.02, campAt.z, (k / 6) * Math.PI * 2));
       }
-      [0.6, -0.7, Math.PI].forEach((a, k) => {
-        const p = ring(2.1, a),
-          face = Math.atan2(campAt.x - p.x, campAt.z - p.z);
-        const seat = new THREE.CylinderGeometry(0.17, 0.19, 1.3, 8);
+      for (let k = 0; k < 4; k++) {
+        const spare = new THREE.CylinderGeometry(0.06, 0.06, 0.8, 6);
+        spare.rotateZ(Math.PI / 2);
+        spare.translate(0, 0.06 + (k > 1 ? 0.11 : 0), (k % 2) * 0.13 - 0.06 + (k > 1 ? 0.06 : 0));
+        const x = campAt.x + Math.sin(toCafe + 1.25) * 1.2,
+          z = campAt.z + Math.cos(toCafe + 1.25) * 1.2;
+        woodParts.push(place(spare, x, campY, z, toCafe + 1.25));
+      }
+      // Five logs in a ring round the fire, each lying across the line to it, so the friends sit
+      // facing the flames.
+      const LOGS = 5;
+      for (let k = 0; k < LOGS; k++) {
+        const a = toCafe + Math.PI / LOGS + (k / LOGS) * Math.PI * 2,
+          x = campAt.x + Math.sin(a) * 2.05,
+          z = campAt.z + Math.cos(a) * 2.05;
+        const seat = new THREE.CylinderGeometry(0.17, 0.19, 1.25, 9);
         seat.rotateZ(Math.PI / 2);
-        woodParts.push(place(seat, p.x, campY + 0.17, p.z, face + Math.PI / 2));
+        woodParts.push(place(seat, x, campY + 0.17, z, a));
         trailSeats['campLog' + (k + 1)] = {
-          position: new THREE.Vector3(p.x, campY + 0.36, p.z),
-          heading: face,
+          position: new THREE.Vector3(x, campY + 0.36, z),
+          heading: a + Math.PI,
           lie: false,
         };
-      });
-      const flameMaterial = new THREE.MeshBasicMaterial({
-        color: '#ffb347',
+      }
+      // The fire: an orange outer flame, a yellow heart, glowing embers and sparks rising.
+      const fire = new THREE.Group();
+      fire.name = 'World_Campfire';
+      fire.position.set(campAt.x, campY + 0.05, campAt.z);
+      const flame = (colour: string, r: number, h: number, y: number, opacity: number) => {
+        const m = new THREE.MeshBasicMaterial({
+          color: colour,
+          transparent: true,
+          opacity,
+          depthWrite: false,
+        });
+        materials.push(m);
+        const g = new THREE.ConeGeometry(r, h, 8);
+        geometries.push(g);
+        const mesh = new THREE.Mesh(g, m);
+        mesh.position.y = y;
+        fire.add(mesh);
+        return mesh;
+      };
+      campFlames = [
+        flame('#ff7a2e', 0.3, 0.9, 0.46, 0.8),
+        flame('#ffb347', 0.21, 0.7, 0.38, 0.88),
+        flame('#ffe48a', 0.12, 0.45, 0.28, 0.95),
+      ];
+      const emberGeometry = new THREE.BoxGeometry(0.05, 0.03, 0.05);
+      geometries.push(emberGeometry);
+      for (let k = 0; k < 9; k++) {
+        const emberMaterial = new THREE.MeshBasicMaterial({ color: '#ff6a2a' });
+        materials.push(emberMaterial);
+        const ember = new THREE.Mesh(emberGeometry, emberMaterial);
+        const a = noise(k, 11) * 6.28,
+          r = 0.1 + noise(k, 13) * 0.3;
+        ember.position.set(Math.sin(a) * r, 0.02, Math.cos(a) * r);
+        ember.rotation.y = a;
+        fire.add(ember);
+        campEmbers.push(ember);
+      }
+      const SPARKS = 24;
+      const sparkGeometry = new THREE.BufferGeometry();
+      sparkGeometry.setAttribute(
+        'position',
+        new THREE.BufferAttribute(new Float32Array(SPARKS * 3), 3),
+      );
+      sparkGeometry.setAttribute(
+        'seed',
+        new THREE.BufferAttribute(
+          Float32Array.from({ length: SPARKS }, (_, i) => noise(i, 17) * 10),
+          1,
+        ),
+      );
+      geometries.push(sparkGeometry);
+      const sparkMaterial = new THREE.ShaderMaterial({
         transparent: true,
-        opacity: 0.9,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        uniforms: { time: windTime, lit: { value: 1 } },
+        vertexShader: `
+          attribute float seed;
+          uniform float time;
+          varying float vLife;
+          void main() {
+            float life = fract(time * 0.45 + seed);
+            vLife = life;
+            vec3 p = vec3(sin(seed * 7.0 + time) * 0.12 * life, 0.25 + life * 1.6, cos(seed * 5.0 + time * 1.3) * 0.12 * life);
+            vec4 mv = modelViewMatrix * vec4(p, 1.0);
+            gl_PointSize = (1.0 - life) * 60.0 / -mv.z;
+            gl_Position = projectionMatrix * mv;
+          }`,
+        fragmentShader: `
+          uniform float lit;
+          varying float vLife;
+          void main() {
+            if (length(gl_PointCoord - 0.5) > 0.5) discard;
+            gl_FragColor = vec4(1.0, 0.62, 0.25, (1.0 - vLife) * lit);
+          }`,
       });
-      materials.push(flameMaterial);
-      const flameGeometry = new THREE.ConeGeometry(0.2, 0.55, 7);
-      geometries.push(flameGeometry);
-      campFlame = new THREE.Mesh(flameGeometry, flameMaterial);
-      campFlame.position.set(campAt.x, campY + 0.42, campAt.z);
-      campFlame.name = 'World_Campfire';
-      group.add(campFlame);
+      materials.push(sparkMaterial);
+      campSparks = sparkMaterial;
+      const sparks = new THREE.Points(sparkGeometry, sparkMaterial);
+      sparks.frustumCulled = false;
+      fire.add(sparks);
+      group.add(fire);
       campfireLight = new THREE.PointLight('#ffa64d', 0, 9, 1.6);
       campfireLight.position.set(campAt.x, campY + 0.9, campAt.z);
       group.add(campfireLight);
+
+      // Two tents, open at the front and big enough to sit in out of the rain. Each is its own
+      // group so the friends can put it up: poles first, then the canvas rising over them.
+      const canvasMaterials = ['#e9c46a', '#c97b4a'].map((c) => {
+        const m = new THREE.MeshToonMaterial({
+          color: c,
+          gradientMap: toonGradient(),
+          side: THREE.DoubleSide,
+        });
+        materials.push(m);
+        islandFade(m);
+        return m;
+      });
+      const poleMaterial = new THREE.MeshToonMaterial({
+        color: '#6e4a2f',
+        gradientMap: toonGradient(),
+      });
+      materials.push(poleMaterial);
+      const W = 1.05, // half the width at the ground
+        H = 1.55,
+        D = 2.4;
+      const slope = Math.hypot(W, H),
+        tilt = Math.atan2(W, H);
+      [toCafe + 2.25, toCafe - 2.25].forEach((a, k) => {
+        const tent = new THREE.Group(),
+          x = campAt.x + Math.sin(a) * 4.4,
+          z = campAt.z + Math.cos(a) * 4.4;
+        tent.position.set(x, campY, z);
+        // The open front faces the fire.
+        tent.rotation.y = a + Math.PI;
+        const canvas = new THREE.Group(),
+          poles = new THREE.Group();
+        for (const side of [-1, 1]) {
+          const panel = new THREE.BoxGeometry(0.03, slope, D);
+          geometries.push(panel);
+          const mesh = new THREE.Mesh(panel, canvasMaterials[k]);
+          mesh.position.set((side * W) / 2, H / 2, 0);
+          mesh.rotation.z = side * tilt;
+          mesh.castShadow = true;
+          canvas.add(mesh);
+        }
+        const backGeometry = new THREE.ShapeGeometry(
+          new THREE.Shape([
+            new THREE.Vector2(-W, 0),
+            new THREE.Vector2(W, 0),
+            new THREE.Vector2(0, H),
+          ]),
+        );
+        geometries.push(backGeometry);
+        const backMesh = new THREE.Mesh(backGeometry, canvasMaterials[k]);
+        backMesh.position.z = -D / 2;
+        canvas.add(backMesh);
+        const floorGeometry = new THREE.BoxGeometry(W * 1.9, 0.02, D);
+        geometries.push(floorGeometry);
+        const floorMesh = new THREE.Mesh(floorGeometry, canvasMaterials[1 - k]);
+        floorMesh.position.y = 0.02;
+        canvas.add(floorMesh);
+        for (const zz of [-D / 2, D / 2]) {
+          const pole = new THREE.CylinderGeometry(0.025, 0.025, H + 0.12, 5);
+          geometries.push(pole);
+          const mesh = new THREE.Mesh(pole, poleMaterial);
+          mesh.position.set(0, (H + 0.12) / 2, zz);
+          poles.add(mesh);
+        }
+        const ridge = new THREE.CylinderGeometry(0.02, 0.02, D, 5);
+        ridge.rotateX(Math.PI / 2);
+        geometries.push(ridge);
+        const ridgeMesh = new THREE.Mesh(ridge, poleMaterial);
+        ridgeMesh.position.y = H;
+        poles.add(ridgeMesh);
+        tent.add(poles, canvas);
+        tent.visible = false;
+        group.add(tent);
+        tents.push({
+          group: tent,
+          canvas,
+          poles,
+          at: new THREE.Vector3(x, campY, z),
+          heading: a + Math.PI,
+        });
+      });
     }
     const toon = (colour?: string) =>
       new THREE.MeshToonMaterial({
@@ -2502,24 +2683,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
         color: colour ?? '#ffffff',
         gradientMap: toonGradient(),
       });
-    const glassMaterial = new THREE.MeshToonMaterial({
-      color: '#f7e2b0',
-      emissive: '#ffb34d',
-      emissiveIntensity: 0,
-      gradientMap: toonGradient(),
-    });
-    glassMaterial.onBeforeCompile = (shader) => {
-      shader.uniforms.trailNight = trailNight;
-      shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform float trailNight;')
-        .replace(
-          '#include <emissivemap_fragment>',
-          '#include <emissivemap_fragment>\ntotalEmissiveRadiance = vec3(1.0, 0.7, 0.3) * (0.15 + 1.6 * trailNight);',
-        );
-    };
     for (const [parts, name, material] of [
       [woodParts, 'World_Trail_Wood', toon('#8a5d3b')],
-      [glassParts, 'World_Trail_Lanterns', glassMaterial],
       [canvasParts, 'World_Camp', toon()],
     ] as const) {
       if (!parts.length) continue;
@@ -2602,11 +2767,20 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     dandelionNight.value = night;
     // The trail's lanterns and the campfire (always lit; it only shows after dark).
     trailNight.value = night;
-    if (campfireLight && campFlame) {
-      const flicker =
-        0.82 + Math.sin(performance.now() / 90) * 0.1 + Math.sin(performance.now() / 37) * 0.08;
-      campfireLight.intensity = (0.6 + 3.4 * night) * flicker;
-      campFlame.scale.set(1, flicker, 1);
+    if (campfireLight) {
+      const now = performance.now(),
+        flicker = 0.82 + Math.sin(now / 90) * 0.1 + Math.sin(now / 37) * 0.08;
+      campfireLight.intensity = campfireLit ? (0.6 + 3.4 * night) * flicker : 0;
+      campFlames.forEach((f, i) => {
+        f.visible = campfireLit;
+        f.scale.set(1, flicker * (1 + Math.sin(now / (60 + i * 23)) * 0.12), 1);
+        f.rotation.y = now / (900 + i * 300);
+      });
+      campEmbers.forEach((e, i) => {
+        const glow = campfireLit ? 0.75 + Math.sin(now / 160 + i) * 0.25 : 0.12;
+        (e.material as THREE.MeshBasicMaterial).color.setRGB(glow, glow * 0.35, glow * 0.12);
+      });
+      if (campSparks) campSparks.uniforms.lit.value = campfireLit ? 1 : 0;
     }
     mistUniforms.night.value = night;
     seedMaterial.color.setRGB(1, 0.99 - 0.12 * night, 0.96 - 0.4 * night);
@@ -2646,6 +2820,14 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     // The tower: pick the floor Luna can step onto from where she stands (one step up or down).
     // Rocks are solid everywhere (they never sit on the steps).
     for (const rock of rocks) if (Math.hypot(rock.x - x, rock.z - z) < rock.r) return null;
+    // On the mountain Luna keeps to the footpath (a few steps either side of it), the camping
+    // ground and the top, so the climb follows the trail.
+    if (
+      mountain(x, z) > 4 &&
+      trailDistance(x, z) > 3.2 &&
+      Math.hypot(x - campAt.x, z - campAt.z) > 11
+    )
+      return null;
     const floors = towerFloors(x, z);
     if (floors && towerLocked) return null;
     if (floors) {
@@ -2735,7 +2917,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
         q.setFromEuler(tilt.set((Math.random() - 0.5) * 0.25, b, (Math.random() - 0.5) * 0.25));
         const size = 0.8 + Math.random() * 0.5;
         m.compose(
-          new THREE.Vector3(x, height(x, z) - 0.02, z),
+          new THREE.Vector3(x, plantY(x, z) + 0.02, z),
           q,
           new THREE.Vector3(size, size, size),
         );
@@ -2816,23 +2998,27 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     dandelionMaterial.customProgramCacheKey = () => 'world-dandelion-wind';
     islandFade(dandelionMaterial);
     materials.push(dandelionMaterial);
-    // Flowers lining the mountain trail on both sides (they glow softly at night too).
-    for (let i = 6; i < trailPoints.length - 2; i += 2) {
-      for (const side of [-1, 1]) {
-        if (noise(i * 0.7, side * 5 + 31) < 0.42) continue;
-        const p = trailPoints[i],
-          q = trailPoints[i + 1],
-          len = Math.hypot(q.x - p.x, q.z - p.z) || 1,
-          off = side * (1.15 + noise(i * 1.3, side + 3) * 1.1),
-          x = p.x - ((q.z - p.z) / len) * off,
-          z = p.z + ((q.x - p.x) / len) * off;
+    // Flowers along the mountain trail (they glow softly at night too): in loose clumps at
+    // uneven distances and offsets, sometimes a gap, never in a row.
+    for (let i = 6, k = 0; i < trailPoints.length - 2; k++) {
+      i += 1 + Math.floor(noise(k * 0.9, 33) * 4.5);
+      const p = trailPoints[Math.min(i, trailPoints.length - 2)],
+        q = trailPoints[Math.min(i + 1, trailPoints.length - 1)],
+        len = Math.hypot(q.x - p.x, q.z - p.z) || 1,
+        side = noise(k * 1.7, 35) < 0.5 ? -1 : 1,
+        clump = 1 + Math.floor(noise(k * 2.3, 37) * 3.2);
+      for (let c = 0; c < clump; c++) {
+        const off = side * (1.1 + noise(k * 3.1 + c, 39) * 2.4),
+          slide = (noise(k + c * 5.3, 41) - 0.5) * 1.6,
+          x = p.x - ((q.z - p.z) / len) * off + ((q.x - p.x) / len) * slide,
+          z = p.z + ((q.x - p.x) / len) * off + ((q.z - p.z) / len) * slide;
         if (Math.hypot(x - campAt.x, z - campAt.z) < 7 || seaOut(x, z) > SEA - 16) continue;
-        const k = 0.75 + noise(i, side + 9) * 0.5;
-        (noise(i * 2.1, side) < 0.55 ? bloomSpots : dandelionSpots).push(
+        const sc = 0.7 + noise(k * 4.1 + c, 43) * 0.6;
+        (noise(k * 2.1 + c, 45) < 0.55 ? bloomSpots : dandelionSpots).push(
           new THREE.Matrix4().compose(
-            new THREE.Vector3(x, height(x, z) - 0.02, z),
-            new THREE.Quaternion().setFromAxisAngle(up, noise(i, side + 17) * 6.28),
-            new THREE.Vector3(k, k, k),
+            new THREE.Vector3(x, plantY(x, z), z),
+            new THREE.Quaternion().setFromAxisAngle(up, noise(k + c, 47) * 6.28),
+            new THREE.Vector3(sc, sc, sc),
           ),
         );
       }
@@ -2849,6 +3035,235 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       flowers.computeBoundingSphere();
       group.add(flowers);
     }
+  }
+  // --- Wild plants on the mountain: lavender, sunflowers, tall grass (ilalang), small pink and
+  // white wildflowers and dandelions, thickest along the trail and on the foothills, swaying in
+  // the wind like the dandelions (without their night glow).
+  {
+    const coloured = (g: THREE.BufferGeometry, color: string) => {
+      const c = new THREE.Color(color),
+        n = g.getAttribute('position').count,
+        a = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) a.set([c.r, c.g, c.b], i * 3);
+      g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+      g.deleteAttribute('uv');
+      return g.index ? g.toNonIndexed() : g;
+    };
+    const stem = (h: number, colour = '#6f9a4a') =>
+      coloured(new THREE.CylinderGeometry(0.008, 0.012, h, 4, 1).translate(0, h / 2, 0), colour);
+    // Lavender: a few stems, each with a purple spike of little buds.
+    const lavender = mergeGeometries(
+      [-0.06, 0, 0.06].flatMap((x, i) => [
+        stem(0.42).translate(x, 0, i === 1 ? 0.03 : -0.02),
+        coloured(
+          new THREE.CylinderGeometry(0.018, 0.026, 0.14, 5, 1).translate(
+            x,
+            0.47,
+            i === 1 ? 0.03 : -0.02,
+          ),
+          i === 1 ? '#8c6bc6' : '#7a5bb5',
+        ),
+      ]),
+    )!;
+    // Sunflower: a tall stem, two leaves and a yellow head with a brown middle.
+    const sunflower = mergeGeometries([
+      stem(0.95, '#5f8a3e'),
+      coloured(
+        new THREE.ConeGeometry(0.08, 0.2, 4, 1).scale(1.4, 1, 0.3).translate(0.07, 0.45, 0),
+        '#5f8a3e',
+      ),
+      coloured(
+        new THREE.ConeGeometry(0.08, 0.2, 4, 1).scale(1.4, 1, 0.3).translate(-0.07, 0.62, 0),
+        '#5f8a3e',
+      ),
+      coloured(
+        new THREE.CylinderGeometry(0.15, 0.15, 0.025, 12, 1)
+          .rotateX(Math.PI / 2.4)
+          .translate(0, 0.98, 0.03),
+        '#f4c430',
+      ),
+      coloured(
+        new THREE.CylinderGeometry(0.07, 0.07, 0.035, 10, 1)
+          .rotateX(Math.PI / 2.4)
+          .translate(0, 0.98, 0.045),
+        '#6b4423',
+      ),
+    ])!;
+    // Ilalang: a tuft of thin pale blades with feathery tips.
+    const grass = mergeGeometries(
+      [0, 1, 2, 3, 4].flatMap((k) => {
+        const a = (k / 5) * Math.PI * 2,
+          lean = 0.12;
+        return [
+          coloured(
+            new THREE.ConeGeometry(0.012, 0.7, 3, 1)
+              .translate(0, 0.35, 0)
+              .rotateZ(Math.cos(a) * lean)
+              .rotateX(Math.sin(a) * lean),
+            '#a9a86a',
+          ),
+          coloured(
+            new THREE.CylinderGeometry(0.006, 0.02, 0.28, 4, 1)
+              .translate(0, 0.8, 0)
+              .rotateZ(Math.cos(a) * lean)
+              .rotateX(Math.sin(a) * lean),
+            '#d8cfa6',
+          ),
+        ];
+      }),
+    )!;
+    // Small wildflowers: a low cushion of leaves with pink and white dots.
+    const wild = mergeGeometries([
+      coloured(
+        new THREE.IcosahedronGeometry(0.09, 0).scale(1.3, 0.5, 1.3).translate(0, 0.05, 0),
+        '#5f8a3e',
+      ),
+      ...[0, 1, 2, 3, 4, 5].map((k) =>
+        coloured(
+          new THREE.SphereGeometry(0.022, 5, 3).translate(
+            Math.cos(k * 1.1) * 0.08,
+            0.1 + (k % 2) * 0.02,
+            Math.sin(k * 1.1) * 0.08,
+          ),
+          k % 3 ? '#f2a7c3' : '#fbfaf4',
+        ),
+      ),
+    ])!;
+    const dandelion = mergeGeometries([
+      stem(0.34),
+      coloured(new THREE.IcosahedronGeometry(0.055, 1).translate(0, 0.37, 0), '#fbfaf4'),
+    ])!;
+    geometries.push(lavender, sunflower, grass, wild, dandelion);
+    const swayMaterial = new THREE.MeshToonMaterial({
+      vertexColors: true,
+      gradientMap: toonGradient(),
+    });
+    swayMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.windTime = windTime;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float windTime;')
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            vec3 plantBase = instanceMatrix[3].xyz;
+          #else
+            vec3 plantBase = vec3(0.0);
+          #endif
+          float bend = transformed.y * transformed.y * 1.6;
+          transformed.x += sin(windTime * 1.5 + plantBase.x * 0.7 + plantBase.z * 0.5) * 0.08 * bend;
+          transformed.z += cos(windTime * 1.2 + plantBase.z * 0.6) * 0.05 * bend;`,
+        );
+    };
+    swayMaterial.customProgramCacheKey = () => 'world-plant-wind';
+    islandFade(swayMaterial);
+    materials.push(swayMaterial);
+    // Where each grows: lavender in drifts on the foothills, sunflowers in small groups on the
+    // lower slopes, tall grass everywhere up the mountain, wildflowers by the path.
+    const kinds: {
+      geometry: THREE.BufferGeometry;
+      name: string;
+      count: number;
+      wMin: number;
+      wMax: number;
+      altMax: number;
+      nearTrail: number;
+      drift: number;
+    }[] = [
+      {
+        geometry: lavender,
+        name: 'World_Lavender',
+        count: 1100,
+        wMin: 96,
+        wMax: 210,
+        altMax: 18,
+        nearTrail: 0.45,
+        drift: 0.06,
+      },
+      {
+        geometry: sunflower,
+        name: 'World_Sunflowers',
+        count: 220,
+        wMin: 40,
+        wMax: 170,
+        altMax: 10,
+        nearTrail: 0.5,
+        drift: 0.09,
+      },
+      {
+        geometry: grass,
+        name: 'World_Ilalang',
+        count: 1500,
+        wMin: 60,
+        wMax: 250,
+        altMax: 30,
+        nearTrail: 0.3,
+        drift: 0.03,
+      },
+      {
+        geometry: wild,
+        name: 'World_Wildflowers',
+        count: 900,
+        wMin: 20,
+        wMax: 240,
+        altMax: 28,
+        nearTrail: 0.7,
+        drift: 0.05,
+      },
+      {
+        geometry: dandelion,
+        name: 'World_Mountain_Dandelions',
+        count: 700,
+        wMin: 30,
+        wMax: 230,
+        altMax: 26,
+        nearTrail: 0.4,
+        drift: 0.04,
+      },
+    ];
+    const m = new THREE.Matrix4(),
+      q = new THREE.Quaternion(),
+      v = new THREE.Vector3(),
+      sc = new THREE.Vector3();
+    kinds.forEach((kind, ki) => {
+      const spots: THREE.Matrix4[] = [];
+      for (let i = 0; spots.length < kind.count && i < kind.count * 14; i++) {
+        let x: number, z: number;
+        if (noise(i * 0.37, ki * 11 + 3) < kind.nearTrail) {
+          // Beside the trail, a few steps either side.
+          const p = trailPoints[Math.floor(noise(i * 0.71, ki * 7 + 1) * (trailPoints.length - 1))],
+            a = noise(i * 1.13, ki * 5 + 9) * 6.28,
+            r = 1.3 + noise(i * 0.53, ki * 3 + 4) * 7;
+          x = p.x + Math.cos(a) * r;
+          z = p.z + Math.sin(a) * r;
+        } else {
+          const u = u0 + (noise(i * 0.29, ki * 13 + 2) - 0.5) * 2 * (ISLAND.halfAlong - 20),
+            w = kind.wMin + noise(i * 0.43, ki * 17 + 6) * (kind.wMax - kind.wMin),
+            p = at(u, w);
+          x = p.x;
+          z = p.z;
+        }
+        // In drifts: the noise field decides where a kind is thick and where it is absent.
+        if (noise(x * kind.drift + ki * 9, z * kind.drift) < 0.45) continue;
+        const ground = baseHeight(x, z);
+        if (ground - groundY > kind.altMax || seaOut(x, z) > SEA - 18) continue;
+        if (trailDistance(x, z) < 1.05 || Math.hypot(x - campAt.x, z - campAt.z) < 6.5) continue;
+        if (flatZone(x, z).roadGap < 2 || riverDistance(x, z) < 4 || insideLake(x, z)) continue;
+        const s2 = 0.75 + noise(i * 0.61, ki * 19) * 0.6;
+        q.setFromAxisAngle(up, noise(i * 0.83, ki * 23) * 6.28);
+        spots.push(
+          m
+            .compose(v.set(x, plantY(x, z), z), q, sc.set(s2, s2 * (0.85 + noise(i, ki) * 0.3), s2))
+            .clone(),
+        );
+      }
+      const mesh = new THREE.InstancedMesh(kind.geometry, swayMaterial, spots.length);
+      spots.forEach((spot, i) => mesh.setMatrixAt(i, spot));
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+      mesh.name = kind.name;
+      group.add(mesh);
+    });
   }
   // --- Mountain-foot mist: thin, slow-drifting haze lying along the foot of the mountains, hugging
   // the slopes in a few layers, so the mountains rise out of a sea of clouds. Gone from the café.
@@ -3046,6 +3461,47 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     setTowerLocked: (locked: boolean) => {
       towerLocked = locked;
     },
+    /** The campfire's place, and whether it is burning (rain puts it out; Luna lights it). */
+    campfire: campAt.clone(),
+    campfireLit: () => campfireLit,
+    setCampfire: (lit: boolean) => {
+      campfireLit = lit;
+    },
+    /** Pitching the tents: 0 packed away, then poles, then the canvas rising, 1 standing. */
+    setTents: (progress: number) => {
+      for (const t of tents) {
+        t.group.visible = progress > 0.01;
+        t.poles.scale.y = THREE.MathUtils.smoothstep(progress, 0, 0.35) || 0.001;
+        const rise = THREE.MathUtils.smoothstep(progress, 0.3, 1);
+        t.canvas.visible = rise > 0.01;
+        t.canvas.scale.set(1, rise || 0.001, 1);
+      }
+    },
+    /** Inside a pitched tent (out of the rain). */
+    insideTent: (x: number, z: number) =>
+      tents.some((t) => {
+        if (!t.group.visible || t.canvas.scale.y < 0.95) return false;
+        const dx = x - t.at.x,
+          dz = z - t.at.z,
+          c = Math.cos(t.heading),
+          s2 = Math.sin(t.heading);
+        const across = dx * c - dz * s2,
+          along = dx * s2 + dz * c;
+        return Math.abs(across) < 0.9 && Math.abs(along) < 1.2;
+      }),
+    /** Flowery places along the trail where butterflies like to be. */
+    flowerMeadows: trailPoints
+      .filter((_, i) => i > 6 && i % 16 === 0)
+      .map((p) => ({ centre: new THREE.Vector3(p.x, p.y, p.z), radius: 5 })),
+    /** Where friends wait before setting off together: the café's side of the zebra crossing. */
+    meetingPoint: (() => {
+      // On the sidewalk just beside the crossing (the café's front is right behind it).
+      const p = trailFrom
+        .clone()
+        .addScaledVector(away, road.halfWidth + 0.8)
+        .addScaledVector(roadDir, 2.2);
+      return p.setY(height(p.x, p.z));
+    })(),
     /** Points along the footpaths and the bridge, where fireflies like to gather at night. */
     fireflyTrails: [
       ...towerPathPoints.filter((_, i) => i % 3 === 0),

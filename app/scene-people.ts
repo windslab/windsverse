@@ -342,25 +342,50 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     c.visual.visible = false;
     c.shadow.visible = false;
   });
-  let companionPlan: {
+  type CompanionPlan = {
     name: string;
     male: boolean;
     position: THREE.Vector3;
     heading: number;
     sit: boolean;
-  }[] = [];
-  function updateCompanions(reduced: boolean) {
+    /** Walking along behind Luna (on the path she took) instead of staying put. */
+    follow?: boolean;
+  };
+  let companionPlan: CompanionPlan[] = [];
+  // Luna's recent footsteps, for friends walking along behind her.
+  const crumbs: THREE.Vector3[] = [];
+  function updateCompanions(dt: number, reduced: boolean) {
+    const last = crumbs[crumbs.length - 1];
+    if (!last || last.distanceTo(barista.position) > 0.35 * scale) {
+      crumbs.push(barista.position.clone());
+      if (crumbs.length > 80) crumbs.shift();
+    }
     companions.forEach((c, i) => {
       const plan = companionPlan[i];
       c.visual.visible = c.shadow.visible = !!plan && !!c.guest;
       if (!plan || !c.guest) return;
+      let stride = 0;
+      if (plan.follow && crumbs.length) {
+        // A step behind the one in front: about a metre between each friend.
+        const target = crumbs[Math.max(0, crumbs.length - 1 - (i + 1) * 3)],
+          step = target.clone().sub(plan.position),
+          d = step.length(),
+          move = Math.min(d, (d > 2.5 * scale ? 2.6 : 1.3) * scale * dt);
+        if (d > 0.08 * scale) {
+          plan.position.addScaledVector(step, move / d);
+          plan.heading = Math.atan2(step.x, step.z);
+          stride = Math.sin(age * 7 + i * 1.3) * 0.8;
+        }
+        // Far behind (after a jump or a quick turn): catch up at once.
+        if (d > 12 * scale) plan.position.copy(target);
+      }
       c.visual.position.set(
         plan.position.x,
         plan.position.y - (plan.sit ? c.guest.hip() - 0.05 * scale : 0),
         plan.position.z,
       );
       c.visual.rotation.y = plan.heading;
-      c.guest.update(age + i * 1.7, 0, plan.sit ? 'sitting' : 'idle', reduced);
+      c.guest.update(age + i * 1.7, reduced ? 0 : stride, plan.sit ? 'sitting' : 'idle', reduced);
       c.shadow.position.set(plan.position.x, plan.position.y + 0.004 * scale, plan.position.z);
       c.drink.visible = c.serving.visible = false;
     });
@@ -1389,16 +1414,10 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     },
     /** Arrow over a guest (key), or none. */
     /** Friends out with Luna: up to four, each where and how the game places them ([] = none). */
-    setCompanions(
-      list: {
-        name: string;
-        male: boolean;
-        position: THREE.Vector3;
-        heading: number;
-        sit: boolean;
-      }[],
-    ) {
-      companionPlan = list.slice(0, companions.length);
+    setCompanions(list: CompanionPlan[]) {
+      companionPlan = list
+        .slice(0, companions.length)
+        .map((p) => ({ ...p, position: p.position.clone() }));
       companionPlan.forEach((plan, i) =>
         companions[i].guest?.setLook(lookFor(plan.name, plan.male)),
       );
@@ -1554,7 +1573,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     update(delta: number, reduced: boolean) {
       const dt = Math.min(delta, 0.05);
       age += dt;
-      updateCompanions(reduced);
+      updateCompanions(dt, reduced);
       chooseTask();
       if (manual) {
         // Walk where the stick points, staying on the café's walkable floors (no walls, no void).

@@ -354,7 +354,7 @@ export const OUTINGS: Outing[] = [
       'Kapan-kapan kita ke sini lagi, ramai-ramai.',
       'Angin lautnya enak. Capek kerja langsung hilang.',
     ],
-    likes: ['Fina', 'Uli', 'Vira', 'Adit', 'Bayu'],
+    likes: ['Uli', 'Vira'],
     done: 'Mataharinya sudah tenggelam. Sampai jumpa di kafe!',
   },
   {
@@ -371,13 +371,19 @@ export const OUTINGS: Outing[] = [
       'Besok pagi kita lihat matahari terbit dari puncak.',
       'Tenang ya di sini. Cuma ada angin dan suara api.',
     ],
-    likes: ['Aan', 'Giffari', 'Fajar', 'Vira', 'Acca', 'Mamat'],
+    likes: ['Aan', 'Giffari', 'Fajar'],
     done: 'Malam makin larut. Terima kasih sudah ikut berkemah, Luna.',
   },
 ];
 
-/** Who comes along: up to four friends Luna knows, those who like the outing first. */
+/** The school friends who go hiking, camping and to the sea together (and invite Luna). */
+export const OUTING_CREW = ['Uli', 'Vira', 'Aan', 'Fajar', 'Giffari'];
+
+/**
+ * Who comes along: up to four of the crew Luna knows, those who like the outing first (the
+ * first one is who asks her).
+ */
 export function outingFriends(outing: Outing, known: string[], rand = Math.random) {
-  const shuffled = [...known].sort(() => rand() - 0.5);
+  const shuffled = known.filter((n) => OUTING_CREW.includes(n)).sort(() => rand() - 0.5);
   return shuffled.sort((a, b) => +outing.likes.includes(b) - +outing.likes.includes(a)).slice(0, 4);
 }
