@@ -11,6 +11,7 @@ import {
   crowdFor,
   windstopiaMenu,
   GAME_MINUTES_PER_SECOND,
+  NAMES,
   newCustomer,
   rupiah,
   type Crowd,
@@ -27,6 +28,8 @@ import BarStation from './explore-bar';
 import MemberDialog from './member/member-dialog';
 import { playerId, useGamePoints, type GameWallet } from './use-game-points';
 import { PointsPanel } from './explore-points';
+import { FriendsPanel, StoryCard, useFriends, type NewStory } from './explore-regulars';
+import { pickGuest } from '@/lib/regulars';
 
 export type ExploreApi = {
   setManual: (on: boolean) => void;
@@ -266,6 +269,10 @@ export default function ExploreMode({
   // whole game day.
   const game = useGamePoints(),
     [missionsOpen, setMissionsOpen] = useState(false);
+  // The regulars Luna knows, and a piece of someone's story that just opened.
+  const friends = useFriends(),
+    [friendsOpen, setFriendsOpen] = useState(false),
+    [story, setStory] = useState<NewStory | null>(null);
   const countedRef = useRef(game.counted);
   useEffect(() => {
     countedRef.current = game.counted;
@@ -372,10 +379,12 @@ export default function ExploreMode({
       const crowd = crowdRef.current,
         waiting = customersRef.current.filter((c) => c.stage !== 'served').length;
       if (waiting >= crowd.max || Math.random() > crowd.chance) return;
+      const taken = customersRef.current.filter((c) => c.stage !== 'served').map((c) => c.name);
       const { name, male, order } = newCustomer(
         menu,
         Math.random,
-        customersRef.current.filter((c) => c.stage !== 'served').map((c) => c.name),
+        taken,
+        pickGuest(h, NAMES, taken),
       );
       counter.current += 1;
       setCustomers((list) => [
@@ -727,8 +736,13 @@ export default function ExploreMode({
         list.map((x) => (x.key === c.key ? { ...x, stage: 'served', servedAt: Date.now() } : x)),
       );
       setScore((s) => ({ ...s, served: s.served + 1 }));
-      setToast({ name: c.name, line: thanks });
-      setTimeout(() => setToast(null), 5500);
+      // A regular may tell Luna the next piece of their story instead of a plain thank-you.
+      const opened = friends.serve(c.name);
+      if (opened) setStory(opened);
+      else {
+        setToast({ name: c.name, line: thanks });
+        setTimeout(() => setToast(null), 5500);
+      }
       setHolding(false);
       setTicket(null);
       setDrink(emptyDrink());
@@ -865,6 +879,9 @@ export default function ExploreMode({
           <button onClick={() => setMissionsOpen((o) => !o)} aria-pressed={missionsOpen}>
             poin ({game.balance})
           </button>
+          <button onClick={() => setFriendsOpen((o) => !o)} aria-pressed={friendsOpen}>
+            teman
+          </button>
           <button onClick={() => setMemberOpen(true)}>kartu</button>
           <button onClick={onToggleSound} aria-pressed={sound}>
             {sound ? 'suara: on' : 'suara: off'}
@@ -906,6 +923,10 @@ export default function ExploreMode({
       {missionsOpen && !panel && !photoOpen && (
         <PointsPanel game={game} onClose={() => setMissionsOpen(false)} />
       )}
+      {friendsOpen && !panel && !photoOpen && (
+        <FriendsPanel served={friends.served} onClose={() => setFriendsOpen(false)} />
+      )}
+      {story && !photoOpen && <StoryCard story={story} onClose={() => setStory(null)} />}
       {toast && (
         <div className={styles.toast} role="status">
           <strong>{toast.name} ♡</strong>
@@ -934,10 +955,19 @@ export default function ExploreMode({
           menu={menu}
           onClose={() => setPanel(null)}
           onDone={(wrongItem, change) => {
-            // Every purchase goes into the till.
-            const price = queueCustomer.order.item.price;
+            // Every purchase goes into the till; VVIP friends drink free, and the owner pays for
+            // everyone in the café.
+            const { pays, item } = queueCustomer.order,
+              guests = customersRef.current.filter((c) => c.stage !== 'served').length,
+              price = pays === 'vvip' ? 0 : pays === 'treat' ? item.price * guests : item.price;
             setScore((s) => ({ ...s, money: s.money + price }));
-            setNote(`+${rupiah(price)}`);
+            setNote(
+              pays === 'vvip'
+                ? 'VVIP · gratis untuk sahabat kafe'
+                : pays === 'treat'
+                  ? `${queueCustomer.name} mentraktir semua · +${rupiah(price)}`
+                  : `+${rupiah(price)}`,
+            );
             setTimeout(() => setNote(''), 2200);
             setCustomers((list) =>
               list.map((c) =>
@@ -1037,7 +1067,14 @@ function CashierPanel({
       <p className={styles.speech}>
         <b>{customer.name}</b> “{customer.order.line}”
       </p>
-      <small className={styles.label}>catat pesanan · {rupiah(customer.order.item.price)}</small>
+      <small className={styles.label}>
+        catat pesanan ·{' '}
+        {customer.order.pays === 'vvip'
+          ? 'gratis, tamu VVIP'
+          : customer.order.pays === 'treat'
+            ? `${rupiah(customer.order.item.price)} · mentraktir satu kafe`
+            : rupiah(customer.order.item.price)}
+      </small>
       <div className={styles.choices}>
         {menu.map((m) => (
           <button
