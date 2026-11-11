@@ -3046,6 +3046,9 @@ export default function Cafe({ name }: { name: string }) {
         (n, sh) => n + (sh.snapshot?.employees || []).reduce((v: number, e: any) => v + e.wage, 0),
         0,
       );
+    const days = [...new Set([...shifts, ...expenses].map((x) => x.date as string))]
+      .sort()
+      .reverse();
     const bonus = s.payrolls
       .filter((pr) => pr.period >= reportFrom.slice(0, 7) && pr.period <= reportTo.slice(0, 7))
       .reduce((n, pr) => n + pr.bonus, 0);
@@ -3152,46 +3155,120 @@ export default function Cafe({ name }: { name: string }) {
             </ResponsiveContainer>
           </div>
         </section>
-        <h2>Perbandingan hasil shift</h2>
-        {table(
-          [
-            'Tanggal',
-            'Shift',
-            'Karyawan',
-            'Omzet bersih',
-            'HPP',
-            'Biaya shift',
-            'Laba sebelum gaji',
-            'Status',
-          ],
-          shifts.map((sh) => {
-            const t = sh.snapshot || shiftTotals(s, sh);
-            return [
-              sh.date,
-              sh.name,
-              sh.employeeIds.map(employee).join(', '),
-              money(t.revenue),
-              money(t.hpp),
-              money(t.costs),
-              <strong key="p" className={t.profit < 0 ? 'danger' : 'accent'}>
-                {money(t.profit)}
-              </strong>,
-              <Badge key="s" value={sh.status} />,
-            ];
-          }),
-        )}
-        <h2>Pengeluaran</h2>
-        {table(
-          ['Tanggal', 'Keterangan', 'Kategori', 'Jenis', 'Nominal', 'Aksi'],
-          expenses.map((e) => [
-            e.date,
-            e.title,
-            e.category,
-            expenseScopeName(e),
-            money(e.amount),
-            controls('expenses', e),
-          ]),
-        )}
+        <h2>Laporan per tanggal</h2>
+        {!days.length && <Empty>Belum ada shift atau pengeluaran pada rentang ini.</Empty>}
+        {days.map((date) => {
+          const dayShifts = shifts
+            .filter((sh) => sh.date === date)
+            .sort((a, b) => a.startAt.localeCompare(b.startAt));
+          const dayExpenses = expenses.filter((e) => e.date === date);
+          const figures = dayShifts.map((sh) => sh.snapshot || shiftTotals(s, sh));
+          const sum = (key: 'revenue' | 'hpp' | 'costs' | 'profit') =>
+            figures.reduce((n, t) => n + t[key], 0);
+          const spent = dayExpenses.reduce((n, e) => n + e.amount, 0);
+          return (
+            <section className="panel day-report" key={date}>
+              <header className="day-report-head">
+                <h3>
+                  {new Date(date + 'T12:00:00+08:00').toLocaleDateString('id-ID', {
+                    timeZone: CAFE_TIMEZONE,
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                  })}
+                </h3>
+                <div className="day-report-sum">
+                  <span>
+                    Pemasukan <strong>{money(sum('revenue'))}</strong>
+                  </span>
+                  <span>
+                    Pengeluaran <strong>{money(spent)}</strong>
+                  </span>
+                  <span>
+                    Laba sebelum gaji{' '}
+                    <strong className={sum('profit') < 0 ? 'danger' : 'accent'}>
+                      {money(sum('profit'))}
+                    </strong>
+                  </span>
+                </div>
+              </header>
+              <h4>Pemasukan per shift</h4>
+              {table(
+                [
+                  'Shift',
+                  'Bertugas',
+                  'Transaksi',
+                  'Omzet bersih',
+                  'HPP',
+                  'Biaya shift',
+                  'Laba sebelum gaji',
+                  'Status',
+                ],
+                [
+                  ...dayShifts.map((sh, i) => {
+                    const t = figures[i],
+                      came = s.attendance
+                        .filter((at) => at.shiftId === sh.id && at.status === 'hadir')
+                        .map((at) => at.employeeId);
+                    return [
+                      <strong key="n">{sh.name}</strong>,
+                      (came.length ? came : sh.employeeIds).map(employee).join(', '),
+                      t.orderCount ?? '-',
+                      money(t.revenue),
+                      money(t.hpp),
+                      money(t.costs),
+                      <strong key="p" className={t.profit < 0 ? 'danger' : 'accent'}>
+                        {money(t.profit)}
+                      </strong>,
+                      <Badge key="s" value={sh.status} />,
+                    ];
+                  }),
+                  ...(dayShifts.length > 1
+                    ? [
+                        [
+                          <strong key="n">Total</strong>,
+                          '',
+                          figures.reduce((n, t) => n + (t.orderCount || 0), 0),
+                          <strong key="r">{money(sum('revenue'))}</strong>,
+                          money(sum('hpp')),
+                          money(sum('costs')),
+                          <strong key="p" className={sum('profit') < 0 ? 'danger' : 'accent'}>
+                            {money(sum('profit'))}
+                          </strong>,
+                          '',
+                        ],
+                      ]
+                    : []),
+                ],
+              )}
+              <h4>Pengeluaran</h4>
+              {table(
+                ['Keterangan', 'Kategori', 'Jenis', 'Nominal', 'Aksi'],
+                [
+                  ...dayExpenses.map((e) => [
+                    e.title,
+                    e.category,
+                    expenseScopeName(e),
+                    money(e.amount),
+                    controls('expenses', e),
+                  ]),
+                  ...(dayExpenses.length > 1
+                    ? [
+                        [
+                          <strong key="t">Total</strong>,
+                          '',
+                          '',
+                          <strong key="n">{money(spent)}</strong>,
+                          '',
+                        ],
+                      ]
+                    : []),
+                ],
+              )}
+            </section>
+          );
+        })}
         <h2>Pembayaran diterima</h2>
         {table(
           ['Metode', 'Transaksi', 'Nilai termasuk pajak'],

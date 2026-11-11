@@ -6295,6 +6295,49 @@ button.att-chip:disabled {
 .pay-person .table-panel {
   margin: 0;
 }
+.day-report {
+  margin-top: 16px;
+}
+.day-report-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid #293447;
+}
+.day-report-head h3 {
+  margin: 0;
+}
+.day-report-sum {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  color: #a4aec0;
+  font-size: 0.9rem;
+}
+.day-report-sum strong {
+  color: #edf2f8;
+  margin-left: 4px;
+}
+.day-report-sum strong.accent {
+  color: #c4ec81;
+}
+.day-report-sum strong.danger {
+  color: #fda3a7;
+}
+.day-report h4 {
+  margin: 14px 0 8px;
+  color: #a4aec0;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.day-report .table-panel {
+  margin: 0;
+}
 .pay-person-foot {
   display: flex;
   justify-content: flex-end;
