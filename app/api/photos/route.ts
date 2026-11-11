@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { database, errorResponse } from '@/lib/store';
 import { Fault } from '@/lib/engine';
 import { availableFilmIds, readConfig } from '@/lib/camera-config';
+import { earnGamePoint, GAME_DAILY_CAP } from '@/lib/game-points';
 import {
   NETWORK_DAILY_LIMIT,
   PHOTO_LIFE_MS,
@@ -131,16 +132,30 @@ export async function DELETE(req: Request) {
   }
 }
 
-/** Admin: show or hide a photo on the public Memoirs TV. */
+/**
+ * Admin: show or hide a photo on the public Memoirs TV. A Windstopia player may put their own
+ * photo up (never take one down), which earns the day's photo point in their game wallet.
+ */
 export async function PATCH(req: Request) {
   try {
     sameOrigin(req);
-    if (!(await adminOrNull(req))) throw new Fault('Hanya admin yang dapat mengatur Memoirs.', 403);
     const url = new URL(req.url),
       photo = await getPhoto(url.searchParams.get('id') || '');
     if (!photo) throw new Fault('Foto tidak ditemukan.', 404);
-    await setMemoirs(photo.id, url.searchParams.get('memoirs') === '1');
-    return Response.json({ ok: true }, { headers: noStore });
+    if (await adminOrNull(req)) {
+      await setMemoirs(photo.id, url.searchParams.get('memoirs') === '1');
+      return Response.json({ ok: true }, { headers: noStore });
+    }
+    const player = req.headers.get('x-windstopia-player') || '';
+    if (url.searchParams.get('memoirs') !== '1' || !/^[A-Za-z0-9_-]{16,40}$/.test(player))
+      throw new Fault('Hanya admin yang dapat mengatur Memoirs.', 403);
+    if (photo.owner !== (await deviceOwner(req)))
+      throw new Fault('Foto ini bukan milik perangkatmu.', 403);
+    await setMemoirs(photo.id, true);
+    return Response.json(
+      { ok: true, ...(await earnGamePoint(database(), player, 'photo')), cap: GAME_DAILY_CAP },
+      { headers: noStore },
+    );
   } catch (e) {
     return errorResponse(e);
   }

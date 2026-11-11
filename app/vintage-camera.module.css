@@ -281,46 +281,6 @@
     opacity: 0.3;
   }
 }
-/* Small silver buttons on the top plate */
-.topButton {
-  /* Labels get their own font size site-wide; keep 1em = 1% of the body here. */
-  font-size: 1em;
-  margin: 0;
-  position: absolute;
-  top: 5.2em;
-  display: flex;
-  align-items: center;
-  gap: 1.6em;
-  color: #2e2a26;
-  text-align: right;
-}
-.topButton span {
-  font:
-    700 1.45em/1.05 'Helvetica Neue',
-    Arial,
-    sans-serif;
-  white-space: pre;
-}
-.topButton button {
-  width: 4.9em;
-  height: 4.9em;
-  border-radius: 50%;
-  border: 0;
-  background: radial-gradient(circle at 40% 35%, #fff, #cfcac2 60%, #9e978d);
-  box-shadow:
-    0 0.15em 0 #7f786e,
-    0 0.3em 0.5em rgba(0, 0, 0, 0.3),
-    inset 0 0 0 0.12em rgba(0, 0, 0, 0.1);
-}
-.topButton button:active {
-  transform: translateY(0.1em);
-}
-.topButton button[aria-pressed='true'] {
-  box-shadow:
-    0 0.15em 0 #7f786e,
-    0 0 0.5em var(--amber),
-    inset 0 0 0 0.18em var(--amber);
-}
 /* Dials: knurled edges seen from the back; drag sideways to turn. */
 .dial {
   position: absolute;
@@ -371,18 +331,6 @@
 }
 .dialLabel b {
   color: #9a5d16;
-}
-.filmDial {
-  left: 60em;
-  top: -1.8em;
-  width: 15em;
-  height: 6em;
-}
-.evDial {
-  left: 84.5em;
-  top: -1.2em;
-  width: 11.5em;
-  height: 5em;
 }
 .wheel {
   left: 73em;
@@ -485,36 +433,6 @@
   background:
     linear-gradient(140deg, rgba(255, 255, 255, 0.07), transparent 35%),
     repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.12) 0 1px, transparent 1px 3px);
-}
-.grid {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(
-      90deg,
-      transparent calc(33.3% - 0.5px),
-      rgba(233, 247, 238, 0.45) 33.3%,
-      transparent calc(33.3% + 0.5px)
-    ),
-    linear-gradient(
-      90deg,
-      transparent calc(66.6% - 0.5px),
-      rgba(233, 247, 238, 0.45) 66.6%,
-      transparent calc(66.6% + 0.5px)
-    ),
-    linear-gradient(
-      0deg,
-      transparent calc(33.3% - 0.5px),
-      rgba(233, 247, 238, 0.45) 33.3%,
-      transparent calc(33.3% + 0.5px)
-    ),
-    linear-gradient(
-      0deg,
-      transparent calc(66.6% - 0.5px),
-      rgba(233, 247, 238, 0.45) 66.6%,
-      transparent calc(66.6% + 0.5px)
-    );
 }
 .lcdMessage {
   position: absolute;
@@ -630,16 +548,6 @@
   width: 18%;
   transition: width 0.15s;
 }
-.countdown {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  font:
-    700 64px/1 'Courier New',
-    monospace;
-  color: var(--osd);
-}
 .dateOn {
   color: #ffa23a;
 }
@@ -736,28 +644,6 @@
     opacity: 0;
   }
 }
-
-/* Back controls */
-.lever {
-  position: absolute;
-  left: 61.5em;
-  top: 19.5em;
-  width: 7.4em;
-  height: 7.4em;
-  border-radius: 50%;
-  border: 0;
-  background:
-    radial-gradient(circle, #1a1918 0 1.8em, transparent 1.9em),
-    repeating-conic-gradient(#2a2826 0 6deg, #121110 6deg 12deg);
-  box-shadow:
-    0 0 0 0.5em #0d0c0c,
-    0 0.2em 0.5em rgba(0, 0, 0, 0.7);
-}
-.lever[aria-pressed='true'] {
-  box-shadow:
-    0 0 0 0.5em #0d0c0c,
-    0 0 0 0.75em var(--amber);
-}
 .round {
   position: absolute;
   left: 62.4em;
@@ -794,32 +680,8 @@
   color: var(--amber);
 }
 .round:active:not(:disabled),
-.q:active,
-.dpad button:active,
-.lever:active {
+.dpad button:active {
   transform: translateY(0.12em);
-}
-.q {
-  /* Its own font size is 2em, so these lengths are halved. */
-  position: absolute;
-  left: 44.5em;
-  top: 9.6em;
-  width: 2.7em;
-  height: 2.7em;
-  border-radius: 50%;
-  border: 0;
-  background: radial-gradient(circle at 40% 35%, #34312e, #121110);
-  color: #f1ece4;
-  font:
-    800 2em/1 'Helvetica Neue',
-    Arial,
-    sans-serif;
-  box-shadow:
-    0 0 0 0.18em #0a0a0a,
-    0 0.12em 0.25em rgba(0, 0, 0, 0.7);
-}
-.q[aria-pressed='true'] {
-  color: var(--amber);
 }
 .dpad {
   position: absolute;
@@ -833,17 +695,6 @@
     0 0 0 0.5em #070707,
     0 0.4em 0.8em rgba(0, 0, 0, 0.7),
     inset 0 0 0 0.15em rgba(255, 255, 255, 0.05);
-}
-.drive {
-  position: absolute;
-  left: 50%;
-  top: 0.55em;
-  transform: translateX(-50%);
-  font:
-    800 1.35em/1 'Helvetica Neue',
-    Arial,
-    sans-serif;
-  pointer-events: none;
 }
 .dpad button {
   position: absolute;
@@ -937,9 +788,7 @@
   border-radius: 0 0 2em 0;
   mix-blend-mode: screen;
 }
-.lever,
 .round,
-.q,
 .dpad {
   z-index: 1;
 }
@@ -1025,4 +874,32 @@
   font:
     600 1.3em/1.2 system-ui,
     sans-serif;
+}
+/* Flash and front/back lens, on the screen itself. */
+.screenTools {
+  position: absolute;
+  right: 1.2em;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  gap: 1em;
+  z-index: 3;
+}
+.screenTools button {
+  display: grid;
+  place-items: center;
+  width: 4.4em;
+  height: 4.4em;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #f1ece4;
+  cursor: pointer;
+}
+.screenTools button[aria-pressed='true'] {
+  color: var(--amber);
+}
+.screenTools svg {
+  width: 2.2em;
+  height: 2.2em;
 }

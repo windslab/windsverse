@@ -6,7 +6,7 @@ import {publicBooks} from '@/lib/public-books';
 import {businessDay} from '@/lib/model';
 import {publicCard} from '@/lib/member';
 import {weeklyBestSellers} from '@/lib/best-sellers';
-import {earnGamePoint,exchangeGameCash,gamePointsOn,gameWallet,maskName,recordGameSale,redeemGamePoints,GAME_CASH_DAILY_POINTS,GAME_CASH_PER_POINT,GAME_DAILY_CAP} from '@/lib/game-points';
+import {earnGamePoint,gamePointsOn,gameWallet,markGameOpened,maskName,redeemGamePoints,GAME_DAILY_CAP} from '@/lib/game-points';
 export const dynamic='force-dynamic';
 export async function GET(req:Request){try{
  const url=new URL(req.url),loaded=await read(),s=loaded.state;
@@ -64,17 +64,12 @@ export async function POST(req:Request){try{checkMutation(req);const p=await bod
   if((hits?.count||0)>60)throw new Fault('Terlalu banyak permintaan. Tunggu sebentar.',429);
   if(typeof p.player!=='string'||!/^[A-Za-z0-9_-]{16,40}$/.test(p.player))throw new Fault('Data pemain tidak valid.');
   const db=loaded.db as any,headers={'Cache-Control':'no-store'};
+  // Only the game-day point is sent by the game; the photo point comes with putting a photo on Memoirs.
   if(p.action==='game.point'){
-   if(typeof p.activity!=='string'||p.activity.length>40)throw new Fault('Kegiatan tidak valid.');
-   return Response.json({...await earnGamePoint(db,p.player,p.activity),cap:GAME_DAILY_CAP},{headers});
+   if(p.activity!=='day')throw new Fault('Kegiatan tidak valid.');
+   return Response.json({...await earnGamePoint(db,p.player,'day'),cap:GAME_DAILY_CAP},{headers});
   }
-  const limits={cap:GAME_DAILY_CAP,cashPerPoint:GAME_CASH_PER_POINT,cashCap:GAME_CASH_DAILY_POINTS};
-  if(p.action==='game.wallet')return Response.json({...await gameWallet(db,p.player),...limits},{headers});
-  if(p.action==='game.sale'){
-   if(typeof p.price!=='number'||!Number.isFinite(p.price))throw new Fault('Nilai penjualan tidak valid.');
-   return Response.json({...await recordGameSale(db,p.player,p.price),...limits},{headers});
-  }
-  if(p.action==='game.exchange')return Response.json({...await exchangeGameCash(db,p.player),...limits},{headers});
+  if(p.action==='game.wallet'){await markGameOpened(db,p.player);return Response.json({...await gameWallet(db,p.player),cap:GAME_DAILY_CAP},{headers})}
   if(p.action==='game.redeem'){
    const code=typeof p.code==='string'?p.code.trim().toUpperCase().replace(/\s+/g,''):'';
    if(!/^WSM-?\d{1,6}$/.test(code))throw new Fault('Kode kartu member tidak valid. Contoh: WSM-0001.');

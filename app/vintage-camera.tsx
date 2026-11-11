@@ -1,10 +1,9 @@
 'use client';
 // Story of Winds: a rangefinder-style digital camera for guests, seen from the back. The body is
 // landscape; on a phone held upright it turns to stand vertically and shoots portrait.
-// Top: film dial, shutter, exposure (EV) dial, command wheel for zoom, VIEW MODE (front/back
-// lens) and FLASH. Back: playback, delete, DISP/BACK, Q menu (upload, timer, grid), focus lever
-// and a D-pad ring with MENU/OK. Each shot or upload is developed on the phone with the chosen
-// film and kept for 30 days.
+// Kept simple: on top the shutter, REC and a zoom wheel; on the screen flash and front/back lens;
+// on the back photos, delete, FILTER and a D-pad (up/down pick a film, left/right browse photos,
+// OK chooses). Each shot is developed on the phone with the chosen film and kept for 30 days.
 import {
   useCallback,
   useEffect,
@@ -13,7 +12,7 @@ import {
   useSyncExternalStore,
   type PointerEvent,
 } from 'react';
-import { LoaderCircle, Play, Trash2, X } from 'lucide-react';
+import { LoaderCircle, Play, SwitchCamera, Trash2, X, Zap, ZapOff } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import {
   FILMS,
@@ -26,17 +25,12 @@ import {
 } from '@/lib/film';
 import styles from './vintage-camera.module.css';
 
-type Photo = { id: string; film: string; createdAt: string; expiresAt: string };
+type Photo = { id: string; film: string; createdAt: string; expiresAt: string; memoirs?: boolean };
 type Roll = { left: number; roll: number; resetAt: string };
-type Mode = 'shoot' | 'menu' | 'quick' | 'play';
-
-/** Exposure compensation in thirds of a stop, −2 to +2 like a real EV dial. */
-const EV_STEPS = Array.from({ length: 13 }, (_, i) => (i - 6) / 3);
-const evLabel = (ev: number) =>
-  ev === 0 ? '±0' : (ev > 0 ? '+' : '−') + Math.abs(ev).toFixed(1).replace('.0', '');
+type Mode = 'shoot' | 'menu' | 'play';
 const PORTRAIT_QUERY = '(orientation: portrait) and (pointer: coarse)';
 
-const CONSENT_KEY = 'sow-consent-v2',
+const CONSENT_KEY = 'sow-consent-v3',
   DEVICE_KEY = 'sow-device',
   FILM_KEY = 'sow-film';
 
@@ -157,6 +151,9 @@ export type SceneLens = {
   audio?: () => MediaStream | null;
   /** Called with each developed photo (explore mode can hang it in the tower's frame). */
   onPhoto?: (photo: Blob) => void;
+  /** Windstopia: the player whose wallet earns the point when a photo goes up on Memoirs. */
+  player?: () => string;
+  onShared?: (wallet: unknown) => void;
 };
 /** The best video format this browser records. */
 const videoType = () =>
@@ -183,10 +180,8 @@ export default function VintageCamera({
     [filmIndex, setFilmIndex] = useState(0),
     [facing, setFacing] = useState<'environment' | 'user'>('environment'),
     [flash, setFlash] = useState(false),
-    [timer, setTimer] = useState(false),
     [zoom, setZoom] = useState(1),
-    [phase, setPhase] = useState<'live' | 'focus' | 'countdown' | 'saving' | 'review'>('live'),
-    [count, setCount] = useState(0),
+    [phase, setPhase] = useState<'live' | 'focus' | 'saving' | 'review'>('live'),
     [blink, setBlink] = useState(false),
     [cameraError, setCameraError] = useState(''),
     [message, setMessage] = useState(''),
@@ -195,9 +190,6 @@ export default function VintageCamera({
     [playIndex, setPlayIndex] = useState(0),
     [review, setReview] = useState(''),
     [clock, setClock] = useState(() => new Date()),
-    [evIndex, setEvIndex] = useState(6),
-    [grid, setGrid] = useState(false),
-    [info, setInfo] = useState(true),
     [menuIndex, setMenuIndex] = useState(0),
     [recording, setRecording] = useState(false),
     [recSeconds, setRecSeconds] = useState(0),
@@ -205,13 +197,11 @@ export default function VintageCamera({
   const recorder = useRef<MediaRecorder | null>(null),
     recFrame = useRef(0);
   const aim = useRef<{ id: number; x: number; y: number } | null>(null);
-  const upload = useRef<HTMLInputElement>(null);
   const video = useRef<HTMLVideoElement>(null),
     stream = useRef<MediaStream | null>(null),
     urls = useRef(new Map<string, string>());
   const sounds = useCameraSounds();
   const film = films[filmIndex] ?? films[0];
-  const ev = EV_STEPS[evIndex];
 
   // Held upright, a phone is a camera turned vertical: the body stands up and shoots portrait.
   const portrait = useSyncExternalStore(
@@ -359,28 +349,11 @@ export default function VintageCamera({
     return url;
   }, []);
 
-  const pickFilm = (step: number) => {
-    sounds.click();
-    setFilmIndex((i) => {
-      const next = (i + step + films.length) % films.length;
-      store.set(FILM_KEY, films[next].id);
-      return next;
-    });
-  };
-
   const shoot = async () => {
     const v = video.current;
     if (phase !== 'live' || mode !== 'shoot' || !v?.videoWidth || !roll?.left || cameraError)
       return;
     setMessage('');
-    if (timer) {
-      setPhase('countdown');
-      for (let s = 3; s > 0; s--) {
-        setCount(s);
-        sounds.timer();
-        await wait(1000);
-      }
-    }
     setPhase('focus');
     sounds.focus();
     vibrate(8);
@@ -395,13 +368,12 @@ export default function VintageCamera({
         mirror: facing === 'user' && !scene,
         zoom,
         aspect: portrait ? PRINT_ASPECT : LANDSCAPE_ASPECT,
-        exposure: ev,
       }),
     );
     setPhase('live');
   };
 
-  /** Develops, uploads and briefly shows a print; shared by the shutter and photo uploads. */
+  /** Develops, uploads and briefly shows a print. */
   const save = async (make: () => Promise<Blob>) => {
     try {
       const blob = await make();
@@ -427,31 +399,6 @@ export default function VintageCamera({
     }
   };
 
-  /** Q menu → Unggah foto: a picture from the gallery, developed with the chosen film. */
-  const uploadPhoto = async (file: File) => {
-    if (phase !== 'live' || !roll?.left) {
-      setMessage(roll && !roll.left ? 'Jatah hari ini habis.' : 'Tunggu sebentar.');
-      return;
-    }
-    setMessage('');
-    setMode('shoot');
-    setPhase('saving');
-    const url = URL.createObjectURL(file);
-    try {
-      const img = new Image();
-      img.src = url;
-      await img.decode();
-      // The print keeps the picture's own orientation.
-      const aspect = img.naturalWidth >= img.naturalHeight ? LANDSCAPE_ASPECT : PRINT_ASPECT;
-      await save(() => develop(img, film, { aspect, exposure: ev }));
-    } catch {
-      setMessage('Foto tidak dapat dibuka. Coba foto JPG atau PNG lain.');
-    } finally {
-      URL.revokeObjectURL(url);
-      setPhase('live');
-    }
-  };
-
   const download = async (photo: Photo) => {
     try {
       const a = document.createElement('a');
@@ -461,6 +408,30 @@ export default function VintageCamera({
       a.click();
     } catch (e) {
       setMessage(errorOf(e, 'Foto belum dapat diunduh.'));
+    }
+  };
+
+  /**
+   * OK on a photo: it is saved to the phone, and in Windstopia it also goes up on Memoirs,
+   * which earns the day's photo point.
+   */
+  const keep = async (photo: Photo) => {
+    await download(photo);
+    const player = scene?.player?.();
+    if (!player || photo.memoirs) return;
+    try {
+      const res = await fetch('/api/photos?memoirs=1&id=' + photo.id, {
+          method: 'PATCH',
+          headers: { ...headers(), 'x-windstopia-player': player },
+        }),
+        data = (await res.json()) as { counted?: boolean; error?: string };
+      if (!res.ok) throw Error(data.error || 'Foto belum masuk Memoirs.');
+      setPhotos((list) => list.map((p) => (p.id === photo.id ? { ...p, memoirs: true } : p)));
+      setMessage(data.counted ? 'Masuk Memoirs · +1 poin' : 'Foto masuk Memoirs');
+      scene?.onShared?.(data);
+      setTimeout(() => setMessage(''), 2600);
+    } catch (e) {
+      setMessage(errorOf(e, 'Foto belum masuk Memoirs.'));
     }
   };
 
@@ -510,7 +481,7 @@ export default function VintageCamera({
     canvas.height = Math.round(v.videoHeight * scaleDown);
     const ctx = canvas.getContext('2d');
     if (!ctx || !canvas.captureStream) return setMessage('Browser ini belum bisa merekam video.');
-    const look = `${film.preview} brightness(${Math.pow(2, ev * 0.6).toFixed(2)})`,
+    const look = film.preview,
       mirror = facing === 'user' && !scene;
     const draw = () => {
       const w = canvas.width,
@@ -570,68 +541,40 @@ export default function VintageCamera({
     a.download = `story-of-winds-${Date.now()}.${clip.blob.type.includes('mp4') ? 'mp4' : 'webm'}`;
     a.click();
   };
-  const quickItems = [
-    'Unggah foto dari galeri',
-    `Timer 3 detik: ${timer ? 'ON' : 'OFF'}`,
-    `Lampu kilat: ${flash ? 'ON' : 'OFF'}`,
-    `Garis bantu: ${grid ? 'ON' : 'OFF'}`,
-    `Lensa: ${facing === 'user' ? 'depan (selfie)' : 'belakang'}`,
-  ];
-  /** Q menu settings (item 0, the upload, opens the file picker instead). */
-  const toggleQuick = (i: number) => {
-    if (i === 1) setTimer((t) => !t);
-    else if (i === 2) setFlash((f) => !f);
-    else if (i === 3) setGrid((g) => !g);
-    else setFacing((f) => (f === 'user' ? 'environment' : 'user'));
-  };
   const back = () => {
     sounds.click();
     setMode('shoot');
   };
-  const openMenu = (next: 'menu' | 'quick') => {
+  const openFilter = () => {
     if (busy) return;
     sounds.click();
-    setMenuIndex(next === 'menu' ? filmIndex : 0);
-    setMode((m) => (m === next ? 'shoot' : next));
+    setMenuIndex(filmIndex);
+    setMode((m) => (m === 'menu' ? 'shoot' : 'menu'));
+  };
+  const pickFilm = (i: number) => {
+    setFilmIndex(i);
+    store.set(FILM_KEY, films[i].id);
   };
   const ok = () => {
     if (mode === 'menu') {
-      setFilmIndex(menuIndex);
-      store.set(FILM_KEY, films[menuIndex].id);
+      pickFilm(menuIndex);
       back();
-    } else if (mode === 'quick') {
-      sounds.click();
-      if (menuIndex === 0) {
-        upload.current?.click();
-        setMode('shoot');
-      } else toggleQuick(menuIndex);
     } else if (mode === 'play') {
-      if (photos[playIndex]) void download(photos[playIndex]);
-    } else openMenu('menu');
+      if (photos[playIndex]) void keep(photos[playIndex]);
+    } else openFilter();
   };
   const dpad = (dir: 'up' | 'down' | 'left' | 'right') => {
     if (busy) return;
     sounds.click();
-    if (mode === 'menu' || mode === 'quick') {
-      const length = mode === 'menu' ? films.length : quickItems.length;
-      if (dir === 'up') setMenuIndex((i) => (i - 1 + length) % length);
-      else if (dir === 'down') setMenuIndex((i) => (i + 1) % length);
-      else if (dir === 'left') back();
-      else ok();
+    if (mode === 'menu') {
+      if (dir === 'up') setMenuIndex((i) => (i - 1 + films.length) % films.length);
+      else if (dir === 'down') setMenuIndex((i) => (i + 1) % films.length);
       return;
     }
     if (mode === 'play') {
       if (dir === 'left') setPlayIndex((i) => Math.max(0, i - 1));
       if (dir === 'right') setPlayIndex((i) => Math.min(photos.length - 1, i + 1));
-      return;
     }
-    if (dir === 'left' || dir === 'right') pickFilm(dir === 'left' ? -1 : 1);
-    else if (dir === 'up') setTimer((t) => !t);
-    else setFlash((f) => !f);
-  };
-  const stepEv = (step: number) => {
-    sounds.click();
-    setEvIndex((i) => Math.min(EV_STEPS.length - 1, Math.max(0, i + step)));
   };
   const stepZoom = (step: number) => {
     sounds.click();
@@ -647,13 +590,13 @@ export default function VintageCamera({
     ? 'Memuat roll…'
     : mode === 'play'
       ? photos.length
-        ? '◀ ▶ lihat foto · OK unduh · 🗑 hapus · ▶ kembali'
+        ? `◀ ▶ lihat foto · OK ${scene?.player ? 'simpan & masuk Memoirs' : 'simpan'} · 🗑 hapus`
         : 'Belum ada foto. Tekan ▶ untuk kembali.'
-      : mode === 'menu' || mode === 'quick'
-        ? '▲ ▼ pilih · OK pakai · BACK kembali'
+      : mode === 'menu'
+        ? '▲ ▼ pilih filter · OK pakai'
         : !roll.left
           ? `Jatah hari ini habis. Jatah baru: ${resetLabel} WITA.`
-          : 'Knob FILM & EV bisa diputar · roda: zoom · Q: unggah foto';
+          : 'Roda: zoom · FILTER: ganti film · ▶: lihat foto';
 
   // Keyboard on a computer: space = shutter, arrows = D-pad, Enter = OK, Esc = back.
   const keys = useRef({ dpad, ok, back, shoot });
@@ -708,14 +651,22 @@ export default function VintageCamera({
               <p>Kamera kecil untukmu. Sebelum mulai memotret:</p>
               <ol>
                 <li>
-                  Ada <strong>jatah jepretan harian</strong> per perangkat (termasuk foto yang
-                  diunggah). Jatah baru tersedia setiap jam <strong>08.00 WITA</strong>.
+                  Ada <strong>jatah jepretan harian</strong> per perangkat. Jatah baru tersedia
+                  setiap jam <strong>08.00 WITA</strong>.
                 </li>
                 <li>Foto tersimpan di sini selama 30 hari, lalu terhapus otomatis.</li>
-                <li>
-                  Foto hanya terlihat dari perangkatmu. Pengelola Winds Space dapat melihat dan
-                  menghapus foto, dan <strong>foto pilihan bisa ditampilkan di Memoirs</strong>.
-                </li>
+                {scene ? (
+                  <li>
+                    Foto hanya terlihat dari perangkatmu, kecuali foto yang kamu pilih dengan{' '}
+                    <strong>OK: foto itu tampil untuk umum di Memoirs</strong>. Pengelola Winds
+                    Space dapat melihat dan menghapus foto.
+                  </li>
+                ) : (
+                  <li>
+                    Foto hanya terlihat dari perangkatmu. Pengelola Winds Space dapat melihat dan
+                    menghapus foto, dan <strong>foto pilihan bisa ditampilkan di Memoirs</strong>.
+                  </li>
+                )}
                 <li>Dilarang memotret konten SARA, pornografi, kekerasan, atau melanggar hukum.</li>
               </ol>
               <label className={styles.agree}>
@@ -740,18 +691,6 @@ export default function VintageCamera({
           </>
         ) : (
           <section className={styles.body} data-portrait={portrait || undefined}>
-            <input
-              ref={upload}
-              id="sow-upload"
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = '';
-                if (file) void uploadPhoto(file);
-              }}
-            />
             {/* Top plate */}
             <div className={styles.plate} />
             <button
@@ -766,36 +705,7 @@ export default function VintageCamera({
               <i className={styles.eyeGlass} />
               <i className={styles.eyeSensor} />
             </div>
-            <span className={styles.led} data-on={phase === 'countdown' || undefined} />
-            <label className={styles.topButton} style={{ left: '35em' }}>
-              <span>VIEW{'\n'}MODE</span>
-              <button
-                aria-label="Ganti lensa depan atau belakang"
-                onClick={() => {
-                  sounds.click();
-                  setFacing((f) => (f === 'user' ? 'environment' : 'user'));
-                }}
-              />
-            </label>
-            <label className={styles.topButton} style={{ left: '48em' }}>
-              <span>FLASH</span>
-              <button
-                aria-label="Lampu kilat"
-                aria-pressed={flash}
-                onClick={() => {
-                  sounds.click();
-                  setFlash((f) => !f);
-                }}
-              />
-            </label>
-            <Dial
-              className={styles.filmDial}
-              label="FILM"
-              value={film.name}
-              ariaLabel="Knob film: putar untuk ganti film"
-              portrait={portrait}
-              onStep={(s) => !busy && mode === 'shoot' && pickFilm(s)}
-            />
+            <span className={styles.led} data-on={recording || undefined} />
             <button
               className={styles.shutter}
               aria-label="Jepret"
@@ -814,18 +724,10 @@ export default function VintageCamera({
                 : 'REC'}
             </button>
             <Dial
-              className={styles.evDial}
-              label="EV"
-              value={evLabel(ev)}
-              ariaLabel="Knob kompensasi cahaya: putar untuk lebih terang atau gelap"
-              portrait={portrait}
-              onStep={(s) => stepEv(s)}
-            />
-            <Dial
               className={styles.wheel}
               label="ZOOM"
               value={zoom.toFixed(1) + '×'}
-              ariaLabel="Roda zoom: putar untuk memperbesar"
+              ariaLabel="Roda zoom: putar atau scroll untuk memperbesar"
               portrait={portrait}
               flat
               onStep={(s) => stepZoom(s)}
@@ -836,6 +738,7 @@ export default function VintageCamera({
               <div
                 className={styles.lcd}
                 style={scene ? { touchAction: 'none', cursor: 'grab' } : undefined}
+                onWheel={(e) => mode === 'shoot' && stepZoom(e.deltaY < 0 ? 1 : -1)}
                 onPointerDown={(e) => {
                   if (!scene || mode !== 'shoot') return;
                   aim.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
@@ -864,7 +767,7 @@ export default function VintageCamera({
                         playsInline
                         muted
                         style={{
-                          filter: `${film.preview} brightness(${Math.pow(2, ev * 0.6).toFixed(2)})`,
+                          filter: film.preview,
                           transform: `scale(${zoom})${facing === 'user' && !scene ? ' scaleX(-1)' : ''}`,
                         }}
                       />
@@ -879,8 +782,7 @@ export default function VintageCamera({
                           </div>
                         </div>
                       )}
-                      {grid && <i className={styles.grid} aria-hidden />}
-                      <div className={styles.osd} aria-hidden hidden={!info && phase === 'live'}>
+                      <div className={styles.osd} aria-hidden>
                         <span className={styles.osdTop}>
                           <span>
                             <i className={styles.battery} /> P
@@ -888,12 +790,11 @@ export default function VintageCamera({
                           <span>{film.name.toUpperCase()}</span>
                           <span>[{roll ? String(roll.left).padStart(2, '0') : '--'}]</span>
                         </span>
-                        <span className={styles.osdSide}>
-                          <span>{flash ? '⚡ ON' : '⚡ OFF'}</span>
-                          {timer && <span>⏲ 3s</span>}
-                          {zoom > 1 && <span>{zoom.toFixed(1)}×</span>}
-                          {ev !== 0 && <span>EV {evLabel(ev)}</span>}
-                        </span>
+                        {zoom > 1 && (
+                          <span className={styles.osdSide}>
+                            <span>{zoom.toFixed(1)}×</span>
+                          </span>
+                        )}
                         {phase !== 'review' && (
                           <i
                             className={styles.focus}
@@ -902,7 +803,6 @@ export default function VintageCamera({
                             }
                           />
                         )}
-                        {phase === 'countdown' && <b className={styles.countdown}>{count}</b>}
                         {phase === 'saving' && (
                           <span className={styles.osdCenter}>
                             <LoaderCircle size={14} className="spin" /> MENYIMPAN
@@ -914,58 +814,49 @@ export default function VintageCamera({
                           <span>{time}</span>
                         </span>
                       </div>
-                      {(mode === 'menu' || mode === 'quick') && (
+                      {mode === 'shoot' && (
                         <div
-                          className={styles.menu}
-                          role="listbox"
-                          aria-label={mode === 'menu' ? 'Pilih film' : 'Menu cepat'}
+                          className={styles.screenTools}
+                          onPointerDown={(e) => e.stopPropagation()}
                         >
-                          <strong>{mode === 'menu' ? 'FILM' : 'Q MENU'}</strong>
-                          {mode === 'menu'
-                            ? films.map((f, i) => (
-                                <button
-                                  key={f.id}
-                                  role="option"
-                                  aria-selected={i === menuIndex}
-                                  onClick={() => {
-                                    setFilmIndex(i);
-                                    store.set(FILM_KEY, f.id);
-                                    back();
-                                  }}
-                                >
-                                  <i style={{ background: f.color }} />
-                                  {f.name}
-                                </button>
-                              ))
-                            : quickItems.map((label, i) =>
-                                i === 0 ? (
-                                  <label
-                                    key={i}
-                                    htmlFor="sow-upload"
-                                    role="option"
-                                    aria-selected={i === menuIndex}
-                                    onClick={() => {
-                                      sounds.click();
-                                      setMode('shoot');
-                                    }}
-                                  >
-                                    {label}
-                                  </label>
-                                ) : (
-                                  <button
-                                    key={i}
-                                    role="option"
-                                    aria-selected={i === menuIndex}
-                                    onClick={() => {
-                                      sounds.click();
-                                      setMenuIndex(i);
-                                      toggleQuick(i);
-                                    }}
-                                  >
-                                    {label}
-                                  </button>
-                                ),
-                              )}
+                          <button
+                            aria-label={flash ? 'Matikan lampu kilat' : 'Nyalakan lampu kilat'}
+                            aria-pressed={flash}
+                            onClick={() => {
+                              sounds.click();
+                              setFlash((f) => !f);
+                            }}
+                          >
+                            {flash ? <Zap /> : <ZapOff />}
+                          </button>
+                          <button
+                            aria-label="Putar kamera: depan atau belakang"
+                            onClick={() => {
+                              sounds.click();
+                              setFacing((f) => (f === 'user' ? 'environment' : 'user'));
+                            }}
+                          >
+                            <SwitchCamera />
+                          </button>
+                        </div>
+                      )}
+                      {mode === 'menu' && (
+                        <div className={styles.menu} role="listbox" aria-label="Pilih filter">
+                          <strong>FILTER</strong>
+                          {films.map((f, i) => (
+                            <button
+                              key={f.id}
+                              role="option"
+                              aria-selected={i === menuIndex}
+                              onClick={() => {
+                                pickFilm(i);
+                                back();
+                              }}
+                            >
+                              <i style={{ background: f.color }} />
+                              {f.name}
+                            </button>
+                          ))}
                         </div>
                       )}
                       {cameraError && <p className={styles.lcdError}>{cameraError}</p>}
@@ -982,15 +873,6 @@ export default function VintageCamera({
             </div>
 
             {/* Back: buttons */}
-            <button
-              className={styles.lever}
-              aria-label="Tuas fokus: garis bantu"
-              aria-pressed={grid}
-              onClick={() => {
-                sounds.click();
-                setGrid((g) => !g);
-              }}
-            />
             <button
               className={styles.round}
               style={{ top: '28.5em' }}
@@ -1012,36 +894,27 @@ export default function VintageCamera({
             <button
               className={styles.round + ' ' + styles.text}
               style={{ top: '42.5em' }}
-              aria-label={mode === 'shoot' ? 'Tampilkan atau sembunyikan info layar' : 'Kembali'}
-              onClick={() => {
-                if (mode === 'shoot') {
-                  sounds.click();
-                  setInfo((v) => !v);
-                } else back();
-              }}
+              aria-label="Filter: pilih film"
+              aria-pressed={mode === 'menu'}
+              onClick={openFilter}
             >
-              <span>DISP{'\n'}BACK</span>
-            </button>
-            <button
-              className={styles.q}
-              aria-label="Menu cepat: unggah foto, timer, kilat, garis bantu"
-              aria-pressed={mode === 'quick'}
-              onClick={() => openMenu('quick')}
-            >
-              Q
+              <span>FILTER</span>
             </button>
             <div className={styles.dpad}>
-              <span className={styles.drive}>DRIVE</span>
-              <button className={styles.up} aria-label="Atas: timer" onClick={() => dpad('up')} />
-              <button className={styles.left} aria-label="Kiri" onClick={() => dpad('left')} />
-              <button className={styles.right} aria-label="Kanan" onClick={() => dpad('right')} />
+              <button className={styles.up} aria-label="Atas" onClick={() => dpad('up')} />
               <button
-                className={styles.down}
-                aria-label="Bawah: kilat"
-                onClick={() => dpad('down')}
+                className={styles.left}
+                aria-label="Kiri: foto sebelumnya"
+                onClick={() => dpad('left')}
               />
-              <button className={styles.ok} aria-label="Menu / OK" onClick={ok}>
-                MENU{'\n'}OK
+              <button
+                className={styles.right}
+                aria-label="Kanan: foto berikutnya"
+                onClick={() => dpad('right')}
+              />
+              <button className={styles.down} aria-label="Bawah" onClick={() => dpad('down')} />
+              <button className={styles.ok} aria-label="OK" onClick={ok}>
+                OK
               </button>
             </div>
             <i className={styles.leather} aria-hidden />

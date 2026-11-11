@@ -25,7 +25,7 @@ import VintageCamera from './vintage-camera';
 import { Bag, Notebook, Reader, type BagItem } from './explore-bag';
 import BarStation from './explore-bar';
 import MemberDialog from './member/member-dialog';
-import { useGamePoints } from './use-game-points';
+import { playerId, useGamePoints, type GameWallet } from './use-game-points';
 import { PointsPanel } from './explore-points';
 
 export type ExploreApi = {
@@ -262,24 +262,43 @@ export default function ExploreMode({
     );
   }, [customers, api]);
 
-  // Windstopia points on the player's member card, and the day's missions.
+  // Windstopia points, redeemed onto a member card: a photo on Memoirs and a whole game day.
   const game = useGamePoints(),
     [missionsOpen, setMissionsOpen] = useState(false);
-  const earnRef = useRef(game.earn);
+  const countedRef = useRef(game.counted);
   useEffect(() => {
-    earnRef.current = game.earn;
+    countedRef.current = game.counted;
   });
-  // Story of Winds from Luna's camera: keep the latest shot (small) for the tower's frame.
+  // Story of Winds from Luna's camera: keep the latest shot (small) for the tower's frame. A photo
+  // the player keeps goes up on Memoirs, which earns the day's photo point.
   const photoLens = useMemo(
     () => ({
       ...api.photo,
       onPhoto: (blob: Blob) => {
         void shrinkPhoto(blob).then((url) => (lastPhoto.current = url));
-        earnRef.current('photo');
       },
+      player: playerId,
+      onShared: (wallet: unknown) =>
+        countedRef.current(wallet as GameWallet & { counted: boolean }, 'foto masuk Memoirs'),
     }),
     [api],
   );
+  // A whole game day (24 real minutes) played since the game opened earns the day's point.
+  const playedDay = game.playedDay;
+  useEffect(() => {
+    let played = 0,
+      last = performance.now(),
+      claimed = false;
+    const t = setInterval(() => {
+      const now = performance.now();
+      played += ((now - last) / 1000) * GAME_MINUTES_PER_SECOND;
+      last = now;
+      if (claimed || played < 24 * 60) return;
+      played = 0;
+      void playedDay().then((done) => (claimed = done));
+    }, 5000);
+    return () => clearInterval(t);
+  }, [playedDay]);
   // The frame keeps the last photo hung in it (on this device).
   useEffect(() => {
     try {
@@ -664,13 +683,11 @@ export default function ExploreMode({
           spot.box.getCenter(new THREE.Vector3()),
         );
         reward(verb === 'water' ? 'Tanaman segar' : 'Meja bersih', 3);
-        setTimeout(() => game.earn(verb), 3000);
       }
     }
     if (verb === 'sweep') {
       api.chore('sweeping', 4);
       reward('Lantai disapu', 4);
-      setTimeout(() => game.earn('sweep'), 4000);
     }
     if (verb === 'photo') setPhotoOpen(true);
     if (verb === 'hang' && lastPhoto.current) {
@@ -709,7 +726,6 @@ export default function ExploreMode({
         list.map((x) => (x.key === c.key ? { ...x, stage: 'served', servedAt: Date.now() } : x)),
       );
       setScore((s) => ({ ...s, served: s.served + 1 }));
-      game.earn('serve');
       setToast({ name: c.name, line: thanks });
       setTimeout(() => setToast(null), 5500);
       setHolding(false);
@@ -920,7 +936,6 @@ export default function ExploreMode({
             // Every purchase goes into the till.
             const price = queueCustomer.order.item.price;
             setScore((s) => ({ ...s, money: s.money + price }));
-            game.sale(price);
             setNote(`+${rupiah(price)}`);
             setTimeout(() => setNote(''), 2200);
             setCustomers((list) =>

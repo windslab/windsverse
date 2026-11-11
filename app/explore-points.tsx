@@ -1,10 +1,9 @@
 'use client';
 import { useState } from 'react';
 import styles from './explore-mode.module.css';
-import { rupiah } from '@/lib/barista-game';
 import type { RedeemCard, useGamePoints } from './use-game-points';
 
-/** The poin panel: the wallet, redeeming it onto a member card by code, and today's missions. */
+/** The poin panel: the wallet, redeeming it onto a member card by code, and today's two tasks. */
 export function PointsPanel({
   game,
   onClose,
@@ -17,8 +16,7 @@ export function PointsPanel({
     [card, setCard] = useState<RedeemCard | null>(null),
     [moved, setMoved] = useState(0),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState(''),
-    [swapNote, setSwapNote] = useState('');
+    [error, setError] = useState('');
   const run = async (work: () => Promise<void>) => {
     setBusy(true);
     setError('');
@@ -30,8 +28,6 @@ export function PointsPanel({
     setBusy(false);
   };
   const amount = card ? Math.min(game.balance, card.room) : 0;
-  const swapLeft = Math.max(0, game.cashCap - game.exchanged),
-    swappable = Math.min(Math.floor(game.cash / game.cashPerPoint), swapLeft);
   return (
     <aside className={styles.missions} aria-label="Poin Windstopia">
       <header>
@@ -48,31 +44,6 @@ export function PointsPanel({
             {game.today}/{game.cap} poin didapat hari ini
           </small>
         </span>
-      </div>
-      <div className={styles.exchange}>
-        <span>
-          Rupiah dari kasir <b>{rupiah(game.cash)}</b>
-          <small>
-            {rupiah(game.cashPerPoint)} = 1 poin · ditukar {game.exchanged}/{game.cashCap} poin hari
-            ini
-          </small>
-        </span>
-        <button
-          className={styles.redeem}
-          disabled={busy || !swappable}
-          onClick={() =>
-            void run(async () => {
-              const gained = await game.exchange();
-              setSwapNote(gained ? `✓ ${gained} poin ditambahkan` : 'Belum ada yang bisa ditukar.');
-            })
-          }
-        >
-          {swappable ? `Tukar jadi ${swappable} poin` : 'Tukar'}
-        </button>
-        {swapNote && <small className={styles.missionDone}>{swapNote}</small>}
-        {!swapLeft && !swapNote && (
-          <small>Batas tukar hari ini sudah penuh. Coba lagi besok.</small>
-        )}
       </div>
       {step === 'code' && (
         <form
@@ -152,22 +123,23 @@ export function PointsPanel({
           {error}
         </p>
       )}
-      <strong className={styles.missionsTitle}>Misi hari ini</strong>
+      <strong className={styles.missionsTitle}>Poin hari ini</strong>
       <ul>
-        {game.missions.map((m) => (
-          <li key={m.id} className={m.done ? styles.missionDone : ''}>
-            <span>{m.done ? '✓' : '○'}</span>
-            {m.label}
-            <small>
-              {m.progress}/{m.count}
-            </small>
+        {[
+          { done: game.done.photo, label: 'Foto Luna masuk Memoirs' },
+          { done: game.done.day, label: 'Main sampai hari di Windstopia berganti' },
+        ].map((t) => (
+          <li key={t.label} className={t.done ? styles.missionDone : ''}>
+            <span>{t.done ? '✓' : '○'}</span>
+            {t.label}
+            <small>{t.done ? 1 : 0}/1</small>
           </li>
         ))}
       </ul>
       <p>
-        Setiap kegiatan dan misi = 1 poin, maks. {game.cap} per hari. Rupiah dari kasir bisa ditukar
-        maks. {game.cashCap} poin per hari. Satu kartu member bisa menerima {game.cap} poin game per
-        hari. Kartu tidak perlu tersimpan di perangkat ini: cukup kodenya.
+        Masing-masing 1 poin per hari, jadi maks. {game.cap} poin sehari. Foto masuk Memoirs saat
+        kamu menekan OK pada foto di kamera. Kartu tidak perlu tersimpan di perangkat ini: cukup
+        kodenya.
       </p>
     </aside>
   );
