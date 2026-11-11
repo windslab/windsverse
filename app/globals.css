@@ -4734,12 +4734,9 @@ td {
 .landing-scene-column .landing-tv-actions {
   grid-column: auto;
 }
-/* Seven destinations: Menu across the top, then three rows of two. */
+/* Eight destinations, Menu among them: four rows of two. */
 .landing-scene-column .landing-telescope-cta {
   grid-column: auto;
-}
-.landing-scene-column .landing-destinations > .landing-cta {
-  grid-column: 1 / -1;
 }
 
 /* Windstronout: controls follow the eyepiece on phones; object details have their own space. */

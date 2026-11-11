@@ -126,6 +126,7 @@ export function PointsPanel({
       <strong className={styles.missionsTitle}>Poin hari ini</strong>
       <ul>
         {[
+          { done: game.done.open, label: 'Buka kafe' },
           { done: game.done.photo, label: 'Foto Luna masuk Memoirs' },
           { done: game.done.day, label: 'Main sampai hari di Windstopia berganti' },
         ].map((t) => (

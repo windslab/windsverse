@@ -39,14 +39,15 @@ async function call<T>(body: object): Promise<T> {
 }
 
 /**
- * Windstopia points: a photo put up on Memoirs and a whole game day played each add one point a
- * day to this device's game wallet, which is redeemed onto a member card by its code.
+ * Windstopia points: opening the café, a photo put up on Memoirs and a whole game day played each
+ * add one point a day to this device's game wallet, which is redeemed onto a member card by its
+ * code.
  */
 export function useGamePoints() {
   const [wallet, setWallet] = useState<GameWallet>({
       balance: 0,
       today: 0,
-      done: { photo: false, day: false },
+      done: { open: false, photo: false, day: false },
     }),
     [note, setNote] = useState('');
 
@@ -73,22 +74,25 @@ export function useGamePoints() {
     [say],
   );
 
-  /** A whole game day was played; true once today's game-day point is in. */
-  const playedDay = useCallback(async () => {
-    const player = playerId();
-    if (!player) return false;
-    try {
-      const r = await call<GameWallet & { counted: boolean }>({
-        action: 'game.point',
-        player,
-        activity: 'day',
-      });
-      counted(r, 'satu hari di Windstopia');
-      return r.done.day;
-    } catch {
-      return false;
-    }
-  }, [counted]);
+  /** The café was opened, or a whole game day played; true once today's point for it is in. */
+  const earn = useCallback(
+    async (activity: 'open' | 'day') => {
+      const player = playerId();
+      if (!player) return false;
+      try {
+        const r = await call<GameWallet & { counted: boolean }>({
+          action: 'game.point',
+          player,
+          activity,
+        });
+        counted(r, activity === 'open' ? 'kafe dibuka' : 'satu hari di Windstopia');
+        return r.done[activity];
+      } catch {
+        return false;
+      }
+    },
+    [counted],
+  );
 
   /** Looks a card up by its code, to show whose it is before redeeming. */
   const checkCard = useCallback(async (code: string) => {
@@ -129,7 +133,7 @@ export function useGamePoints() {
     note,
     cap: GAME_DAILY_CAP,
     counted,
-    playedDay,
+    earn,
     checkCard,
     redeem,
     lastCode,

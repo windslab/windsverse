@@ -25,9 +25,10 @@ Disepakati bersama pemilik pada 1 November 2026. Tahap 1 dibangun di branch `lun
 - Poin dihitung dari harga **sesudah diskon** (diskon biasa memotong poin secara proporsional).
 - Poin **dikumpulkan terus lintas kartu**.
 - Semua poin **hangus** bila **12 bulan** tidak ada transaksi yang memenuhi syarat.
-- **Poin Windstopia** (diputuskan ulang 11 Nov 2026, lebih sederhana): hanya dua hal yang memberi
+- **Poin Windstopia** (diputuskan ulang 11 Nov 2026, lebih sederhana): hanya tiga hal yang memberi
   poin ke saldo poin game pemain (disimpan di server, terikat ke perangkatnya), masing-masing
-  **1 poin per hari** (hari kafe, ganti jam 05.00 WITA), jadi paling banyak **2 poin per hari**:
+  **1 poin per hari** (hari kafe, ganti jam 05.00 WITA), jadi paling banyak **3 poin per hari**:
+  - **Buka kafe** di Windstopia.
   - **Foto masuk Memoirs**: memotret dengan kamera Luna, lalu menekan OK pada foto itu di kamera.
     Foto tersimpan ke HP dan otomatis tampil di Memoirs; foto ke-2 dan seterusnya di hari yang sama
     tidak menambah poin. Video tidak memberi poin.
@@ -37,7 +38,7 @@ Disepakati bersama pemilik pada 1 November 2026. Tahap 1 dibangun di branch `lun
 - Pemain memindahkan saldonya lewat tombol **poin**: form kode kartu langsung tampil, jadi cukup
   memasukkan kode kartu (misalnya WSM-0001); kartu tidak perlu tersimpan di HP atau browser itu.
   Sebelum dipindahkan, nama pemilik kartu tampil disamarkan (misalnya R\*\*\* S.) supaya salah
-  ketik ketahuan. Satu kartu menerima paling banyak **2 poin game per hari**; sisanya tetap di
+  ketik ketahuan. Satu kartu menerima paling banyak **3 poin game per hari**; sisanya tetap di
   saldo game dan bisa dipindahkan besok.
 - Poin game di kartu bisa ditukar hadiah seperti poin belanja, tetapi hadiah tetap butuh kartu
   stamp penuh, dan poin game tidak memperpanjang masa hangus.

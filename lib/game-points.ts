@@ -1,12 +1,12 @@
-// Windstopia points: two things earn a point into the player's game wallet, each at most once a
-// café day: a photo from Luna's camera that went up on Memoirs, and playing through a whole game
-// day. The player redeems the wallet onto a member card by its code. A card takes in at most the
+// Windstopia points: three things earn a point into the player's game wallet, each at most once
+// a café day: opening the café, a photo from Luna's camera that went up on Memoirs, and playing
+// through a whole game day. The player redeems the wallet onto a member card by its code. A card takes in at most the
 // same daily cap, so points gathered on many devices cannot pile onto one card. Wallets and card
 // totals are written apart from the café's revisioned records, so a player never makes a
 // cashier's screen reload.
 import { businessDay, type Row, type State } from './model';
 
-export const GAME_ACTIVITIES = ['photo', 'day'] as const;
+export const GAME_ACTIVITIES = ['open', 'photo', 'day'] as const;
 export type GameActivity = (typeof GAME_ACTIVITIES)[number];
 /** One point per activity per day, so the cap is simply their number. */
 export const GAME_DAILY_CAP = GAME_ACTIVITIES.length;
@@ -53,14 +53,18 @@ export async function gameWallet(db: Db, player: string, now = new Date()) {
   const day = businessDay(now);
   const row = await db
     .prepare(
-      `SELECT json_extract(data,'$.balance') AS balance, json_extract(data,?2) AS today, json_extract(data,?3) AS photo, json_extract(data,?4) AS played FROM records WHERE id=?1 AND kind='${WALLET_KIND}'`,
+      `SELECT json_extract(data,'$.balance') AS balance, json_extract(data,?2) AS today, json_extract(data,'$.done') AS done FROM records WHERE id=?1 AND kind='${WALLET_KIND}'`,
     )
-    .bind(walletId(player), `$.days."${day}"`, `$.done."${day}|photo"`, `$.done."${day}|day"`)
-    .first<{ balance: number; today: number; photo: number | null; played: number | null }>();
+    .bind(walletId(player), `$.days."${day}"`)
+    .first<{ balance: number; today: number; done: string | null }>();
+  const done: Record<string, number> = row?.done ? JSON.parse(row.done) : {};
   return {
     balance: Number(row?.balance) || 0,
     today: Number(row?.today) || 0,
-    done: { photo: !!row?.photo, day: !!row?.played },
+    done: Object.fromEntries(GAME_ACTIVITIES.map((a) => [a, !!done[`${day}|${a}`]])) as Record<
+      GameActivity,
+      boolean
+    >,
   };
 }
 

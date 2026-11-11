@@ -262,7 +262,8 @@ export default function ExploreMode({
     );
   }, [customers, api]);
 
-  // Windstopia points, redeemed onto a member card: a photo on Memoirs and a whole game day.
+  // Windstopia points, redeemed onto a member card: opening the café, a photo on Memoirs and a
+  // whole game day.
   const game = useGamePoints(),
     [missionsOpen, setMissionsOpen] = useState(false);
   const countedRef = useRef(game.counted);
@@ -284,7 +285,7 @@ export default function ExploreMode({
     [api],
   );
   // A whole game day (24 real minutes) played since the game opened earns the day's point.
-  const playedDay = game.playedDay;
+  const earn = game.earn;
   useEffect(() => {
     let played = 0,
       last = performance.now(),
@@ -295,10 +296,10 @@ export default function ExploreMode({
       last = now;
       if (claimed || played < 24 * 60) return;
       played = 0;
-      void playedDay().then((done) => (claimed = done));
+      void earn('day').then((done) => (claimed = done));
     }, 5000);
     return () => clearInterval(t);
-  }, [playedDay]);
+  }, [earn]);
   // The frame keeps the last photo hung in it (on this device).
   useEffect(() => {
     try {
@@ -406,7 +407,7 @@ export default function ExploreMode({
       setPanel(null);
       setNote('Kafe tutup · sampai jumpa besok');
       setTimeout(() => setNote(''), 2500);
-    }
+    } else void game.earn('open');
     setOpen(!open);
   };
 

@@ -64,10 +64,10 @@ export async function POST(req:Request){try{checkMutation(req);const p=await bod
   if((hits?.count||0)>60)throw new Fault('Terlalu banyak permintaan. Tunggu sebentar.',429);
   if(typeof p.player!=='string'||!/^[A-Za-z0-9_-]{16,40}$/.test(p.player))throw new Fault('Data pemain tidak valid.');
   const db=loaded.db as any,headers={'Cache-Control':'no-store'};
-  // Only the game-day point is sent by the game; the photo point comes with putting a photo on Memoirs.
+  // The game sends the café-opening and game-day points; the photo point comes with putting a photo on Memoirs.
   if(p.action==='game.point'){
-   if(p.activity!=='day')throw new Fault('Kegiatan tidak valid.');
-   return Response.json({...await earnGamePoint(db,p.player,'day'),cap:GAME_DAILY_CAP},{headers});
+   if(p.activity!=='day'&&p.activity!=='open')throw new Fault('Kegiatan tidak valid.');
+   return Response.json({...await earnGamePoint(db,p.player,p.activity),cap:GAME_DAILY_CAP},{headers});
   }
   if(p.action==='game.wallet'){await markGameOpened(db,p.player);return Response.json({...await gameWallet(db,p.player),cap:GAME_DAILY_CAP},{headers})}
   if(p.action==='game.redeem'){
