@@ -11,6 +11,13 @@ function addKnees(model: THREE.Object3D) {
     const leg = model.getObjectByName('Luna_Leg_' + side),
       pants = model.getObjectByName(`Luna_Leg_${side}_pants`) as THREE.Mesh | undefined;
     if (!leg || !pants) continue;
+    // A copy of an already rigged Luna (the café's guests) keeps the knee it has: a second one
+    // would bend an empty joint while the shin and shoes stay on the first, legs straight.
+    const existing = leg.getObjectByName('Luna_Knee_' + side);
+    if (existing instanceof THREE.Group) {
+      knees.push(existing);
+      continue;
+    }
     // The trousers run from the hip (0) down to -0.2; the knee sits a third of the way down.
     const knee = new THREE.Group();
     knee.name = 'Luna_Knee_' + side;

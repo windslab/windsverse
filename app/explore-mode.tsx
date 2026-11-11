@@ -28,8 +28,16 @@ import BarStation from './explore-bar';
 import MemberDialog from './member/member-dialog';
 import { playerId, useGamePoints, type GameWallet } from './use-game-points';
 import { PointsPanel } from './explore-points';
-import { FriendsPanel, StoryCard, useFriends, type NewStory } from './explore-regulars';
-import { pickGuest } from '@/lib/regulars';
+import { FriendsPanel, InviteCard, StoryCard, useFriends, type NewStory } from './explore-regulars';
+import {
+  OUTINGS,
+  REGULARS,
+  outingFriends,
+  pickGuest,
+  regularNamed,
+  storiesOpen,
+  type Outing,
+} from '@/lib/regulars';
 
 export type ExploreApi = {
   setManual: (on: boolean) => void;
@@ -51,9 +59,39 @@ export type ExploreApi = {
   jump: () => void;
   /** Arrow over the guest whose order Luna carries (null = none). */
   marker: (key: string | null) => void;
+  /** How many cups are on Luna's tray (1–3). */
+  trayCups: (count: number) => void;
+  /** Friends out with Luna, placed and posed by the game ([] = none). */
+  companions: (
+    list: {
+      name: string;
+      male: boolean;
+      position: THREE.Vector3;
+      heading: number;
+      sit: boolean;
+      /** Walk along behind Luna. */
+      follow?: boolean;
+    }[],
+  ) => void;
+  /** Put Luna somewhere at once. */
+  teleport: (point: THREE.Vector3) => void;
+  /** The camp on the mountain: the fire (rain puts it out), the tents, and where friends meet. */
+  camp: {
+    fire: THREE.Vector3;
+    lit: () => boolean;
+    light: () => void;
+    tents: (progress: number) => void;
+    meetingPoint: THREE.Vector3;
+  } | null;
+  /** How hard it is raining (0–1). */
+  rain: () => number;
   /** A free seat within reach, then sit / stand. */
   seatNear: () => { id: string; position: THREE.Vector3 } | null;
   sit: (id: string) => boolean;
+  /** First visit: start upstairs, sitting on the floor and reading. */
+  readUpstairs: () => boolean;
+  /** Keep Luna out of the tower (its stairs and rooms) until it is unlocked. */
+  lockTower: (locked: boolean) => void;
   stand: () => void;
   sitting: () => boolean;
   chore: (
@@ -159,6 +197,8 @@ const GOAL_ACTION: Record<string, string[]> = {
   'go-guest': ['serve'],
 };
 const flat = (a: THREE.Vector3, b: THREE.Vector3) => Math.hypot(a.x - b.x, a.z - b.z);
+/** Finished drinks Luna's tray holds before she has to go and serve them. */
+const TRAY_MAX = 3;
 /** Floor distance from Luna to the outside of a box, if she is on its level. */
 const spotDistance = (at: THREE.Vector3, box: THREE.Box3) =>
   at.y < box.min.y - 0.7 || at.y > box.max.y + 0.4
@@ -175,6 +215,11 @@ const REST_LABELS: Record<string, string> = {
   sofa: 'Duduk santai',
   sofaLie: 'Rebahan di sofa',
   pier: 'Duduk di ujung dermaga',
+  viewMeadow: 'Duduk menikmati pemandangan',
+  viewSlope: 'Duduk menikmati pemandangan',
+  campLog1: 'Duduk dekat api unggun',
+  campLog2: 'Duduk dekat api unggun',
+  campLog3: 'Duduk dekat api unggun',
 };
 const emptyDrink = (): Drink => ({ cup: null, amounts: {}, espressoQuality: 1 });
 
@@ -205,7 +250,8 @@ export default function ExploreMode({
     [actions, setActions] = useState<{ id: string; label: string }[]>([]),
     [ticket, setTicket] = useState<string | null>(null),
     [drink, setDrink] = useState<Drink>(emptyDrink()),
-    [holding, setHolding] = useState(false),
+    /** Finished drinks on Luna's tray (guest keys), waiting to be served. */
+    [tray, setTray] = useState<string[]>([]),
     [score, setScore] = useState({ money: 0, served: 0 }),
     [toast, setToast] = useState<{ name: string; line: string } | null>(null),
     [hint, setHint] = useState('Jalan ke kasir untuk menyambut tamu.'),
@@ -215,6 +261,7 @@ export default function ExploreMode({
     [minutes, setMinutes] = useState(8 * 60),
     [crowdLabel, setCrowdLabel] = useState('sepi'),
     [note, setNote] = useState('');
+  const holding = tray.length > 0;
   const customersRef = useRef<Customer[]>([]),
     keys = useRef(new Set<string>()),
     stick = useRef({ x: 0, y: 0 }),
@@ -273,6 +320,208 @@ export default function ExploreMode({
   const friends = useFriends(),
     [friendsOpen, setFriendsOpen] = useState(false),
     [story, setStory] = useState<NewStory | null>(null);
+  // The tower opens once every regular has told Luna their whole story.
+  const knownFriends = REGULARS.filter(
+      (r) => storiesOpen(r, friends.served[r.name] || 0) === 4,
+    ).length,
+    towerLocked = knownFriends < REGULARS.length,
+    towerLockedRef = useRef(towerLocked);
+  useEffect(() => {
+    towerLockedRef.current = towerLocked;
+    api.lockTower(towerLocked);
+  }, [towerLocked, api]);
+  const towerNoteRef = useRef('');
+  useEffect(() => {
+    towerNoteRef.current = `Terkunci · dengarkan semua cerita teman-teman dulu (${knownFriends}/${REGULARS.length} ♥ penuh)`;
+  }, [knownFriends]);
+  // Outings: at the right game hour one of the crew Luna knows may invite her (once a game day
+  // each). The friends gather in front of the café, walk with her (the sea by the footbridge,
+  // the mountain by the trail), and once there sit together and chat; at the camp they pitch the
+  // tents first. Walking away, or the evening running its course, ends it, and each friend
+  // there counts it as time together.
+  type OutingPhase = 'gather' | 'walk' | 'there';
+  const [invite, setInvite] = useState<{ outing: Outing; friends: string[] } | null>(null),
+    [outing, setOuting] = useState<{
+      outing: Outing;
+      friends: string[];
+      phase: OutingPhase;
+      since: number;
+    } | null>(null);
+  const outingDay = useRef({ last: -1, asked: new Set<string>() });
+  useEffect(() => {
+    const d = outingDay.current;
+    if (minutes < d.last) d.asked.clear();
+    d.last = minutes;
+    if (invite || outing || panel || photoOpen || !api.camp) return;
+    const known = REGULARS.filter((r) => (friends.served[r.name] || 0) > 0).map((r) => r.name);
+    const due = OUTINGS.find((o) => Math.floor(minutes / 60) === o.hour && !d.asked.has(o.id));
+    if (!due) return;
+    const who = outingFriends(due, known);
+    if (!who.length) return;
+    d.asked.add(due.id);
+    if (Math.random() < 0.3) return;
+    setInvite({ outing: due, friends: who });
+  }, [minutes, invite, outing, panel, photoOpen, friends.served, api]);
+  const joinOuting = () => {
+    if (!invite || !api.camp) return;
+    const { outing: o, friends: who } = invite;
+    setInvite(null);
+    // Waiting together in front of the café, facing it.
+    const meet = api.camp.meetingPoint,
+      face = Math.atan2(api.luna().x - meet.x, api.luna().z - meet.z);
+    api.companions(
+      who.map((name, i) => ({
+        name,
+        male: regularNamed(name)?.male ?? true,
+        position: meet
+          .clone()
+          .add(
+            new THREE.Vector3(
+              Math.cos(face) * (i - (who.length - 1) / 2) * 0.9,
+              0,
+              -Math.sin(face) * (i - (who.length - 1) / 2) * 0.9,
+            ),
+          ),
+        heading: face,
+        sit: false,
+      })),
+    );
+    setNote(`${who.join(', ')} menunggu di depan kafe, dekat zebra cross.`);
+    setTimeout(() => setNote(''), 4500);
+    setOuting({ outing: o, friends: who, phase: 'gather', since: Date.now() });
+  };
+  // What the hint line says during an outing (empty otherwise).
+  const outingHint = useRef('');
+  useEffect(() => {
+    if (!outing) outingHint.current = '';
+    else if (outing.phase === 'gather')
+      outingHint.current = 'Teman-teman menunggu di depan kafe, dekat zebra cross.';
+    else if (outing.phase === 'walk')
+      outingHint.current =
+        outing.outing.id === 'camp'
+          ? 'Ikuti jalan setapak di seberang zebra cross sampai Area Perkemahan.'
+          : 'Ke dermaga: lewat jembatan kecil di belakang kafe, lalu ke pantai.';
+    else
+      outingHint.current =
+        outing.outing.id === 'camp'
+          ? 'Duduk di batang kayu dekat api unggun. Kalau hujan, berteduh di tenda.'
+          : 'Duduk di ujung dermaga bersama teman-teman.';
+  }, [outing]);
+  const friendsRef = useRef(friends);
+  useEffect(() => {
+    friendsRef.current = friends;
+  });
+  // The outing's progress, checked a few times a second.
+  useEffect(() => {
+    if (!outing || !api.camp) return;
+    const camp = api.camp,
+      spot = api.restSpots.find((r) => r.name === outing.outing.place);
+    let said = 0,
+      lastLine = Date.now();
+    const end = (done: boolean) => {
+      api.companions([]);
+      camp.tents(0);
+      if (done) {
+        let opened: NewStory | null = null;
+        for (const name of outing.friends) opened = friendsRef.current.serve(name) ?? opened;
+        if (opened) setStory(opened);
+        setNote(outing.outing.done);
+      } else setNote('Teman-teman pulang duluan. Lain kali ikut ya!');
+      setTimeout(() => setNote(''), 3500);
+      setOuting(null);
+    };
+    const t = setInterval(() => {
+      const at = api.luna(),
+        elapsed = Date.now() - outing.since;
+      if (outing.phase === 'gather') {
+        if (flat(at, camp.meetingPoint) < 2.4) {
+          setOuting((o) => (o ? { ...o, phase: 'walk', since: Date.now() } : o));
+          api.companions(
+            outing.friends.map((name, i) => ({
+              name,
+              male: regularNamed(name)?.male ?? true,
+              position: camp.meetingPoint.clone().add(new THREE.Vector3(i * 0.6 - 0.9, 0, 0.6)),
+              heading: 0,
+              sit: false,
+              follow: true,
+            })),
+          );
+          setToast({
+            name: outing.friends[0],
+            line:
+              outing.outing.id === 'camp'
+                ? 'Ayo berangkat! Ikuti jalan setapak di seberang jalan.'
+                : 'Ayo ke dermaga! Lewat jembatan di belakang kafe.',
+          });
+          setTimeout(() => setToast(null), 5000);
+        } else if (elapsed > 300_000) end(false);
+        return;
+      }
+      if (outing.phase === 'walk') {
+        const target = outing.outing.id === 'camp' ? camp.fire : spot?.position;
+        if (target && flat(at, target) < (outing.outing.id === 'camp' ? 9 : 6)) {
+          setOuting((o) => (o ? { ...o, phase: 'there', since: Date.now() } : o));
+          // The friends take their places: along the end of the pier, or on the logs round the fire.
+          const right = spot
+            ? new THREE.Vector3(Math.cos(spot.heading), 0, -Math.sin(spot.heading))
+            : new THREE.Vector3(1, 0, 0);
+          const logs = api.restSpots.filter(
+            (r) => r.name.startsWith('campLog') && r.name !== outing.outing.place,
+          );
+          api.companions(
+            outing.friends.map((name, i) => {
+              const log = outing.outing.id === 'camp' ? logs[i] : undefined,
+                offset = (i % 2 ? -1 : 1) * (0.85 + Math.floor(i / 2) * 0.8);
+              return {
+                name,
+                male: regularNamed(name)?.male ?? true,
+                position: log
+                  ? log.position.clone()
+                  : spot!.position.clone().addScaledVector(right, offset),
+                heading: log ? log.heading : spot!.heading,
+                sit: true,
+              };
+            }),
+          );
+          setPlace({
+            name: outing.outing.id === 'camp' ? 'Berkemah bersama' : 'Sunset bersama',
+            note:
+              outing.outing.id === 'camp'
+                ? 'Teman-teman mendirikan tenda. Duduk di dekat api unggun.'
+                : 'Duduk di ujung dermaga bersama teman-teman.',
+            first: true,
+          });
+          setTimeout(() => setPlace(null), 4500);
+        } else if (elapsed > 420_000) end(false);
+        return;
+      }
+      // There: tents going up, friends chatting; it ends when Luna walks off or after a while.
+      // At the camp the friends pitch the tents first (over the first few seconds there).
+      if (outing.outing.id === 'camp') camp.tents(Math.min(1, elapsed / 7000));
+      const away = spot ? flat(at, outing.outing.id === 'camp' ? camp.fire : spot.position) : 0;
+      if (away > 25 || elapsed > 240_000) return end(true);
+      if (Date.now() - lastLine > 8000) {
+        lastLine = Date.now();
+        const who = outing.friends[said % outing.friends.length],
+          line = outing.outing.lines[said % outing.outing.lines.length];
+        said++;
+        setToast({ name: who, line });
+        setTimeout(() => setToast(null), 5200);
+      }
+    }, 400);
+    return () => clearInterval(t);
+  }, [outing?.phase, outing?.outing.id, api]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The very first visit starts upstairs: Luna sitting on the floor, reading a book.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('windstopia-first-visit')) return;
+      localStorage.setItem('windstopia-first-visit', '1');
+    } catch {
+      return;
+    }
+    const t = setTimeout(() => api.readUpstairs(), 300);
+    return () => clearTimeout(t);
+  }, [api]);
   const countedRef = useRef(game.counted);
   useEffect(() => {
     countedRef.current = game.counted;
@@ -319,20 +568,21 @@ export default function ExploreMode({
       /* Storage blocked: the frame starts empty. */
     }
   }, [api]);
-  // Point at the guest whose drink Luna is carrying.
+  // Point at the next guest whose drink is on the tray, with as many cups on it as there are.
   useEffect(() => {
-    api.marker(holding ? ticket : null);
-  }, [holding, ticket, api]);
+    api.marker(tray[0] ?? null);
+    if (tray.length) api.trayCups(tray.length);
+  }, [tray, api]);
   useEffect(() => {
     api.setTask(
       photoOpen
         ? 'photo'
-        : holding
-          ? 'serving'
-          : panel === 'cashier'
-            ? 'cashier'
-            : panel
-              ? 'preparing'
+        : panel === 'cashier'
+          ? 'cashier'
+          : panel
+            ? 'preparing'
+            : holding
+              ? 'serving'
               : 'idle',
     );
   }, [holding, panel, photoOpen, api]);
@@ -379,7 +629,9 @@ export default function ExploreMode({
       const crowd = crowdRef.current,
         waiting = customersRef.current.filter((c) => c.stage !== 'served').length;
       if (waiting >= crowd.max || Math.random() > crowd.chance) return;
-      const taken = customersRef.current.filter((c) => c.stage !== 'served').map((c) => c.name);
+      // Everyone still in the café counts, served guests sitting with their drink too, so the
+      // same friend never walks in twice.
+      const taken = customersRef.current.map((c) => c.name);
       const { name, male, order } = newCustomer(
         menu,
         Math.random,
@@ -411,7 +663,7 @@ export default function ExploreMode({
     if (open) {
       setCustomers([]);
       setTicket(null);
-      setHolding(false);
+      setTray([]);
       setDrink(emptyDrink());
       setPanel(null);
       setNote('Kafe tutup · sampai jumpa besok');
@@ -529,22 +781,30 @@ export default function ExploreMode({
       const at = api.luna(),
         list: { id: string; label: string }[] = [];
       const queue = customersRef.current.find((c) => c.stage === 'queue');
-      const tickets = customersRef.current.filter((c) => c.stage === 'waiting');
+      // Orders still to be made: waiting, and not already finished on the tray.
+      const tickets = customersRef.current.filter(
+        (c) => c.stage === 'waiting' && !tray.includes(c.key),
+      );
       if (flat(at, api.stations.cashier) < NEAR && queue)
         list.push({ id: 'cashier', label: 'Terima pesanan' });
-      if (!holding && flat(at, api.stations.bar) < NEAR && tickets.length)
+      if (tray.length < TRAY_MAX && flat(at, api.stations.bar) < NEAR && tickets.length)
         list.push(
           ticket && drink.cup
             ? { id: 'prep', label: 'Masukkan takaran' }
             : { id: 'cup', label: 'Ambil cangkir / cup' },
         );
-      if (!holding && ticket && drink.cup && flat(at, api.stations.espresso) < NEAR)
+      if (ticket && drink.cup && flat(at, api.stations.espresso) < NEAR)
         list.push({ id: 'espresso', label: 'Pakai mesin espresso' });
-      if (holding && ticket) {
-        const guest = api.guests().find((g) => g.key === ticket);
-        if (guest && flat(at, guest.position) < NEAR + 0.25)
-          list.push({ id: 'serve', label: 'Antar pesanan' });
+      // Serve whichever guest on the tray Luna is standing by.
+      for (const key of tray) {
+        const guest = api.guests().find((g) => g.key === key),
+          who = customersRef.current.find((c) => c.key === key);
+        if (guest && who && flat(at, guest.position) < NEAR + 0.25)
+          list.push({ id: 'serve:' + key, label: `Antar ke ${who.name}` });
       }
+      // The campfire, once rain has put it out and the rain has stopped.
+      if (api.camp && flat(at, api.camp.fire) < 1.9 && !api.camp.lit() && api.rain() < 0.05)
+        list.push({ id: 'light-fire', label: 'Nyalakan api unggun' });
       // Around the café: telescope, plants, tables, seats.
       const scope = api.spots.telescope;
       if (scope && spotDistance(at, scope.box) < 0.7)
@@ -597,10 +857,15 @@ export default function ExploreMode({
         regionRef.current = here;
         const region = regionById(here);
         if (region) {
-          const first = visitRegion(here);
-          setPlace({ name: region.name, note: first ? region.note : '', first });
+          const locked = here === 'menara' && towerLockedRef.current;
+          const first = !locked && visitRegion(here);
+          setPlace({
+            name: region.name,
+            note: locked ? towerNoteRef.current : first ? region.note : '',
+            first,
+          });
           if (placeTimer.current) clearTimeout(placeTimer.current);
-          placeTimer.current = setTimeout(() => setPlace(null), first ? 4200 : 2200);
+          placeTimer.current = setTimeout(() => setPlace(null), first || locked ? 4200 : 2200);
         }
       }
       // The book closes when Luna stops reading.
@@ -613,40 +878,53 @@ export default function ExploreMode({
         else chase.current = null;
       }
       // Where to go next, offered as a one-tap "walk there" button when Luna is not there yet.
-      let next: { id: string; label: string } | null = null;
-      if (holding && ticket) next = { id: 'go-guest', label: 'ke meja tamu' };
-      else if (
+      // With drinks on the tray and room for more, both serving and making the next are offered.
+      const next: { id: string; label: string }[] = [];
+      if (holding)
+        next.push({
+          id: 'go-guest',
+          label: tray.length > 1 ? `antar pesanan (${tray.length} di nampan)` : 'ke meja tamu',
+        });
+      if (
         ticket &&
         drink.cup &&
         customersRef.current.find((c) => c.key === ticket)?.order.coffee &&
         !(drink.amounts.espresso > 0)
       )
-        next = { id: 'go-espresso', label: 'ke mesin espresso' };
-      else if (tickets.length) next = { id: 'go-bar', label: 'ke meja bar' };
-      else if (queue) next = { id: 'go-cashier', label: 'ke kasir' };
-      // Hide it only once the matching action is already within reach.
-      const arrived = next && list.some((a) => GOAL_ACTION[next.id].includes(a.id));
-      const nextList = next && !arrived ? [next] : [];
+        next.push({ id: 'go-espresso', label: 'ke mesin espresso' });
+      else if (tray.length < TRAY_MAX && tickets.length)
+        next.push({
+          id: 'go-bar',
+          label: holding ? 'racik pesanan berikutnya' : 'ke meja bar',
+        });
+      else if (!holding && queue) next.push({ id: 'go-cashier', label: 'ke kasir' });
+      // Hide one only once its matching action is already within reach.
+      const nextList = next.filter(
+        (g) => !list.some((a) => GOAL_ACTION[g.id].includes(a.id.split(':')[0])),
+      );
       setGoals((old) => (JSON.stringify(old) === JSON.stringify(nextList) ? old : nextList));
       setHint(
-        holding
-          ? 'Antar minumannya ke meja tamu.'
-          : tickets.length && !ticket
-            ? 'Ada pesanan. Ke meja bar untuk meracik.'
-            : queue
-              ? `${queue.name} menunggu di kasir.`
-              : tickets.length
-                ? 'Lanjutkan racikan di meja bar.'
-                : open
-                  ? `Kafe buka (${crowdLabel}). Tunggu tamu, atau jalan-jalan dulu.`
-                  : 'Kafe tutup. Ketuk "buka kafe" kapan saja.',
+        outingHint.current ||
+          (holding
+            ? tray.length < TRAY_MAX && tickets.length
+              ? `Nampan: ${tray.length} minuman. Antar sekarang, atau racik pesanan berikutnya.`
+              : 'Antar minumannya ke meja tamu.'
+            : tickets.length && !ticket
+              ? 'Ada pesanan. Ke meja bar untuk meracik.'
+              : queue
+                ? `${queue.name} menunggu di kasir.`
+                : tickets.length
+                  ? 'Lanjutkan racikan di meja bar.'
+                  : open
+                    ? `Kafe buka (${crowdLabel}). Tunggu tamu, atau jalan-jalan dulu.`
+                    : 'Kafe tutup. Ketuk "buka kafe" kapan saja.'),
       );
     }, 200);
     return () => clearInterval(t);
-  }, [api, holding, ticket, drink.cup, drink.amounts.espresso, open, crowdLabel]);
+  }, [api, holding, tray, ticket, drink.cup, drink.amounts.espresso, open, crowdLabel]);
 
   const run = (id: string) => {
-    chase.current = id === 'go-guest' ? ticket : null;
+    chase.current = id === 'go-guest' ? (tray[0] ?? null) : null;
     if (id.startsWith('go-')) {
       const target =
         id === 'go-cashier'
@@ -655,7 +933,7 @@ export default function ExploreMode({
             ? api.stations.bar
             : id === 'go-espresso'
               ? api.stations.bar
-              : api.guests().find((g) => g.key === ticket)?.position;
+              : api.guests().find((g) => g.key === tray[0])?.position;
       if (target && !api.walkTo(target)) setHint('Jalannya tertutup, jalan kembali ke kafe dulu.');
       return;
     }
@@ -711,9 +989,16 @@ export default function ExploreMode({
       setTimeout(() => setNote(''), 2200);
     }
     if (id === 'cashier') setPanel('cashier');
+    if (id === 'light-fire' && api.camp) {
+      api.camp.light();
+      setNote('Api unggun menyala lagi');
+      setTimeout(() => setNote(''), 2500);
+    }
     if (id === 'cup' || id === 'prep' || id === 'espresso') {
       if (!ticket) {
-        const next = customersRef.current.find((c) => c.stage === 'waiting');
+        const next = customersRef.current.find(
+          (c) => c.stage === 'waiting' && !tray.includes(c.key),
+        );
         if (!next) {
           // Nothing ordered yet: the bar waits for a ticket from the cashier.
           setNote('Belum ada pesanan · catat dulu di kasir');
@@ -725,8 +1010,8 @@ export default function ExploreMode({
       }
       setPanel('bar');
     }
-    if (id === 'serve' && ticket) {
-      const c = customersRef.current.find((x) => x.key === ticket);
+    if (verb === 'serve' && tray.includes(arg)) {
+      const c = customersRef.current.find((x) => x.key === arg);
       if (!c) return;
       // Every guest loves what Luna makes: a thank-you, no ratings (the money came at the till).
       const thanks = THANKS[Math.floor(Math.random() * THANKS.length)];
@@ -743,9 +1028,8 @@ export default function ExploreMode({
         setToast({ name: c.name, line: thanks });
         setTimeout(() => setToast(null), 5500);
       }
-      setHolding(false);
-      setTicket(null);
-      setDrink(emptyDrink());
+      // Another drink may still be in the making: only this one leaves the tray.
+      setTray((t) => t.filter((k) => k !== c.key));
     }
   };
   /** Using something from Luna's bag. */
@@ -839,7 +1123,21 @@ export default function ExploreMode({
           <small>pesanan · {ticketCustomer.name}</small>
           <strong>{ticketCustomer.order.item.name}</strong>
           <span>{ticketCustomer.order.line}</span>
-          {holding && <em>siap diantar</em>}
+        </aside>
+      )}
+      {holding && (
+        <aside className={styles.ticket} data-tray>
+          <small>
+            di nampan · {tray.length}/{TRAY_MAX}
+          </small>
+          {tray.map((key) => {
+            const c = customers.find((x) => x.key === key);
+            return c ? (
+              <span key={key}>
+                {c.name}: {c.order.item.name}
+              </span>
+            ) : null;
+          })}
         </aside>
       )}
       <TouchStick
@@ -927,6 +1225,13 @@ export default function ExploreMode({
         <FriendsPanel served={friends.served} onClose={() => setFriendsOpen(false)} />
       )}
       {story && !photoOpen && <StoryCard story={story} onClose={() => setStory(null)} />}
+      {invite && !story && !photoOpen && !panel && (
+        <InviteCard
+          text={invite.outing.invite(invite.friends[0])}
+          onYes={joinOuting}
+          onNo={() => setInvite(null)}
+        />
+      )}
       {toast && (
         <div className={styles.toast} role="status">
           <strong>{toast.name} ♡</strong>
@@ -987,7 +1292,10 @@ export default function ExploreMode({
           onChange={setDrink}
           onClose={() => setPanel(null)}
           onFinish={() => {
-            setHolding(true);
+            // Onto the tray; the bar is free for the next order.
+            if (ticket) setTray((t) => [...t, ticket]);
+            setTicket(null);
+            setDrink(emptyDrink());
             setPanel(null);
           }}
         />

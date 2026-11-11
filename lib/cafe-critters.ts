@@ -6,13 +6,20 @@ import * as THREE from 'three';
 
 type Home = { centre: THREE.Vector3; radius: number };
 
-export function createCritters(homes: Home[], groundAt: (x: number, z: number) => number) {
+/**
+ * `homes`: where fireflies and the café's butterflies wander. `meadows`: more butterflies, over
+ * the island's flowers (each stays round its own meadow).
+ */
+export function createCritters(
+  homes: Home[],
+  groundAt: (x: number, z: number) => number,
+  meadows: Home[] = [],
+) {
   const group = new THREE.Group();
   group.name = 'World_Critters';
   const rand = Math.random;
-  const pickSpot = () => {
-    const home = homes[Math.floor(rand() * homes.length)],
-      a = rand() * Math.PI * 2,
+  const pickSpot = (home = homes[Math.floor(rand() * homes.length)]) => {
+    const a = rand() * Math.PI * 2,
       r = Math.sqrt(rand()) * home.radius;
     const x = home.centre.x + Math.cos(a) * r,
       z = home.centre.z + Math.sin(a) * r;
@@ -80,7 +87,12 @@ export function createCritters(homes: Home[], groundAt: (x: number, z: number) =
     speed: number;
     phase: number;
   };
-  const butterflies: Butterfly[] = Array.from({ length: 16 }, (_, i) => {
+  // Sixteen round the café and the tower, and two for each meadow, each keeping to its home.
+  const butterflyHomes: (Home | undefined)[] = [
+    ...Array.from({ length: 16 }, () => undefined),
+    ...meadows.flatMap((m) => [m, m]),
+  ];
+  const butterflies: (Butterfly & { home?: Home })[] = butterflyHomes.map((home, i) => {
     const body = new THREE.Group(),
       material = wingMaterials[i % wingMaterials.length],
       left = new THREE.Mesh(wingGeometry, material),
@@ -92,13 +104,14 @@ export function createCritters(homes: Home[], groundAt: (x: number, z: number) =
     body.add(left, right);
     body.visible = false;
     group.add(body);
-    const from = pickSpot();
+    const from = pickSpot(home);
     return {
+      home,
       body,
       left,
       right,
       from,
-      to: pickSpot(),
+      to: pickSpot(home),
       t: rand(),
       speed: 0.08 + rand() * 0.08,
       phase: rand() * 6,
@@ -230,7 +243,7 @@ export function createCritters(homes: Home[], groundAt: (x: number, z: number) =
         if (b.t >= 1) {
           b.t = 0;
           b.from.copy(b.to);
-          b.to.copy(pickSpot());
+          b.to.copy(pickSpot(b.home));
         }
         const t = b.t,
           lift = 0.5 + Math.sin(t * Math.PI) * 1.1;

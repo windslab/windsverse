@@ -57,6 +57,7 @@ export function StoryCard({ story, onClose }: { story: NewStory; onClose: () => 
 
 export function FriendsPanel({ served, onClose }: { served: Served; onClose: () => void }) {
   const [open, setOpen] = useState('');
+  const full = REGULARS.filter((r) => storiesOpen(r, served[r.name] || 0) === 4).length;
   return (
     <aside className={styles.missions} aria-label="Buku tamu Luna">
       <header>
@@ -97,6 +98,35 @@ export function FriendsPanel({ served, onClose }: { served: Served; onClose: () 
           );
         })}
       </ul>
+      <p>
+        {full === REGULARS.length
+          ? 'Semua cerita sudah didengar. Menara mercusuar kini terbuka.'
+          : `Menara mercusuar terbuka setelah semua teman ♥ penuh (${full}/${REGULARS.length}).`}
+      </p>
     </aside>
+  );
+}
+
+/** A friend asking Luna to come along on an outing. */
+export function InviteCard({
+  text,
+  onYes,
+  onNo,
+}: {
+  text: string;
+  onYes: () => void;
+  onNo: () => void;
+}) {
+  return (
+    <div className={styles.story} role="dialog" aria-label="Ajakan teman">
+      <small>Ajakan jalan-jalan</small>
+      <p>{text}</p>
+      <div className={styles.inviteButtons}>
+        <button onClick={onYes}>ikut</button>
+        <button onClick={onNo} data-quiet>
+          lain kali
+        </button>
+      </div>
+    </div>
   );
 }

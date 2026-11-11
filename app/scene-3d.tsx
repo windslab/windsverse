@@ -1629,8 +1629,18 @@ export default function CafeScene({
             };
           }
           siteBox = site.clone();
+          // The zebra crossing straight out from the café's door: the mountain trail starts there.
+          const crossingAt = roadLayout
+            ? (() => {
+                const dir = roadLayout.direction.clone().setY(0).normalize(),
+                  door = model.localToWorld(new THREE.Vector3(-6.4, 0.5, 2.4));
+                return roadLayout.origin
+                  .clone()
+                  .addScaledVector(dir, door.clone().sub(roadLayout.origin).dot(dir));
+              })()
+            : undefined;
           world = createCafeWorld(
-            { bounds: site, groundY: level, road: roadLayout, holeMask },
+            { bounds: site, groundY: level, road: roadLayout, holeMask, crossing: crossingAt },
             windTime,
           );
           scene.add(world.group);
@@ -1649,6 +1659,8 @@ export default function CafeScene({
                 ...w.fireflyTrails.map((centre) => ({ centre, radius: 1.2 })),
               ],
               (x, z) => w.heightAt(x, z),
+              // Butterflies over the flowers along the mountain trail.
+              w.flowerMeadows,
             );
             scene.add(critters.group);
           }
@@ -1927,9 +1939,24 @@ export default function CafeScene({
                 exploreRef.current.run = on;
               },
               marker: (key) => crew.setMarker(key),
+              trayCups: (count) => crew.setTrayCups(count),
+              companions: (list) => crew.setCompanions(list),
+              camp: world
+                ? {
+                    fire: world.campfire.clone(),
+                    lit: () => world!.campfireLit(),
+                    light: () => world!.setCampfire(true),
+                    tents: (progress: number) => world!.setTents(progress),
+                    meetingPoint: world.meetingPoint.clone(),
+                  }
+                : null,
+              rain: () => weather?.state.rain ?? 0,
+              teleport: (point) => crew.teleport(point),
               jump: () => crew.jump(),
               seatNear: () => crew.seatNear(),
               sit: (id) => crew.sit(id),
+              readUpstairs: () => crew.readUpstairs(),
+              lockTower: (locked) => world?.setTowerLocked(locked),
               stand: () => crew.stand(),
               sitting: () => crew.sitting(),
               chore: (kind, seconds, target) => crew.chore(kind, seconds, target),
@@ -2731,18 +2758,23 @@ export default function CafeScene({
                 if (cafeModel) covers.push(cafeModel);
                 if (world) covers.push(world.tower);
                 open = roofRay.intersectObjects(covers, true).length === 0;
+                // A pitched tent at the camp keeps the rain off too.
+                const at = people.baristaPosition();
+                if (open && world?.insideTent(at.x, at.z)) open = false;
               }
+              // Rain puts the campfire out; it stays out until someone lights it again.
+              if (world && wx.rain > 0.3 && world.campfireLit()) world.setCampfire(false);
               lunaUnderRoof = !open && wx.rain > 0.2;
               people.setUmbrella(open);
             }
           }
           {
-            // Morning (06–11 WITA, game clock in explore mode) brings butterflies.
+            // Daytime (06–17 WITA, game clock in explore mode) brings butterflies.
             const when = gameClock ?? new Date(),
               hour = (when.getUTCHours() + 8 + when.getUTCMinutes() / 60) % 24,
               morning =
                 THREE.MathUtils.smoothstep(hour, 5.5, 6.5) *
-                (1 - THREE.MathUtils.smoothstep(hour, 10.5, 11.5)) *
+                (1 - THREE.MathUtils.smoothstep(hour, 16.5, 17.5)) *
                 sk.daylight;
             // Insects and birds take shelter from the rain.
             const dry = 1 - wx.rain;
