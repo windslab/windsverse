@@ -217,7 +217,11 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     visual.add(serving);
     serving.visible = false;
     mesh(serving, cylinder, trayMat, [0, 0, 0], [0.18, 0.015, 0.13]);
-    mesh(serving, cylinder, cup, [0, 0.055, 0], [0.045, 0.1, 0.045]);
+    // Up to three cups on the tray (explore mode carries several orders at once).
+    const trayCups = [0, 1, 2].map(() =>
+      mesh(serving, cylinder, cup, [0, 0.055, 0], [0.045, 0.1, 0.045]),
+    );
+    trayCups.forEach((c, i) => (c.visible = i === 0));
     const shadowMat = new THREE.MeshBasicMaterial({
       color: '#493c33',
       transparent: true,
@@ -266,6 +270,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       legs,
       knees,
       serving,
+      trayCups,
       drink,
       shadow,
       position,
@@ -1151,6 +1156,13 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       actor.drink.position.copy(drinkRest);
       if (sitting && actor.seat?.tableY !== undefined)
         actor.drink.position.y = (actor.seat.tableY - actor.visual.position.y) / scale + 0.045;
+      // No table (the take-away bench): the cup rests on their lap, in their hands.
+      else if (sitting && actor.seat)
+        actor.drink.position.set(
+          0.04,
+          (actor.seat.surface.y - actor.visual.position.y) / scale + 0.11,
+          0.17,
+        );
     } else if (actor.drink.visible) {
       // Rest, reach for the cup, lift it, tip it for a few sips, then set it back on the table.
       const t = reduced ? 0 : (age + actor.drinkPhase) % DRINK_CYCLE,
@@ -1285,6 +1297,23 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       return true;
     },
     stand: () => standUp(),
+    /** Explore mode's first visit: Luna starts upstairs, sitting on the floor with a book. */
+    readUpstairs() {
+      const taken = new Set(people.slice(1).flatMap((p) => (p.seat ? [p.seat.id] : [])));
+      const seat = seats.find((s) => s.floor && !taken.has(s.id));
+      if (!seat) return false;
+      seat.surface.y = paths.ground(
+        new THREE.Vector3(seat.surface.x, seat.surface.y + 0.1 * scale, seat.surface.z),
+      );
+      manualRoute = [];
+      chore.until = 0;
+      barista.position.copy(paths.snap(seat.surface) ?? seat.surface);
+      barista.seat = seat;
+      barista.headingAtSeat = seat.heading;
+      barista.phase = 'sitting';
+      activity = 'reading';
+      return true;
+    },
     /** On a chair (explore mode): read a book there without getting up. */
     readSeated() {
       if (barista.phase !== 'sitting' || !barista.seat || activity) return false;
@@ -1329,6 +1358,15 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       running = on;
     },
     /** Arrow over a guest (key), or none. */
+    /** How many cups Luna's tray carries (1–3), set side by side. */
+    setTrayCups(count: number) {
+      const n = THREE.MathUtils.clamp(Math.round(count), 1, 3),
+        spread = n === 1 ? [0] : n === 2 ? [-0.055, 0.055] : [-0.09, 0, 0.09];
+      barista.trayCups.forEach((c, i) => {
+        c.visible = i < n;
+        if (i < n) c.position.x = spread[i];
+      });
+    },
     setMarker(key: string | null) {
       markerKey = key ?? '';
     },

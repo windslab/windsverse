@@ -42,7 +42,7 @@ const SPELL: Step[] = [
   { name: 'mereda', length: [25, 35], rain: 0.22, overcast: 0.92, after: 0 },
   { name: 'gerimis akhir', length: [20, 30], rain: 0.18, overcast: 0.85, after: 0 },
   { name: 'berhenti', length: [35, 50], rain: 0, overcast: 0.35, after: 1 },
-  { name: 'pasca hujan', length: [45, 70], rain: 0, overcast: 0, after: 1 },
+  { name: 'pasca hujan', length: [70, 110], rain: 0, overcast: 0, after: 1 },
 ];
 
 const DROPS = 3200,
@@ -114,7 +114,12 @@ export function createWeather(groundY: number) {
   rain.visible = false;
   group.add(rain);
 
-  // --- Storm clouds: a dark, lumpy deck overhead that glows where lightning strikes. ---------
+  // --- Storm clouds: a dark, lumpy deck overhead that glows where lightning strikes. It is drawn
+  // on a dome around the camera, inside the sky dome and the far plane, reaching down to the
+  // horizon; each point shows the deck where that line of sight would meet it, so the clouds
+  // stay put overhead and still fill a low view across the island.
+  const CLOUD_HEIGHT = 46,
+    CLOUD_DOME = 190;
   const cloudMaterial = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -128,18 +133,19 @@ export function createWeather(groundY: number) {
     },
     vertexShader: `
       varying vec2 world;
-      varying float rim;
+      varying float rise;
       void main() {
-        vec4 w = modelMatrix * vec4(position, 1.0);
-        world = w.xz;
-        rim = length(position.xy) / 320.0;
-        gl_Position = projectionMatrix * viewMatrix * w;
+        vec3 dir = normalize(position);
+        rise = dir.y;
+        // Where this line of sight meets a deck ${CLOUD_HEIGHT} units up (flattened at the horizon).
+        world = modelMatrix[3].xz + dir.xz / max(dir.y + 0.16, 0.05) * ${CLOUD_HEIGHT.toFixed(1)};
+        gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
       }`,
     fragmentShader: `
       uniform float time, overcast, night, flash;
       uniform vec2 flashAt;
       varying vec2 world;
-      varying float rim;
+      varying float rise;
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p) {
         vec2 i = floor(p), f = fract(p);
@@ -161,13 +167,18 @@ export function createWeather(groundY: number) {
         // Lightning lights the clouds from inside around where it strikes.
         float glow = flash * exp(-length(world - flashAt) / 55.0) * (0.6 + 0.8 * c);
         colour += vec3(0.85, 0.88, 1.0) * glow * 1.6;
-        float alpha = overcast * (0.78 + 0.2 * c) * (1.0 - smoothstep(0.7, 1.0, rim));
+        // Down at the horizon the deck thins a little, so far mountains still show through it,
+        // and it ends just below the horizon.
+        float low = mix(0.62, 1.0, smoothstep(0.0, 0.28, rise)) * smoothstep(-0.08, 0.0, rise);
+        float alpha = overcast * (0.78 + 0.2 * c) * low;
         gl_FragColor = vec4(colour, alpha);
       }`,
   });
-  const clouds = new THREE.Mesh(new THREE.CircleGeometry(320, 48), cloudMaterial);
-  clouds.rotation.x = Math.PI / 2;
-  clouds.position.y = groundY + 46;
+  const clouds = new THREE.Mesh(
+    new THREE.SphereGeometry(CLOUD_DOME, 48, 20, 0, Math.PI * 2, 0, Math.PI * 0.56),
+    cloudMaterial,
+  );
+  const cloudY = groundY + CLOUD_HEIGHT;
   clouds.renderOrder = -1;
   clouds.frustumCulled = false;
   clouds.visible = false;
@@ -240,12 +251,12 @@ export function createWeather(groundY: number) {
         // Violet inside to red outside, pastel, with a wide soft glow on both edges.
         float t = clamp(band, 0.0, 1.0);
         vec3 c = clamp(abs(mod(vec3(0.0, 4.0, 2.0) + (1.0 - t) * 4.6, 6.0) - 3.0) - 1.0, 0.0, 1.0);
-        c = mix(vec3(1.0), c, 0.5);
+        c = mix(vec3(1.0), c, 0.72);
         float edge = smoothstep(0.0, 0.32, band) * (1.0 - smoothstep(0.68, 1.0, band));
         // Both ends melt away into the air long before they reach the ground.
         float ends = smoothstep(4.0, 55.0, rise);
         float a = pow(edge, 1.4) * opacity * ends;
-        gl_FragColor = vec4(c, a * 0.34);
+        gl_FragColor = vec4(c, a * 0.62);
       }`,
   });
   const rainbow = new THREE.Mesh(
@@ -351,7 +362,7 @@ export function createWeather(groundY: number) {
           r = 30 + rand() * 110;
         strikeAt.set(
           camera.position.x + Math.cos(a) * r,
-          clouds.position.y - 0.5,
+          cloudY - 0.5,
           camera.position.z + Math.sin(a) * r,
         );
         state.strikePoint.copy(strikeAt);
@@ -376,8 +387,7 @@ export function createWeather(groundY: number) {
       rainMaterial.uniforms.flash.value = state.flash;
 
       clouds.visible = state.overcast > 0.01;
-      clouds.position.x = camera.position.x;
-      clouds.position.z = camera.position.z;
+      clouds.position.copy(camera.position);
       const u = cloudMaterial.uniforms;
       u.time.value = reduced ? 0 : time;
       u.overcast.value = state.overcast;
@@ -388,13 +398,13 @@ export function createWeather(groundY: number) {
       bolt.visible = state.flash > 0.05 && !reduced;
       boltMaterial.opacity = Math.min(1, state.flash * 1.3);
 
-      // Rainbow: opposite the sun, by day, while the sun is below about 40°.
+      // Rainbow: opposite the sun, by day, while the sun is below about 48°.
       const sunUp = sun ? Math.asin(THREE.MathUtils.clamp(sun.y, -1, 1)) : 0;
       const show =
         state.after *
         daylight *
         THREE.MathUtils.smoothstep(sunUp, -0.02, 0.08) *
-        (1 - THREE.MathUtils.smoothstep(sunUp, 0.55, 0.7));
+        (1 - THREE.MathUtils.smoothstep(sunUp, 0.7, 0.84));
       rainbow.visible = !!sun && show > 0.01;
       if (rainbow.visible && sun) {
         antiSun.copy(sun).negate();

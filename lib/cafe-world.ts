@@ -55,6 +55,8 @@ export type WorldLayout = {
     /** Height of the road surface (the café road's top). */
     surfaceY?: number;
   };
+  /** The zebra crossing's centre on the road: the mountain trail starts on its far side. */
+  crossing?: THREE.Vector3;
 };
 
 const GRASS_LOW = new THREE.Color('#5d6f3a'),
@@ -76,7 +78,9 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   const noise = makeNoise();
   /**
    * The land is a little floating world: toward its rim everything melts into the fog/sky colour
-   * (by distance from the island's centre, not from the camera). Wraps a material's shader.
+   * (by distance from the island's centre, not from the camera). The haze also lies low: it
+   * thins out with height, so the mountains' feet sit in it and their slopes and peaks stay
+   * clear. Wraps a material's shader.
    */
   const ISLAND_FADE = [460, 520];
   const islandFade = (m: THREE.Material) => {
@@ -85,8 +89,12 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     m.onBeforeCompile = (shader, renderer) => {
       before.call(m, shader, renderer);
       shader.uniforms.islandCentre = { value: new THREE.Vector2(center.x, center.z) };
+      shader.uniforms.hazeFloor = { value: groundY };
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nvarying vec2 vIslandXZ;')
+        .replace(
+          '#include <common>',
+          '#include <common>\nvarying vec2 vIslandXZ;\nvarying float vIslandY;',
+        )
         .replace(
           '#include <project_vertex>',
           `#include <project_vertex>
@@ -94,16 +102,21 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
           #ifdef USE_INSTANCING
             islandWorld = instanceMatrix * islandWorld;
           #endif
-          vIslandXZ = (modelMatrix * islandWorld).xz;`,
+          vIslandXZ = (modelMatrix * islandWorld).xz;
+          vIslandY = (modelMatrix * islandWorld).y;`,
         );
       shader.fragmentShader = shader.fragmentShader
         .replace(
           '#include <common>',
-          '#include <common>\nuniform vec2 islandCentre;\nvarying vec2 vIslandXZ;',
+          '#include <common>\nuniform vec2 islandCentre;\nuniform float hazeFloor;\nvarying vec2 vIslandXZ;\nvarying float vIslandY;',
         )
         .replace(
           '#include <fog_fragment>',
-          `#include <fog_fragment>
+          `#ifdef USE_FOG
+            float fogFactor = smoothstep(fogNear, fogFar, vFogDepth)
+              * mix(1.0, 0.22, smoothstep(hazeFloor + 4.0, hazeFloor + 20.0, vIslandY));
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
+          #endif
           #ifdef USE_FOG
             float islandEdge = smoothstep(${ISLAND_FADE[0].toFixed(1)}, ${ISLAND_FADE[1].toFixed(1)}, distance(vIslandXZ, islandCentre));
             gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, islandEdge);
@@ -351,8 +364,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       n3 = noise(u * 0.11, w * 0.11 + 7);
     return band * (Math.pow(n1, 1.4) * 40 + n2 * 10 + n3 * 2.5 + 7);
   };
-  /** Terrain height (world units). */
-  const height = (x: number, z: number, r = riverDistance(x, z)) => {
+  /** Terrain height before the mountain trail is cut in (world units). */
+  const baseHeight = (x: number, z: number, r = riverDistance(x, z)) => {
     const { flat } = flatZone(x, z);
     const dist = Math.hypot(x - center.x, z - center.z);
     const hills =
@@ -377,6 +390,145 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     // Down to the beach and under the sea.
     const shore = THREE.MathUtils.smoothstep(seaOut(x, z), SEA - 6, SEA + 8);
     return THREE.MathUtils.lerp(h, groundY - 2.8, shore);
+  };
+
+  // --- Mountain trail ---------------------------------------------------------------------
+  // A faint footpath from the far side of the zebra crossing across the meadow, through the mist
+  // at the mountains' foot, up the slopes in easy switchbacks to a flat camping ground just
+  // below the highest reachable peak, then a last short climb to the top.
+  const at = (u: number, w: number) =>
+    new THREE.Vector3(
+      road.origin.x + roadDir.x * u - away.x * w,
+      0,
+      road.origin.z + roadDir.z * u - away.z * w,
+    );
+  const trailFrom = layout.crossing ?? road.origin;
+  const u0 = uOf(trailFrom.x, trailFrom.z);
+  // The peak: the highest point within reach of the crossing (a little closer counts for more).
+  const peak = { u: u0, w: 220, h: -Infinity };
+  for (let u = u0 - 70; u <= u0 + 70; u += 4)
+    for (let w = 168; w <= 280; w += 4) {
+      const p = at(u, w);
+      if (seaOut(p.x, p.z) > SEA - 34) continue;
+      const h = baseHeight(p.x, p.z) - Math.abs(u - u0) * 0.06;
+      if (h > peak.h) Object.assign(peak, { u, w, h });
+    }
+  const peakTop = baseHeight(at(peak.u, peak.w).x, at(peak.u, peak.w).z);
+  // The camp: on the way up from the foot, where the slope is ~6 below the top.
+  const trailFoot = { u: u0 + 3, w: 126 };
+  const camp = { u: peak.u, w: peak.w };
+  for (let t = 0; t <= 1; t += 0.01) {
+    const u = THREE.MathUtils.lerp(peak.u, trailFoot.u, t),
+      w = THREE.MathUtils.lerp(peak.w, trailFoot.w, t),
+      p = at(u, w);
+    if (baseHeight(p.x, p.z) <= peakTop - 6) {
+      Object.assign(camp, { u, w });
+      break;
+    }
+  }
+  const campAt = at(camp.u, camp.w),
+    campY = baseHeight(campAt.x, campAt.z);
+  campAt.y = campY;
+  const trailCurve = (() => {
+    const plan: [number, number][] = [
+      [u0, road.halfWidth + 1.3],
+      [u0 + 1.5, 8],
+      [u0 + 5, 20],
+      [u0 - 6, 42],
+      [u0 + 8, 68],
+      [u0 - 4, 96],
+      [trailFoot.u, trailFoot.w],
+    ];
+    // Switchbacks up to the camp, swinging left and right of the straight line.
+    const legs = 6;
+    for (let k = 1; k < legs; k++) {
+      const t = k / legs;
+      plan.push([
+        THREE.MathUtils.lerp(trailFoot.u, camp.u, t) + (k % 2 ? 15 : -15),
+        THREE.MathUtils.lerp(trailFoot.w, camp.w - 8, t),
+      ]);
+    }
+    plan.push([camp.u, camp.w - 8], [camp.u, camp.w]);
+    // The last climb from the camp to the peak.
+    plan.push(
+      [THREE.MathUtils.lerp(camp.u, peak.u, 0.5) + 4, THREE.MathUtils.lerp(camp.w, peak.w, 0.5)],
+      [peak.u, peak.w],
+    );
+    return new THREE.CatmullRomCurve3(
+      plan.map(([u, w]) => at(u, w)),
+      false,
+      'centripetal',
+    );
+  })();
+  const trailPoints = trailCurve.getSpacedPoints(Math.round(trailCurve.getLength() / 1.2));
+  // The path's own gentle profile: the ground along it, smoothed so it never jumps.
+  const trailHeights = trailPoints.map((p) => baseHeight(p.x, p.z));
+  for (let pass = 0; pass < 4; pass++) {
+    const prev = trailHeights.slice();
+    for (let i = 0; i < prev.length; i++) {
+      let sum = 0,
+        n = 0;
+      for (let j = Math.max(0, i - 5); j <= Math.min(prev.length - 1, i + 5); j++) {
+        sum += prev[j];
+        n++;
+      }
+      trailHeights[i] = sum / n;
+    }
+  }
+  trailPoints.forEach((p, i) => (p.y = trailHeights[i]));
+  // Segments by 4-unit cell, so finding the path near a point stays quick.
+  const TRAIL_CELL = 4,
+    trailCells = new Map<string, number[]>();
+  for (let i = 0; i < trailPoints.length - 1; i++) {
+    const a = trailPoints[i],
+      b = trailPoints[i + 1];
+    for (
+      let cx = Math.floor((Math.min(a.x, b.x) - 4) / TRAIL_CELL);
+      cx <= Math.floor((Math.max(a.x, b.x) + 4) / TRAIL_CELL);
+      cx++
+    )
+      for (
+        let cz = Math.floor((Math.min(a.z, b.z) - 4) / TRAIL_CELL);
+        cz <= Math.floor((Math.max(a.z, b.z) + 4) / TRAIL_CELL);
+        cz++
+      ) {
+        const key = cx + ',' + cz,
+          list = trailCells.get(key) ?? [];
+        list.push(i);
+        trailCells.set(key, list);
+      }
+  }
+  /** Distance to the trail's centre line and the path's height there (null when far from it). */
+  const trailNear = (x: number, z: number) => {
+    const list = trailCells.get(Math.floor(x / TRAIL_CELL) + ',' + Math.floor(z / TRAIL_CELL));
+    if (!list) return null;
+    let best: { d: number; h: number; i: number } | null = null;
+    for (const i of list) {
+      const a = trailPoints[i],
+        b = trailPoints[i + 1],
+        abx = b.x - a.x,
+        abz = b.z - a.z,
+        t = THREE.MathUtils.clamp(
+          ((x - a.x) * abx + (z - a.z) * abz) / (abx * abx + abz * abz || 1),
+          0,
+          1,
+        ),
+        d = Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t));
+      if (!best || d < best.d) best = { d, h: a.y + (b.y - a.y) * t, i };
+    }
+    return best;
+  };
+  const trailDistance = (x: number, z: number) => trailNear(x, z)?.d ?? Infinity;
+  /** Terrain height (world units): the trail is cut into the slope as a level bench. */
+  const height = (x: number, z: number, r = riverDistance(x, z)) => {
+    let h = baseHeight(x, z, r);
+    const near = trailNear(x, z);
+    // Out on the land only (the road and the café's site keep their own levels).
+    if (near && near.i > 2)
+      h = THREE.MathUtils.lerp(h, near.h, 1 - THREE.MathUtils.smoothstep(near.d, 1.3, 3.4));
+    const dc = Math.hypot(x - campAt.x, z - campAt.z);
+    if (dc < 11) h = THREE.MathUtils.lerp(h, campY, 1 - THREE.MathUtils.smoothstep(dc, 6.5, 11));
+    return h;
   };
 
   // --- Terrain ---------------------------------------------------------------------------
@@ -905,6 +1057,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       continue;
     if (Math.hypot(x - towerAt.x, z - towerAt.z) < 10) continue;
     if (towerPathDistance(x, z) < 2.5) continue;
+    if (trailDistance(x, z) < 2.8 || Math.hypot(x - campAt.x, z - campAt.z) < 12) continue;
     const s = 0.8 + noise(i, 8) * 0.9;
     treeSpots.push(
       new THREE.Matrix4().compose(
@@ -1965,6 +2118,289 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     group.add(sign);
   }
 
+  // --- Along the mountain trail: the faint path itself, lanterns, viewpoint benches, a
+  // signpost at the crossing and the camping ground near the top. ----------------------------
+  const trailNight = { value: 0 };
+  /** Places to sit along the trail (benches at the viewpoints, logs by the campfire). */
+  const trailSeats: Record<string, { position: THREE.Vector3; heading: number; lie: boolean }> = {};
+  let campfireLight: THREE.PointLight | null = null,
+    campFlame: THREE.Mesh | null = null;
+  {
+    // The footpath: a soft, patchy strip of bare earth laid on the ground, worn in the middle.
+    const across: number[] = [-0.85, -0.4, 0, 0.4, 0.85],
+      positions: number[] = [],
+      colors: number[] = [],
+      index: number[] = [];
+    const grid = size / segments,
+      gx0 = islandCentre.x - size / 2,
+      gz0 = islandCentre.z - size / 2;
+    // The rendered ground between terrain vertices (the path must not sink under it).
+    const shown = (x: number, z: number) => {
+      const fx = (x - gx0) / grid,
+        fz = (z - gz0) / grid,
+        ix = Math.floor(fx),
+        iz = Math.floor(fz),
+        tx = fx - ix,
+        tz = fz - iz,
+        h = (i: number, k: number) => height(gx0 + i * grid, gz0 + k * grid);
+      return THREE.MathUtils.lerp(
+        THREE.MathUtils.lerp(h(ix, iz), h(ix + 1, iz), tx),
+        THREE.MathUtils.lerp(h(ix, iz + 1), h(ix + 1, iz + 1), tx),
+        tz,
+      );
+    };
+    const first = 3; // the road and its verge stay as they are
+    trailPoints.slice(first).forEach((p, k) => {
+      const i = k + first,
+        next = trailPoints[Math.min(i + 1, trailPoints.length - 1)],
+        prev = trailPoints[Math.max(i - 1, 0)],
+        dx = next.x - prev.x,
+        dz = next.z - prev.z,
+        len = Math.hypot(dx, dz) || 1,
+        sx = -dz / len,
+        sz = dx / len;
+      // Worn patchy: clearer in places, nearly grown over in others; it fades out at the camp.
+      const wear =
+        (0.42 + 0.4 * noise(i * 0.21, 41)) *
+        THREE.MathUtils.smoothstep(Math.hypot(p.x - campAt.x, p.z - campAt.z), 3.5, 6.5);
+      across.forEach((o, j) => {
+        const wobble = (noise(i * 0.35, j * 3.1 + 9) - 0.5) * 0.35,
+          x = p.x + sx * (o + wobble),
+          z = p.z + sz * (o + wobble),
+          y = Math.max(height(x, z), shown(x, z)) + 0.05;
+        positions.push(x, y, z);
+        const edge = 1 - Math.abs(o) / 0.85;
+        colors.push(DIRT.r * 0.92, DIRT.g * 0.9, DIRT.b * 0.86, wear * Math.pow(edge, 0.7));
+        if (k > 0 && j > 0) {
+          const a = (k - 1) * across.length + j - 1,
+            b = a + 1,
+            c = a + across.length,
+            d = c + 1;
+          index.push(a, c, b, b, c, d);
+        }
+      });
+    });
+    const pathGeometry = new THREE.BufferGeometry();
+    pathGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    pathGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4));
+    pathGeometry.setIndex(index);
+    pathGeometry.computeVertexNormals();
+    geometries.push(pathGeometry);
+    const pathMaterial = new THREE.MeshToonMaterial({
+      vertexColors: true,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      gradientMap: toonGradient(),
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+    });
+    islandFade(pathMaterial);
+    materials.push(pathMaterial);
+    const path = new THREE.Mesh(pathGeometry, pathMaterial);
+    path.name = 'World_Mountain_Trail';
+    path.renderOrder = 1;
+    group.add(path);
+
+    // Things along the way, all wood and lamplight, merged into a few meshes.
+    const woodParts: THREE.BufferGeometry[] = [],
+      glassParts: THREE.BufferGeometry[] = [],
+      canvasParts: THREE.BufferGeometry[] = [];
+    const place = (g: THREE.BufferGeometry, x: number, y: number, z: number, turn = 0) => {
+      g.rotateY(turn);
+      g.translate(x, y, z);
+      return g.index ? g.toNonIndexed() : g;
+    };
+    const sideOf = (i: number, offset: number) => {
+      const p = trailPoints[i],
+        q = trailPoints[Math.min(i + 1, trailPoints.length - 1)],
+        dx = q.x - p.x,
+        dz = q.z - p.z,
+        len = Math.hypot(dx, dz) || 1;
+      const x = p.x - (dz / len) * offset,
+        z = p.z + (dx / len) * offset;
+      return { x, z, y: height(x, z), heading: Math.atan2(dx, dz) };
+    };
+    // Little lanterns on posts every so often, on alternating sides, glowing after dark.
+    const campIndex = trailPoints.reduce(
+      (best, p, i) => (p.distanceTo(campAt) < trailPoints[best].distanceTo(campAt) ? i : best),
+      0,
+    );
+    for (let i = 12, k = 0; i < trailPoints.length - 3; i += 18, k++) {
+      if (Math.abs(i - campIndex) < 8) continue;
+      const spot = sideOf(i, k % 2 ? 1.45 : -1.45);
+      woodParts.push(place(new THREE.BoxGeometry(0.07, 1.05, 0.07), spot.x, spot.y + 0.52, spot.z));
+      woodParts.push(place(new THREE.BoxGeometry(0.2, 0.03, 0.2), spot.x, spot.y + 1.06, spot.z));
+      woodParts.push(
+        place(new THREE.ConeGeometry(0.15, 0.1, 4), spot.x, spot.y + 1.33, spot.z, Math.PI / 4),
+      );
+      glassParts.push(place(new THREE.BoxGeometry(0.13, 0.2, 0.13), spot.x, spot.y + 1.18, spot.z));
+    }
+    // Viewpoint benches looking back over the island: one on the meadow, one halfway up.
+    const bench = (i: number, name: string) => {
+      const spot = sideOf(i, -2.3),
+        // Facing back down toward the café and the sea.
+        look = Math.atan2(trailFrom.x - spot.x, trailFrom.z - spot.z);
+      const y = spot.y;
+      const parts = [
+        new THREE.BoxGeometry(1.4, 0.06, 0.38).translate(0, 0.44, 0),
+        new THREE.BoxGeometry(1.4, 0.3, 0.05).translate(0, 0.66, -0.18),
+        new THREE.BoxGeometry(0.07, 0.44, 0.34).translate(-0.6, 0.22, 0),
+        new THREE.BoxGeometry(0.07, 0.44, 0.34).translate(0.6, 0.22, 0),
+      ];
+      for (const g of parts) woodParts.push(place(g, spot.x, y, spot.z, look));
+      trailSeats[name] = {
+        position: new THREE.Vector3(spot.x, y + 0.47, spot.z),
+        heading: look,
+        lie: false,
+      };
+    };
+    bench(Math.round(trailPoints.length * 0.16), 'viewMeadow');
+    bench(Math.round((campIndex * 0.72) as number), 'viewSlope');
+    // The signpost on the far side of the crossing.
+    {
+      const spot = sideOf(4, 1.6);
+      woodParts.push(place(new THREE.BoxGeometry(0.09, 1.5, 0.09), spot.x, spot.y + 0.75, spot.z));
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 160;
+      const g = canvas.getContext('2d')!;
+      g.fillStyle = '#9b6a43';
+      g.fillRect(0, 0, 512, 160);
+      g.fillStyle = '#3a2416';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.font = 'bold 54px Georgia, serif';
+      g.fillText('JALUR PUNCAK  ➜', 256, 62, 480);
+      g.font = 'italic 34px Georgia, serif';
+      g.fillText('perkemahan di dekat puncak', 256, 120, 480);
+      g.strokeStyle = '#5a3820';
+      g.lineWidth = 9;
+      g.strokeRect(5, 5, 502, 150);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      textures.push(texture);
+      const boardGeometry = new THREE.BoxGeometry(1.2, 0.38, 0.05);
+      geometries.push(boardGeometry);
+      const face = new THREE.MeshToonMaterial({ map: texture, gradientMap: toonGradient() });
+      materials.push(face);
+      const board = new THREE.Mesh(boardGeometry, [wood, wood, wood, wood, face, face]);
+      board.position.set(spot.x, spot.y + 1.22, spot.z);
+      board.rotation.y = spot.heading + Math.PI / 2;
+      board.name = 'World_Trail_Sign';
+      group.add(board);
+    }
+    // The camping ground: two tents, a ring of stones round a fire and logs to sit on.
+    {
+      const toCafe = Math.atan2(trailFrom.x - campAt.x, trailFrom.z - campAt.z);
+      const ring = (r: number, a: number) => ({
+        x: campAt.x + Math.sin(toCafe + a) * r,
+        z: campAt.z + Math.cos(toCafe + a) * r,
+      });
+      for (const [a, r, colour] of [
+        [2.3, 3.6, 0],
+        [-2.5, 3.9, 1],
+      ] as const) {
+        const p = ring(r, a);
+        const tent = new THREE.CylinderGeometry(1.05, 1.05, 2.1, 3, 1, false);
+        tent.rotateZ(Math.PI / 2);
+        tent.rotateX(Math.PI / 6);
+        tent.translate(0, 0.52, 0);
+        const g = place(tent, p.x, campY, p.z, toCafe + a + Math.PI / 2);
+        tint(g, colour ? 0.86 : 0.95, colour ? 0.52 : 0.78, colour ? 0.34 : 0.42);
+        canvasParts.push(g);
+      }
+      for (let k = 0; k < 9; k++) {
+        const a = (k / 9) * Math.PI * 2,
+          stone = new THREE.DodecahedronGeometry(0.16, 0);
+        stone.scale(1.2, 0.6, 1);
+        canvasParts.push(
+          tint(
+            place(
+              stone,
+              campAt.x + Math.sin(a) * 0.55,
+              campY + 0.06,
+              campAt.z + Math.cos(a) * 0.55,
+            ),
+            0.55,
+            0.56,
+            0.54,
+          ),
+        );
+      }
+      for (let k = 0; k < 3; k++) {
+        const log = new THREE.CylinderGeometry(0.05, 0.06, 0.7, 6);
+        log.rotateZ(Math.PI / 2 - 0.35);
+        woodParts.push(place(log, campAt.x, campY + 0.16, campAt.z, (k / 3) * Math.PI * 2));
+      }
+      [0.6, -0.7, Math.PI].forEach((a, k) => {
+        const p = ring(2.1, a),
+          face = Math.atan2(campAt.x - p.x, campAt.z - p.z);
+        const seat = new THREE.CylinderGeometry(0.17, 0.19, 1.3, 8);
+        seat.rotateZ(Math.PI / 2);
+        woodParts.push(place(seat, p.x, campY + 0.17, p.z, face + Math.PI / 2));
+        trailSeats['campLog' + (k + 1)] = {
+          position: new THREE.Vector3(p.x, campY + 0.36, p.z),
+          heading: face,
+          lie: false,
+        };
+      });
+      const flameMaterial = new THREE.MeshBasicMaterial({
+        color: '#ffb347',
+        transparent: true,
+        opacity: 0.9,
+      });
+      materials.push(flameMaterial);
+      const flameGeometry = new THREE.ConeGeometry(0.2, 0.55, 7);
+      geometries.push(flameGeometry);
+      campFlame = new THREE.Mesh(flameGeometry, flameMaterial);
+      campFlame.position.set(campAt.x, campY + 0.42, campAt.z);
+      campFlame.name = 'World_Campfire';
+      group.add(campFlame);
+      campfireLight = new THREE.PointLight('#ffa64d', 0, 9, 1.6);
+      campfireLight.position.set(campAt.x, campY + 0.9, campAt.z);
+      group.add(campfireLight);
+    }
+    const toon = (colour?: string) =>
+      new THREE.MeshToonMaterial({
+        vertexColors: !colour,
+        color: colour ?? '#ffffff',
+        gradientMap: toonGradient(),
+      });
+    const glassMaterial = new THREE.MeshToonMaterial({
+      color: '#f7e2b0',
+      emissive: '#ffb34d',
+      emissiveIntensity: 0,
+      gradientMap: toonGradient(),
+    });
+    glassMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.trailNight = trailNight;
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float trailNight;')
+        .replace(
+          '#include <emissivemap_fragment>',
+          '#include <emissivemap_fragment>\ntotalEmissiveRadiance = vec3(1.0, 0.7, 0.3) * (0.15 + 1.6 * trailNight);',
+        );
+    };
+    for (const [parts, name, material] of [
+      [woodParts, 'World_Trail_Wood', toon('#8a5d3b')],
+      [glassParts, 'World_Trail_Lanterns', glassMaterial],
+      [canvasParts, 'World_Camp', toon()],
+    ] as const) {
+      if (!parts.length) continue;
+      const geometry = mergeGeometries(parts.map((g) => (g.getAttribute('color') ? g : g)))!;
+      parts.forEach((g) => g.dispose());
+      geometry.computeVertexNormals();
+      geometries.push(geometry);
+      islandFade(material);
+      materials.push(material);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.name = name;
+      mesh.castShadow = mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+  }
+
   /** Floors inside, on and around the tower (tower-relative heights) at a point, or null. */
   const towerFloors = (x: number, z: number): number[] | null => {
     const dx = x - towerAt.x,
@@ -2029,6 +2465,14 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     glass.opacity = night > 0.5 ? 0.45 : 0.22;
     // Dandelion heads glow a warm yellow after dark.
     dandelionNight.value = night;
+    // The trail's lanterns and the campfire (always lit; it only shows after dark).
+    trailNight.value = night;
+    if (campfireLight && campFlame) {
+      const flicker =
+        0.82 + Math.sin(performance.now() / 90) * 0.1 + Math.sin(performance.now() / 37) * 0.08;
+      campfireLight.intensity = (0.6 + 3.4 * night) * flicker;
+      campFlame.scale.set(1, flicker, 1);
+    }
     mistUniforms.night.value = night;
     seedMaterial.color.setRGB(1, 0.99 - 0.12 * night, 0.96 - 0.4 * night);
     dandelionGlow.visible = night > 0.02;
@@ -2059,6 +2503,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
   const span = bridgeFar.clone().sub(bridgeNear),
     spanLength = span.length();
   span.divideScalar(spanLength);
+  // Locked until Luna has heard all the regulars' stories (explore mode sets it).
+  let towerLocked = false;
   const walkHeight = (x: number, z: number, fromY?: number): number | null => {
     // The whole island is walkable; the open sea beyond is not.
     if (seaOut(x, z) > SEA + 24) return null;
@@ -2066,6 +2512,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     // Rocks are solid everywhere (they never sit on the steps).
     for (const rock of rocks) if (Math.hypot(rock.x - x, rock.z - z) < rock.r) return null;
     const floors = towerFloors(x, z);
+    if (floors && towerLocked) return null;
     if (floors) {
       const options = floors.map((f) => f + towerBase);
       if (fromY === undefined) return options.length ? Math.max(...options) : null;
@@ -2124,6 +2571,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       flatZone(x, z).cafe > 1.5 &&
       pathDistance(x, z) > 1.4 &&
       towerPathDistance(x, z) > 1.4 &&
+      trailDistance(x, z) > 1.3 &&
       riverDistance(x, z) > 5 &&
       seaOut(x, z) < SEA - 16 &&
       !towerFloors(x, z) &&
@@ -2231,6 +2679,27 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     dandelionMaterial.customProgramCacheKey = () => 'world-dandelion-wind';
     islandFade(dandelionMaterial);
     materials.push(dandelionMaterial);
+    // Flowers lining the mountain trail on both sides (they glow softly at night too).
+    for (let i = 6; i < trailPoints.length - 2; i += 2) {
+      for (const side of [-1, 1]) {
+        if (noise(i * 0.7, side * 5 + 31) < 0.42) continue;
+        const p = trailPoints[i],
+          q = trailPoints[i + 1],
+          len = Math.hypot(q.x - p.x, q.z - p.z) || 1,
+          off = side * (1.15 + noise(i * 1.3, side + 3) * 1.1),
+          x = p.x - ((q.z - p.z) / len) * off,
+          z = p.z + ((q.x - p.x) / len) * off;
+        if (Math.hypot(x - campAt.x, z - campAt.z) < 7 || seaOut(x, z) > SEA - 16) continue;
+        const k = 0.75 + noise(i, side + 9) * 0.5;
+        (noise(i * 2.1, side) < 0.55 ? bloomSpots : dandelionSpots).push(
+          new THREE.Matrix4().compose(
+            new THREE.Vector3(x, height(x, z) - 0.02, z),
+            new THREE.Quaternion().setFromAxisAngle(up, noise(i, side + 17) * 6.28),
+            new THREE.Vector3(k, k, k),
+          ),
+        );
+      }
+    }
     for (const [geometry, spots, name] of [
       [puff, dandelionSpots, 'World_Dandelions'],
       [bloom, bloomSpots, 'World_Dandelion_Blooms'],
@@ -2265,11 +2734,15 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
           x = road.origin.x + roadDir.x * u - away.x * w,
           z = road.origin.z + roadDir.z * u - away.z * w,
           k = j * (cols + 1) + i;
-        heights[k] = Math.max(height(x, z), seaLevel + 0.4);
-        // Thickest at the foot (around w = 146), thinning toward the meadow and the slopes, and
-        // gone at the island's side coasts.
+        // A level sheet at the foot: where the ground rises above it, the slope comes up out of
+        // the mist instead of the mist climbing the mountain.
+        const ground = height(x, z);
+        heights[k] = Math.max(Math.min(ground, groundY + 2.5), seaLevel + 0.4);
+        // Thickest at the foot (around w = 146), thinning toward the meadow, gone where the
+        // mountain climbs and at the island's side coasts.
         band[k] =
           (1 - THREE.MathUtils.smoothstep(Math.abs(w - 146), 12, 42)) *
+          (1 - THREE.MathUtils.smoothstep(ground - groundY, 5, 11)) *
           (1 - THREE.MathUtils.smoothstep(seaOut(x, z), SEA - 26, SEA - 8));
         flat.set([x, 0, z], k * 3);
       }
@@ -2433,11 +2906,15 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     towerInfo,
     setTowerNight,
     setFramePhoto,
+    setTowerLocked: (locked: boolean) => {
+      towerLocked = locked;
+    },
     /** Points along the footpaths and the bridge, where fireflies like to gather at night. */
     fireflyTrails: [
       ...towerPathPoints.filter((_, i) => i % 3 === 0),
       ...Array.from({ length: 14 }, (_, i) => pathStart.clone().lerp(bridgeNear, i / 13)),
       ...Array.from({ length: 8 }, (_, i) => bridgeNear.clone().lerp(bridgeFar, i / 7)),
+      ...trailPoints.filter((_, i) => i > 8 && i % 9 === 0),
     ].map((p) => new THREE.Vector3(p.x, height(p.x, p.z), p.z)),
     /** Ground height under a point (for placing things on the world). */
     heightAt: height,
@@ -2463,6 +2940,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
         heading: Math.atan2(away.x, away.z),
         lie: false,
       };
+      // Benches at the trail's viewpoints and logs round the campfire.
+      Object.assign(out, trailSeats);
       return out;
     })(),
     /** The guitar and cello on their stands, and a fresh one for Luna to hold. */
@@ -2498,6 +2977,8 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
             : u < 0
               ? 'pantai-kiri'
               : 'pantai-kanan';
+      if (Math.hypot(x - campAt.x, z - campAt.z) < 12) return 'perkemahan';
+      if (trailDistance(x, z) < 2.6 && w > 6) return w > 120 ? 'jalur-gunung' : 'jalan-setapak';
       const alt = (y ?? height(x, z)) - groundY;
       if (alt > 22) return 'puncak';
       if (w > 170 || alt > 10) return 'pegunungan';

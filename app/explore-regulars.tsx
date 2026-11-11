@@ -57,6 +57,7 @@ export function StoryCard({ story, onClose }: { story: NewStory; onClose: () => 
 
 export function FriendsPanel({ served, onClose }: { served: Served; onClose: () => void }) {
   const [open, setOpen] = useState('');
+  const full = REGULARS.filter((r) => storiesOpen(r, served[r.name] || 0) === 4).length;
   return (
     <aside className={styles.missions} aria-label="Buku tamu Luna">
       <header>
@@ -97,6 +98,11 @@ export function FriendsPanel({ served, onClose }: { served: Served; onClose: () 
           );
         })}
       </ul>
+      <p>
+        {full === REGULARS.length
+          ? 'Semua cerita sudah didengar. Menara mercusuar kini terbuka.'
+          : `Menara mercusuar terbuka setelah semua teman ♥ penuh (${full}/${REGULARS.length}).`}
+      </p>
     </aside>
   );
 }

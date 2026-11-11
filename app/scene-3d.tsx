@@ -1629,8 +1629,18 @@ export default function CafeScene({
             };
           }
           siteBox = site.clone();
+          // The zebra crossing straight out from the café's door: the mountain trail starts there.
+          const crossingAt = roadLayout
+            ? (() => {
+                const dir = roadLayout.direction.clone().setY(0).normalize(),
+                  door = model.localToWorld(new THREE.Vector3(-6.4, 0.5, 2.4));
+                return roadLayout.origin
+                  .clone()
+                  .addScaledVector(dir, door.clone().sub(roadLayout.origin).dot(dir));
+              })()
+            : undefined;
           world = createCafeWorld(
-            { bounds: site, groundY: level, road: roadLayout, holeMask },
+            { bounds: site, groundY: level, road: roadLayout, holeMask, crossing: crossingAt },
             windTime,
           );
           scene.add(world.group);
@@ -1927,9 +1937,12 @@ export default function CafeScene({
                 exploreRef.current.run = on;
               },
               marker: (key) => crew.setMarker(key),
+              trayCups: (count) => crew.setTrayCups(count),
               jump: () => crew.jump(),
               seatNear: () => crew.seatNear(),
               sit: (id) => crew.sit(id),
+              readUpstairs: () => crew.readUpstairs(),
+              lockTower: (locked) => world?.setTowerLocked(locked),
               stand: () => crew.stand(),
               sitting: () => crew.sitting(),
               chore: (kind, seconds, target) => crew.chore(kind, seconds, target),

@@ -77,6 +77,11 @@
 .ticket span {
   opacity: 0.85;
 }
+/* The tray sits under the order being made. */
+.ticket[data-tray] {
+  top: calc(max(10px, env(safe-area-inset-top)) + 124px);
+  color: #a8e2a0;
+}
 .ticket em {
   color: #a8e2a0;
   font-style: normal;

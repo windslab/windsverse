@@ -29,7 +29,7 @@ import MemberDialog from './member/member-dialog';
 import { playerId, useGamePoints, type GameWallet } from './use-game-points';
 import { PointsPanel } from './explore-points';
 import { FriendsPanel, StoryCard, useFriends, type NewStory } from './explore-regulars';
-import { pickGuest } from '@/lib/regulars';
+import { REGULARS, pickGuest, storiesOpen } from '@/lib/regulars';
 
 export type ExploreApi = {
   setManual: (on: boolean) => void;
@@ -51,9 +51,15 @@ export type ExploreApi = {
   jump: () => void;
   /** Arrow over the guest whose order Luna carries (null = none). */
   marker: (key: string | null) => void;
+  /** How many cups are on Luna's tray (1–3). */
+  trayCups: (count: number) => void;
   /** A free seat within reach, then sit / stand. */
   seatNear: () => { id: string; position: THREE.Vector3 } | null;
   sit: (id: string) => boolean;
+  /** First visit: start upstairs, sitting on the floor and reading. */
+  readUpstairs: () => boolean;
+  /** Keep Luna out of the tower (its stairs and rooms) until it is unlocked. */
+  lockTower: (locked: boolean) => void;
   stand: () => void;
   sitting: () => boolean;
   chore: (
@@ -159,6 +165,8 @@ const GOAL_ACTION: Record<string, string[]> = {
   'go-guest': ['serve'],
 };
 const flat = (a: THREE.Vector3, b: THREE.Vector3) => Math.hypot(a.x - b.x, a.z - b.z);
+/** Finished drinks Luna's tray holds before she has to go and serve them. */
+const TRAY_MAX = 3;
 /** Floor distance from Luna to the outside of a box, if she is on its level. */
 const spotDistance = (at: THREE.Vector3, box: THREE.Box3) =>
   at.y < box.min.y - 0.7 || at.y > box.max.y + 0.4
@@ -175,6 +183,11 @@ const REST_LABELS: Record<string, string> = {
   sofa: 'Duduk santai',
   sofaLie: 'Rebahan di sofa',
   pier: 'Duduk di ujung dermaga',
+  viewMeadow: 'Duduk menikmati pemandangan',
+  viewSlope: 'Duduk menikmati pemandangan',
+  campLog1: 'Duduk dekat api unggun',
+  campLog2: 'Duduk dekat api unggun',
+  campLog3: 'Duduk dekat api unggun',
 };
 const emptyDrink = (): Drink => ({ cup: null, amounts: {}, espressoQuality: 1 });
 
@@ -205,7 +218,8 @@ export default function ExploreMode({
     [actions, setActions] = useState<{ id: string; label: string }[]>([]),
     [ticket, setTicket] = useState<string | null>(null),
     [drink, setDrink] = useState<Drink>(emptyDrink()),
-    [holding, setHolding] = useState(false),
+    /** Finished drinks on Luna's tray (guest keys), waiting to be served. */
+    [tray, setTray] = useState<string[]>([]),
     [score, setScore] = useState({ money: 0, served: 0 }),
     [toast, setToast] = useState<{ name: string; line: string } | null>(null),
     [hint, setHint] = useState('Jalan ke kasir untuk menyambut tamu.'),
@@ -215,6 +229,7 @@ export default function ExploreMode({
     [minutes, setMinutes] = useState(8 * 60),
     [crowdLabel, setCrowdLabel] = useState('sepi'),
     [note, setNote] = useState('');
+  const holding = tray.length > 0;
   const customersRef = useRef<Customer[]>([]),
     keys = useRef(new Set<string>()),
     stick = useRef({ x: 0, y: 0 }),
@@ -273,6 +288,31 @@ export default function ExploreMode({
   const friends = useFriends(),
     [friendsOpen, setFriendsOpen] = useState(false),
     [story, setStory] = useState<NewStory | null>(null);
+  // The tower opens once every regular has told Luna their whole story.
+  const knownFriends = REGULARS.filter(
+      (r) => storiesOpen(r, friends.served[r.name] || 0) === 4,
+    ).length,
+    towerLocked = knownFriends < REGULARS.length,
+    towerLockedRef = useRef(towerLocked);
+  useEffect(() => {
+    towerLockedRef.current = towerLocked;
+    api.lockTower(towerLocked);
+  }, [towerLocked, api]);
+  const towerNoteRef = useRef('');
+  useEffect(() => {
+    towerNoteRef.current = `Terkunci · dengarkan semua cerita teman-teman dulu (${knownFriends}/${REGULARS.length} ♥ penuh)`;
+  }, [knownFriends]);
+  // The very first visit starts upstairs: Luna sitting on the floor, reading a book.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('windstopia-first-visit')) return;
+      localStorage.setItem('windstopia-first-visit', '1');
+    } catch {
+      return;
+    }
+    const t = setTimeout(() => api.readUpstairs(), 300);
+    return () => clearTimeout(t);
+  }, [api]);
   const countedRef = useRef(game.counted);
   useEffect(() => {
     countedRef.current = game.counted;
@@ -319,20 +359,21 @@ export default function ExploreMode({
       /* Storage blocked: the frame starts empty. */
     }
   }, [api]);
-  // Point at the guest whose drink Luna is carrying.
+  // Point at the next guest whose drink is on the tray, with as many cups on it as there are.
   useEffect(() => {
-    api.marker(holding ? ticket : null);
-  }, [holding, ticket, api]);
+    api.marker(tray[0] ?? null);
+    if (tray.length) api.trayCups(tray.length);
+  }, [tray, api]);
   useEffect(() => {
     api.setTask(
       photoOpen
         ? 'photo'
-        : holding
-          ? 'serving'
-          : panel === 'cashier'
-            ? 'cashier'
-            : panel
-              ? 'preparing'
+        : panel === 'cashier'
+          ? 'cashier'
+          : panel
+            ? 'preparing'
+            : holding
+              ? 'serving'
               : 'idle',
     );
   }, [holding, panel, photoOpen, api]);
@@ -379,7 +420,9 @@ export default function ExploreMode({
       const crowd = crowdRef.current,
         waiting = customersRef.current.filter((c) => c.stage !== 'served').length;
       if (waiting >= crowd.max || Math.random() > crowd.chance) return;
-      const taken = customersRef.current.filter((c) => c.stage !== 'served').map((c) => c.name);
+      // Everyone still in the café counts, served guests sitting with their drink too, so the
+      // same friend never walks in twice.
+      const taken = customersRef.current.map((c) => c.name);
       const { name, male, order } = newCustomer(
         menu,
         Math.random,
@@ -411,7 +454,7 @@ export default function ExploreMode({
     if (open) {
       setCustomers([]);
       setTicket(null);
-      setHolding(false);
+      setTray([]);
       setDrink(emptyDrink());
       setPanel(null);
       setNote('Kafe tutup · sampai jumpa besok');
@@ -529,21 +572,26 @@ export default function ExploreMode({
       const at = api.luna(),
         list: { id: string; label: string }[] = [];
       const queue = customersRef.current.find((c) => c.stage === 'queue');
-      const tickets = customersRef.current.filter((c) => c.stage === 'waiting');
+      // Orders still to be made: waiting, and not already finished on the tray.
+      const tickets = customersRef.current.filter(
+        (c) => c.stage === 'waiting' && !tray.includes(c.key),
+      );
       if (flat(at, api.stations.cashier) < NEAR && queue)
         list.push({ id: 'cashier', label: 'Terima pesanan' });
-      if (!holding && flat(at, api.stations.bar) < NEAR && tickets.length)
+      if (tray.length < TRAY_MAX && flat(at, api.stations.bar) < NEAR && tickets.length)
         list.push(
           ticket && drink.cup
             ? { id: 'prep', label: 'Masukkan takaran' }
             : { id: 'cup', label: 'Ambil cangkir / cup' },
         );
-      if (!holding && ticket && drink.cup && flat(at, api.stations.espresso) < NEAR)
+      if (ticket && drink.cup && flat(at, api.stations.espresso) < NEAR)
         list.push({ id: 'espresso', label: 'Pakai mesin espresso' });
-      if (holding && ticket) {
-        const guest = api.guests().find((g) => g.key === ticket);
-        if (guest && flat(at, guest.position) < NEAR + 0.25)
-          list.push({ id: 'serve', label: 'Antar pesanan' });
+      // Serve whichever guest on the tray Luna is standing by.
+      for (const key of tray) {
+        const guest = api.guests().find((g) => g.key === key),
+          who = customersRef.current.find((c) => c.key === key);
+        if (guest && who && flat(at, guest.position) < NEAR + 0.25)
+          list.push({ id: 'serve:' + key, label: `Antar ke ${who.name}` });
       }
       // Around the café: telescope, plants, tables, seats.
       const scope = api.spots.telescope;
@@ -597,10 +645,15 @@ export default function ExploreMode({
         regionRef.current = here;
         const region = regionById(here);
         if (region) {
-          const first = visitRegion(here);
-          setPlace({ name: region.name, note: first ? region.note : '', first });
+          const locked = here === 'menara' && towerLockedRef.current;
+          const first = !locked && visitRegion(here);
+          setPlace({
+            name: region.name,
+            note: locked ? towerNoteRef.current : first ? region.note : '',
+            first,
+          });
           if (placeTimer.current) clearTimeout(placeTimer.current);
-          placeTimer.current = setTimeout(() => setPlace(null), first ? 4200 : 2200);
+          placeTimer.current = setTimeout(() => setPlace(null), first || locked ? 4200 : 2200);
         }
       }
       // The book closes when Luna stops reading.
@@ -613,24 +666,36 @@ export default function ExploreMode({
         else chase.current = null;
       }
       // Where to go next, offered as a one-tap "walk there" button when Luna is not there yet.
-      let next: { id: string; label: string } | null = null;
-      if (holding && ticket) next = { id: 'go-guest', label: 'ke meja tamu' };
-      else if (
+      // With drinks on the tray and room for more, both serving and making the next are offered.
+      const next: { id: string; label: string }[] = [];
+      if (holding)
+        next.push({
+          id: 'go-guest',
+          label: tray.length > 1 ? `antar pesanan (${tray.length} di nampan)` : 'ke meja tamu',
+        });
+      if (
         ticket &&
         drink.cup &&
         customersRef.current.find((c) => c.key === ticket)?.order.coffee &&
         !(drink.amounts.espresso > 0)
       )
-        next = { id: 'go-espresso', label: 'ke mesin espresso' };
-      else if (tickets.length) next = { id: 'go-bar', label: 'ke meja bar' };
-      else if (queue) next = { id: 'go-cashier', label: 'ke kasir' };
-      // Hide it only once the matching action is already within reach.
-      const arrived = next && list.some((a) => GOAL_ACTION[next.id].includes(a.id));
-      const nextList = next && !arrived ? [next] : [];
+        next.push({ id: 'go-espresso', label: 'ke mesin espresso' });
+      else if (tray.length < TRAY_MAX && tickets.length)
+        next.push({
+          id: 'go-bar',
+          label: holding ? 'racik pesanan berikutnya' : 'ke meja bar',
+        });
+      else if (!holding && queue) next.push({ id: 'go-cashier', label: 'ke kasir' });
+      // Hide one only once its matching action is already within reach.
+      const nextList = next.filter(
+        (g) => !list.some((a) => GOAL_ACTION[g.id].includes(a.id.split(':')[0])),
+      );
       setGoals((old) => (JSON.stringify(old) === JSON.stringify(nextList) ? old : nextList));
       setHint(
         holding
-          ? 'Antar minumannya ke meja tamu.'
+          ? tray.length < TRAY_MAX && tickets.length
+            ? `Nampan: ${tray.length} minuman. Antar sekarang, atau racik pesanan berikutnya.`
+            : 'Antar minumannya ke meja tamu.'
           : tickets.length && !ticket
             ? 'Ada pesanan. Ke meja bar untuk meracik.'
             : queue
@@ -643,10 +708,10 @@ export default function ExploreMode({
       );
     }, 200);
     return () => clearInterval(t);
-  }, [api, holding, ticket, drink.cup, drink.amounts.espresso, open, crowdLabel]);
+  }, [api, holding, tray, ticket, drink.cup, drink.amounts.espresso, open, crowdLabel]);
 
   const run = (id: string) => {
-    chase.current = id === 'go-guest' ? ticket : null;
+    chase.current = id === 'go-guest' ? (tray[0] ?? null) : null;
     if (id.startsWith('go-')) {
       const target =
         id === 'go-cashier'
@@ -655,7 +720,7 @@ export default function ExploreMode({
             ? api.stations.bar
             : id === 'go-espresso'
               ? api.stations.bar
-              : api.guests().find((g) => g.key === ticket)?.position;
+              : api.guests().find((g) => g.key === tray[0])?.position;
       if (target && !api.walkTo(target)) setHint('Jalannya tertutup, jalan kembali ke kafe dulu.');
       return;
     }
@@ -713,7 +778,9 @@ export default function ExploreMode({
     if (id === 'cashier') setPanel('cashier');
     if (id === 'cup' || id === 'prep' || id === 'espresso') {
       if (!ticket) {
-        const next = customersRef.current.find((c) => c.stage === 'waiting');
+        const next = customersRef.current.find(
+          (c) => c.stage === 'waiting' && !tray.includes(c.key),
+        );
         if (!next) {
           // Nothing ordered yet: the bar waits for a ticket from the cashier.
           setNote('Belum ada pesanan · catat dulu di kasir');
@@ -725,8 +792,8 @@ export default function ExploreMode({
       }
       setPanel('bar');
     }
-    if (id === 'serve' && ticket) {
-      const c = customersRef.current.find((x) => x.key === ticket);
+    if (verb === 'serve' && tray.includes(arg)) {
+      const c = customersRef.current.find((x) => x.key === arg);
       if (!c) return;
       // Every guest loves what Luna makes: a thank-you, no ratings (the money came at the till).
       const thanks = THANKS[Math.floor(Math.random() * THANKS.length)];
@@ -743,9 +810,8 @@ export default function ExploreMode({
         setToast({ name: c.name, line: thanks });
         setTimeout(() => setToast(null), 5500);
       }
-      setHolding(false);
-      setTicket(null);
-      setDrink(emptyDrink());
+      // Another drink may still be in the making: only this one leaves the tray.
+      setTray((t) => t.filter((k) => k !== c.key));
     }
   };
   /** Using something from Luna's bag. */
@@ -839,7 +905,21 @@ export default function ExploreMode({
           <small>pesanan · {ticketCustomer.name}</small>
           <strong>{ticketCustomer.order.item.name}</strong>
           <span>{ticketCustomer.order.line}</span>
-          {holding && <em>siap diantar</em>}
+        </aside>
+      )}
+      {holding && (
+        <aside className={styles.ticket} data-tray>
+          <small>
+            di nampan · {tray.length}/{TRAY_MAX}
+          </small>
+          {tray.map((key) => {
+            const c = customers.find((x) => x.key === key);
+            return c ? (
+              <span key={key}>
+                {c.name}: {c.order.item.name}
+              </span>
+            ) : null;
+          })}
         </aside>
       )}
       <TouchStick
@@ -987,7 +1067,10 @@ export default function ExploreMode({
           onChange={setDrink}
           onClose={() => setPanel(null)}
           onFinish={() => {
-            setHolding(true);
+            // Onto the tray; the bar is free for the next order.
+            if (ticket) setTray((t) => [...t, ticket]);
+            setTicket(null);
+            setDrink(emptyDrink());
             setPanel(null);
           }}
         />
