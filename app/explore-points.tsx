@@ -61,9 +61,9 @@ export function PointsPanel({
             id="redeem-code"
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
-            placeholder="WSM-0001"
+            placeholder="WSM-XXXX-XXXX"
             autoComplete="off"
-            maxLength={12}
+            maxLength={16}
           />
           <div>
             <button className={styles.redeem} disabled={busy || !code.trim() || !game.balance}>

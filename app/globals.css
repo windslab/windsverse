@@ -5724,6 +5724,12 @@ html:has(.cafe-scene-shell.exploring) [data-slot='dialog-content'] {
   color: #cfd8e6;
   font-size: 0.78rem;
 }
+.member-code-check {
+  display: grid;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: #f1d9a8;
+}
 .member-voucher {
   display: flex;
   align-items: center;

@@ -25,6 +25,12 @@ Disepakati bersama pemilik pada 1 November 2026. Tahap 1 dibangun di branch `lun
 - Poin dihitung dari harga **sesudah diskon** (diskon biasa memotong poin secara proporsional).
 - Poin **dikumpulkan terus lintas kartu**.
 - Semua poin **hangus** bila **12 bulan** tidak ada transaksi yang memenuhi syarat.
+- **Kode kartu acak** (diputuskan 11 Nov 2026): kode kartu berbentuk WSM- dan 8 huruf/angka acak
+  (misalnya WSM-7KQ4-X9TD, tanpa 0/O dan 1/I), bukan nomor urut lagi, jadi tidak bisa ditebak.
+  Kartu lama (WSM-0001 dst.) otomatis mendapat kode acak; link kartunya tetap sama.
+- Di kasir, member tetap bisa dicari dengan nama atau nomor HP untuk mencatat stamp, tetapi
+  **memakai hadiah stamp atau menyerahkan hadiah butuh kode kartu lengkap**: scan QR atau ketik kode
+  dari kartu di HP member. Admin tetap bisa menyerahkan hadiah dari daftar member.
 - **Poin Windstopia** (diputuskan ulang 11 Nov 2026, lebih sederhana): hanya tiga hal yang memberi
   poin ke saldo poin game pemain (disimpan di server, terikat ke perangkatnya), masing-masing
   **1 poin per hari** (hari kafe, ganti jam 05.00 WITA), jadi paling banyak **3 poin per hari**:
@@ -36,7 +42,7 @@ Disepakati bersama pemilik pada 1 November 2026. Tahap 1 dibangun di branch `lun
   Melayani pelanggan, menyapu, menyiram, mengelap meja, misi harian dan tukar rupiah tidak lagi
   memberi poin.
 - Pemain memindahkan saldonya lewat tombol **poin**: form kode kartu langsung tampil, jadi cukup
-  memasukkan kode kartu (misalnya WSM-0001); kartu tidak perlu tersimpan di HP atau browser itu.
+  memasukkan kode kartu (misalnya WSM-7KQ4-X9TD); kartu tidak perlu tersimpan di HP atau browser itu.
   Sebelum dipindahkan, nama pemilik kartu tampil disamarkan (misalnya R\*\*\* S.) supaya salah
   ketik ketahuan. Satu kartu menerima paling banyak **3 poin game per hari**; sisanya tetap di
   saldo game dan bisa dipindahkan besok.
