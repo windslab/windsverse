@@ -438,13 +438,15 @@ test('members: card codes are random, unique, and typed or scanned in any form',
   assert.equal(normalizeMemberCode(code.toLowerCase().replaceAll('-', ' ')), code);
   assert.equal(normalizeMemberCode(code.slice(4)), code);
   assert.equal(normalizeMemberCode('WSM-0001'), '');
+  assert.equal(normalizeMemberCode('WSM-2345'), '');
+  assert.ok(codes.every((c) => /^WSM-[A-Z2-9]{4}$/.test(c) && /[A-Z]/.test(c.slice(4))));
 });
 
 test('members: cards from before random codes get one, keeping their link', () => {
   const { s } = fixture();
   join(s);
   join(s, '0812 9999 0000');
-  s.members[0].code = 'WSM-0001';
+  s.members[0].code = 'WSM-2345';
   const token = s.members[0].token;
   const system: Actor = { ...owner, role: 'system' };
   assert.throws(() => apply(s, owner, 'member.recode', {}, morning), /sistem/);

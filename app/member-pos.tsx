@@ -242,7 +242,7 @@ export default function MemberPos({
               Untuk memakai hadiah, scan QR atau ketik kode kartu lengkap dari HP member
               <input
                 value={codeInput}
-                placeholder="WSM-XXXX-XXXX"
+                placeholder="WSM-XXXX"
                 autoComplete="off"
                 onChange={(e) => {
                   setCodeInput(e.target.value);

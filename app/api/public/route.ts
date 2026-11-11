@@ -73,7 +73,7 @@ export async function POST(req:Request){try{checkMutation(req);const p=await bod
   if(p.action==='game.wallet'){await markGameOpened(db,p.player);return Response.json({...await gameWallet(db,p.player),cap:GAME_DAILY_CAP},{headers})}
   if(p.action==='game.redeem'){
    const wanted=normalizeMemberCode(p.code);
-   if(!wanted)throw new Fault('Kode kartu member tidak valid. Contoh: WSM-7KQ4-X9TD.');
+   if(!wanted)throw new Fault('Kode kartu member tidak valid. Contoh: WSM-7KQ4.');
    const member=loaded.state.members.find(m=>m.code===wanted);
    if(!member)throw new Fault('Kartu member dengan kode ini tidak ditemukan.',404);
    if(member.status==='nonaktif')throw new Fault('Kartu member ini tidak aktif.',403);

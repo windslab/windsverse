@@ -893,7 +893,7 @@ function UploadField({
 
 const SAMPLE_FACE = {
   name: 'Nama Member',
-  code: 'WSM-7KQ4-X9TD',
+  code: 'WSM-7KQ4',
   cardNo: 2,
   stamps: ['01-05', '01-09', '01-14', '01-20', '01-26', '02-02'].map((d) => ({
     at: `2027-${d}T10:00:00+08:00`,
