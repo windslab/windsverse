@@ -920,6 +920,7 @@ export default function ExploreMode({
             // Every purchase goes into the till.
             const price = queueCustomer.order.item.price;
             setScore((s) => ({ ...s, money: s.money + price }));
+            game.sale(price);
             setNote(`+${rupiah(price)}`);
             setTimeout(() => setNote(''), 2200);
             setCustomers((list) =>

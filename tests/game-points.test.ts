@@ -2,7 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import {
+  GAME_CASH_DAILY_POINTS,
   GAME_DAILY_CAP,
+  GAME_SALE_MAX,
+  exchangeGameCash,
+  recordGameSale,
   dailyMissions,
   earnGamePoint,
   gamePointsOn,
@@ -119,4 +123,40 @@ test('redeemed points join the member card balance and show today’s progress',
   const now = new Date('2026-11-09T12:00:00+08:00');
   assert.equal(memberCard(s, member, now).points, 3);
   assert.deepEqual(publicCard(s, member, now).game, { today: 3, cap: GAME_DAILY_CAP });
+});
+
+test('till rupiah is saved per sale and exchanged at Rp100.000 a point, 5 a day', async () => {
+  const { db } = memoryDb(),
+    tick = clock();
+  for (let i = 0; i < 25; i++) await recordGameSale(db, 'player-a', 20_000, tick());
+  assert.equal((await gameWallet(db, 'player-a', tick())).cash, 500_000);
+  await earnGamePoint(db, 'player-a', 'serve', tick());
+  const first = await exchangeGameCash(db, 'player-a', tick());
+  assert.equal(first.gained, 5);
+  assert.equal(first.balance, 6);
+  assert.equal(first.cash, 0);
+  assert.equal(first.exchanged, GAME_CASH_DAILY_POINTS);
+  // Exchanging does not use up the activity cap.
+  assert.equal(first.today, 1);
+  for (let i = 0; i < 10; i++) await recordGameSale(db, 'player-a', 20_000, tick());
+  const capped = await exchangeGameCash(db, 'player-a', tick());
+  assert.equal(capped.gained, 0);
+  assert.equal(capped.cash, 200_000);
+  const nextDay = await exchangeGameCash(db, 'player-a', new Date('2026-11-10T10:00:00+08:00'));
+  assert.equal(nextDay.gained, 2);
+  assert.equal(nextDay.cash, 0);
+});
+
+test('a sale is capped in size and two sales need a gap', async () => {
+  const { db } = memoryDb(),
+    at = new Date('2026-11-09T10:00:00+08:00');
+  const big = await recordGameSale(db, 'player-a', 9_000_000, at);
+  assert.equal(big.cash, GAME_SALE_MAX);
+  const quick = await recordGameSale(db, 'player-a', 20_000, new Date(at.getTime() + 1000));
+  assert.equal(quick.counted, false);
+  assert.equal(quick.cash, GAME_SALE_MAX);
+  assert.equal(
+    (await recordGameSale(db, 'player-a', -5, new Date(at.getTime() + 9000))).counted,
+    false,
+  );
 });

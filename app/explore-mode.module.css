@@ -528,7 +528,32 @@
   opacity: 0.7;
   font-size: 11px;
 }
-.redeem {
+.exchange {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 10px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #ffffff10;
+}
+.exchange span {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+}
+.exchange b {
+  color: #f6c06a;
+}
+.exchange small {
+  opacity: 0.7;
+  font-size: 11px;
+}
+.exchange > small {
+  grid-column: 1 / -1;
+}
+.missions .redeem {
   padding: 7px 12px;
   border-radius: 999px;
   background: #f6c06a;
@@ -536,7 +561,7 @@
   font-weight: 700;
   text-decoration: none !important;
 }
-.redeem:disabled {
+.missions .redeem:disabled {
   opacity: 0.45;
 }
 .redeemForm {

@@ -30,8 +30,12 @@ Disepakati bersama pemilik pada 1 November 2026. Tahap 1 dibangun di branch `lun
   menyiram tanaman, mengelap meja, menyapu dan memotret, ditambah 1 poin untuk setiap misi harian
   yang selesai (3 misi per hari, sama untuk semua pemain). Satu pemain mendapat paling banyak
   **10 poin per hari**, dengan jeda minimal 8 detik antarpoin.
-- Pemain memindahkan saldonya lewat tombol **poin**, lalu **Redeem ke kartu member**, dengan
-  memasukkan kode kartu (misalnya WSM-0001). Sebelum dipindahkan, nama pemilik kartu tampil
+- **Tukar rupiah** (diputuskan 11 Nov 2026): rupiah yang didapat di kasir game ikut tersimpan di
+  server. Setiap Rp100.000 bisa ditukar menjadi 1 poin, paling banyak **5 poin per hari** dari
+  tukar rupiah, terpisah dari batas 10 poin kegiatan. Satu penjualan dihitung paling banyak
+  Rp100.000, dengan jeda minimal 4 detik antarpenjualan. Sisa rupiah tetap tersimpan.
+- Pemain memindahkan saldonya lewat tombol **poin**: form kode kartu langsung tampil, jadi cukup
+  memasukkan kode kartu (misalnya WSM-0001); kartu tidak perlu tersimpan di HP atau browser itu. Sebelum dipindahkan, nama pemilik kartu tampil
   disamarkan (misalnya R\*\*\* S.) supaya salah ketik ketahuan. Satu kartu menerima paling banyak
   **10 poin game per hari**; sisanya tetap di saldo game dan bisa dipindahkan besok.
 - Poin game di kartu bisa ditukar hadiah seperti poin belanja, tetapi hadiah tetap butuh kartu

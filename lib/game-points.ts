@@ -1,13 +1,20 @@
 // Windstopia points: things done in the game earn one point each into the player's game wallet,
 // up to a daily cap, and the player redeems the wallet onto a member card by its code. A card
 // takes in at most the same daily cap, so points gathered on many devices cannot pile onto one
-// card. Wallets and card totals are written apart from the café's revisioned records, so a
+// card. Rupiah earned at the in-game till is saved too and can be exchanged for points, with its
+// own daily limit. Wallets and card totals are written apart from the café's revisioned records, so a
 // player never makes a cashier's screen reload.
 import { businessDay, type Row, type State } from './model';
 
 export const GAME_DAILY_CAP = 10;
 /** Shortest time between two points for one player; every activity takes longer than this. */
 export const GAME_MIN_GAP_MS = 8000;
+/** In-game rupiah from the till can be exchanged too: Rp100.000 for a point, 5 points a day. */
+export const GAME_CASH_PER_POINT = 100_000;
+export const GAME_CASH_DAILY_POINTS = 5;
+/** The most one sale may add, and the shortest time between two sales of one player. */
+export const GAME_SALE_MAX = 100_000;
+export const GAME_SALE_GAP_MS = 4000;
 export const GAME_ACTIVITIES = ['serve', 'water', 'wipe', 'sweep', 'photo'] as const;
 export type GameActivity = (typeof GAME_ACTIVITIES)[number];
 export type Mission = { id: string; activity: GameActivity; count: number; label: string };
@@ -93,16 +100,21 @@ type Db = { prepare: (sql: string) => { bind: (...values: unknown[]) => Statemen
 const walletId = (player: string) => 'gw-' + player;
 const WALLET_KIND = 'gameWallet';
 
-/** Points waiting in a player's wallet, and how many they earned today. */
+/** Points waiting in a player's wallet, how many they earned today, and their saved rupiah. */
 export async function gameWallet(db: Db, player: string, now = new Date()) {
   const day = businessDay(now);
   const row = await db
     .prepare(
-      `SELECT json_extract(data,'$.balance') AS balance, json_extract(data,?2) AS today FROM records WHERE id=?1 AND kind='${WALLET_KIND}'`,
+      `SELECT json_extract(data,'$.balance') AS balance, json_extract(data,?2) AS today, json_extract(data,'$.cash') AS cash, json_extract(data,?3) AS exchanged FROM records WHERE id=?1 AND kind='${WALLET_KIND}'`,
     )
-    .bind(walletId(player), `$.days."${day}"`)
-    .first<{ balance: number; today: number }>();
-  return { balance: Number(row?.balance) || 0, today: Number(row?.today) || 0 };
+    .bind(walletId(player), `$.days."${day}"`, `$.cashDays."${day}"`)
+    .first<{ balance: number; today: number; cash: number; exchanged: number }>();
+  return {
+    balance: Number(row?.balance) || 0,
+    today: Number(row?.today) || 0,
+    cash: Number(row?.cash) || 0,
+    exchanged: Number(row?.exchanged) || 0,
+  };
 }
 
 /**
@@ -133,6 +145,59 @@ export async function earnGamePoint(db: Db, player: string, activity: string, no
     .bind(walletId(player), fresh, dayPath, at, GAME_DAILY_CAP, mission || null, cutoff)
     .run();
   return { counted: (result.meta.changes || 0) > 0, ...(await gameWallet(db, player, now)) };
+}
+
+/**
+ * Saves the rupiah of one in-game sale into the player's wallet, capped per sale and spaced out
+ * like real sales, so the till cannot be filled by sending requests.
+ */
+export async function recordGameSale(db: Db, player: string, price: number, now = new Date()) {
+  const amount = Math.min(GAME_SALE_MAX, Math.max(0, Math.floor(price)));
+  if (!amount) return { counted: false, ...(await gameWallet(db, player, now)) };
+  const at = now.toISOString(),
+    cutoff = new Date(now.getTime() - GAME_SALE_GAP_MS).toISOString();
+  const fresh = JSON.stringify({
+    id: walletId(player),
+    balance: 0,
+    days: {},
+    missions: {},
+    cash: amount,
+    saleLast: at,
+  });
+  const result = await db
+    .prepare(
+      `INSERT INTO records(id,kind,data) VALUES(?1,'${WALLET_KIND}',?2)
+       ON CONFLICT(id) DO UPDATE SET data=json_set(data,'$.cash',coalesce(json_extract(data,'$.cash'),0)+?3,'$.saleLast',?4)
+       WHERE kind='${WALLET_KIND}' AND coalesce(json_extract(data,'$.saleLast'),'')<?5`,
+    )
+    .bind(walletId(player), fresh, amount, at, cutoff)
+    .run();
+  return { counted: (result.meta.changes || 0) > 0, ...(await gameWallet(db, player, now)) };
+}
+
+/**
+ * Turns saved rupiah into wallet points, Rp100.000 a point, as many as today's exchange limit
+ * still allows; the rest of the rupiah stays saved.
+ */
+export async function exchangeGameCash(db: Db, player: string, now = new Date()) {
+  const day = businessDay(now),
+    wallet = await gameWallet(db, player, now),
+    points = Math.min(
+      Math.floor(wallet.cash / GAME_CASH_PER_POINT),
+      Math.max(0, GAME_CASH_DAILY_POINTS - wallet.exchanged),
+    );
+  if (!points) return { gained: 0, ...wallet };
+  const dayPath = `$.cashDays."${day}"`,
+    cost = points * GAME_CASH_PER_POINT;
+  const result = await db
+    .prepare(
+      `UPDATE records SET data=json_set(data,'$.cash',json_extract(data,'$.cash')-?2,'$.balance',coalesce(json_extract(data,'$.balance'),0)+?3,?4,coalesce(json_extract(data,?4),0)+?3)
+       WHERE id=?1 AND kind='${WALLET_KIND}' AND json_extract(data,'$.cash')>=?2 AND coalesce(json_extract(data,?4),0)+?3<=?5`,
+    )
+    .bind(walletId(player), cost, points, dayPath, GAME_CASH_DAILY_POINTS)
+    .run();
+  const after = await gameWallet(db, player, now);
+  return { gained: result.meta.changes ? points : 0, ...after };
 }
 
 /** "Rina Sari" becomes "R*** S.", enough to recognise a card without revealing the name. */

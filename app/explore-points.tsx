@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import styles from './explore-mode.module.css';
+import { rupiah } from '@/lib/barista-game';
 import type { RedeemCard, useGamePoints } from './use-game-points';
 
 /** The poin panel: the wallet, redeeming it onto a member card by code, and today's missions. */
@@ -11,12 +12,13 @@ export function PointsPanel({
   game: ReturnType<typeof useGamePoints>;
   onClose: () => void;
 }) {
-  const [step, setStep] = useState<'wallet' | 'code' | 'confirm' | 'done'>('wallet'),
+  const [step, setStep] = useState<'code' | 'confirm' | 'done'>('code'),
     [code, setCode] = useState(() => game.lastCode()),
     [card, setCard] = useState<RedeemCard | null>(null),
     [moved, setMoved] = useState(0),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState('');
+    [error, setError] = useState(''),
+    [swapNote, setSwapNote] = useState('');
   const run = async (work: () => Promise<void>) => {
     setBusy(true);
     setError('');
@@ -28,6 +30,8 @@ export function PointsPanel({
     setBusy(false);
   };
   const amount = card ? Math.min(game.balance, card.room) : 0;
+  const swapLeft = Math.max(0, game.cashCap - game.exchanged),
+    swappable = Math.min(Math.floor(game.cash / game.cashPerPoint), swapLeft);
   return (
     <aside className={styles.missions} aria-label="Poin Windstopia">
       <header>
@@ -45,11 +49,31 @@ export function PointsPanel({
           </small>
         </span>
       </div>
-      {step === 'wallet' && (
-        <button className={styles.redeem} disabled={!game.balance} onClick={() => setStep('code')}>
-          Redeem ke kartu member
+      <div className={styles.exchange}>
+        <span>
+          Rupiah dari kasir <b>{rupiah(game.cash)}</b>
+          <small>
+            {rupiah(game.cashPerPoint)} = 1 poin · ditukar {game.exchanged}/{game.cashCap} poin hari
+            ini
+          </small>
+        </span>
+        <button
+          className={styles.redeem}
+          disabled={busy || !swappable}
+          onClick={() =>
+            void run(async () => {
+              const gained = await game.exchange();
+              setSwapNote(gained ? `✓ ${gained} poin ditambahkan` : 'Belum ada yang bisa ditukar.');
+            })
+          }
+        >
+          {swappable ? `Tukar jadi ${swappable} poin` : 'Tukar'}
         </button>
-      )}
+        {swapNote && <small className={styles.missionDone}>{swapNote}</small>}
+        {!swapLeft && !swapNote && (
+          <small>Batas tukar hari ini sudah penuh. Coba lagi besok.</small>
+        )}
+      </div>
       {step === 'code' && (
         <form
           className={styles.redeemForm}
@@ -61,7 +85,7 @@ export function PointsPanel({
             });
           }}
         >
-          <label htmlFor="redeem-code">Kode kartu member</label>
+          <label htmlFor="redeem-code">Redeem ke kartu member · masukkan kodenya</label>
           <input
             id="redeem-code"
             value={code}
@@ -71,10 +95,7 @@ export function PointsPanel({
             maxLength={12}
           />
           <div>
-            <button type="button" onClick={() => setStep('wallet')}>
-              batal
-            </button>
-            <button className={styles.redeem} disabled={busy || !code.trim()}>
+            <button className={styles.redeem} disabled={busy || !code.trim() || !game.balance}>
               {busy ? 'Mencari…' : 'Cek kartu'}
             </button>
           </div>
@@ -121,7 +142,7 @@ export function PointsPanel({
               ? `✓ ${moved} poin masuk ke kartu ${card.code}.`
               : 'Belum ada poin yang dipindahkan. Coba lagi nanti.'}
           </p>
-          <button className={styles.redeem} onClick={() => setStep('wallet')}>
+          <button className={styles.redeem} onClick={() => setStep('code')}>
             selesai
           </button>
         </div>
@@ -144,8 +165,9 @@ export function PointsPanel({
         ))}
       </ul>
       <p>
-        Setiap kegiatan dan misi = 1 poin, maks. {game.cap} per hari. Satu kartu member bisa
-        menerima {game.cap} poin game per hari.
+        Setiap kegiatan dan misi = 1 poin, maks. {game.cap} per hari. Rupiah dari kasir bisa ditukar
+        maks. {game.cashCap} poin per hari. Satu kartu member bisa menerima {game.cap} poin game per
+        hari. Kartu tidak perlu tersimpan di perangkat ini: cukup kodenya.
       </p>
     </aside>
   );

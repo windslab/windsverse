@@ -6,7 +6,7 @@ import {publicBooks} from '@/lib/public-books';
 import {businessDay} from '@/lib/model';
 import {publicCard} from '@/lib/member';
 import {weeklyBestSellers} from '@/lib/best-sellers';
-import {earnGamePoint,gamePointsOn,gameWallet,maskName,redeemGamePoints,GAME_DAILY_CAP} from '@/lib/game-points';
+import {earnGamePoint,exchangeGameCash,gamePointsOn,gameWallet,maskName,recordGameSale,redeemGamePoints,GAME_CASH_DAILY_POINTS,GAME_CASH_PER_POINT,GAME_DAILY_CAP} from '@/lib/game-points';
 export const dynamic='force-dynamic';
 export async function GET(req:Request){try{
  const url=new URL(req.url),loaded=await read(),s=loaded.state;
@@ -68,7 +68,13 @@ export async function POST(req:Request){try{checkMutation(req);const p=await bod
    if(typeof p.activity!=='string'||p.activity.length>40)throw new Fault('Kegiatan tidak valid.');
    return Response.json({...await earnGamePoint(db,p.player,p.activity),cap:GAME_DAILY_CAP},{headers});
   }
-  if(p.action==='game.wallet')return Response.json({...await gameWallet(db,p.player),cap:GAME_DAILY_CAP},{headers});
+  const limits={cap:GAME_DAILY_CAP,cashPerPoint:GAME_CASH_PER_POINT,cashCap:GAME_CASH_DAILY_POINTS};
+  if(p.action==='game.wallet')return Response.json({...await gameWallet(db,p.player),...limits},{headers});
+  if(p.action==='game.sale'){
+   if(typeof p.price!=='number'||!Number.isFinite(p.price))throw new Fault('Nilai penjualan tidak valid.');
+   return Response.json({...await recordGameSale(db,p.player,p.price),...limits},{headers});
+  }
+  if(p.action==='game.exchange')return Response.json({...await exchangeGameCash(db,p.player),...limits},{headers});
   if(p.action==='game.redeem'){
    const code=typeof p.code==='string'?p.code.trim().toUpperCase().replace(/\s+/g,''):'';
    if(!/^WSM-?\d{1,6}$/.test(code))throw new Fault('Kode kartu member tidak valid. Contoh: WSM-0001.');
