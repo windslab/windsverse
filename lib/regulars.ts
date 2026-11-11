@@ -320,3 +320,64 @@ export function favoriteOn<T extends { name: string }>(r: Regular, menu: T[]) {
   }
   return undefined;
 }
+
+/**
+ * Outings with the regulars: now and then a friend Luna knows invites her along, at a set game
+ * hour, to where the friends really go: the sunset by the sea and a night at the camp on the
+ * mountain. `place` is the rest spot Luna settles at; the friends sit around her.
+ */
+export type Outing = {
+  id: 'sunset' | 'camp';
+  /** Game hour the invitation comes. */
+  hour: number;
+  place: string;
+  invite: (from: string) => string;
+  /** What the friends say while they sit together. */
+  lines: string[];
+  /** Friends who like this outing most (asked first). */
+  likes: string[];
+  /** Note when it ends. */
+  done: string;
+};
+
+export const OUTINGS: Outing[] = [
+  {
+    id: 'sunset',
+    hour: 16,
+    place: 'pier',
+    invite: (from) => `${from}: Luna, sore ini kami mau lihat sunset di dermaga. Ikut?`,
+    lines: [
+      'Langitnya oranye banget sore ini.',
+      'Dari ujung dermaga, kafe kelihatan kecil ya.',
+      'Ombaknya tenang. Enak duduk lama-lama di sini.',
+      'Nanti foto sunset-nya kirim ke grup ya!',
+      'Kapan-kapan kita ke sini lagi, ramai-ramai.',
+      'Angin lautnya enak. Capek kerja langsung hilang.',
+    ],
+    likes: ['Fina', 'Uli', 'Vira', 'Adit', 'Bayu'],
+    done: 'Mataharinya sudah tenggelam. Sampai jumpa di kafe!',
+  },
+  {
+    id: 'camp',
+    hour: 18,
+    place: 'campLog1',
+    invite: (from) =>
+      `${from}: Malam ini kami naik ke area perkemahan dekat puncak. Kamu ikut, Luna?`,
+    lines: [
+      'Api unggunnya hangat. Ada yang bawa kopi?',
+      'Bintangnya jelas banget dari atas sini.',
+      'Jalan setapaknya tadi lumayan bikin ngos-ngosan.',
+      'Dari sini lampu-lampu kafe kelihatan kecil sekali.',
+      'Besok pagi kita lihat matahari terbit dari puncak.',
+      'Tenang ya di sini. Cuma ada angin dan suara api.',
+    ],
+    likes: ['Aan', 'Giffari', 'Fajar', 'Vira', 'Acca', 'Mamat'],
+    done: 'Malam makin larut. Terima kasih sudah ikut berkemah, Luna.',
+  },
+];
+
+/** Who comes along: up to four friends Luna knows, those who like the outing first. */
+export function outingFriends(outing: Outing, known: string[], rand = Math.random) {
+  const shuffled = [...known].sort(() => rand() - 0.5);
+  return shuffled.sort((a, b) => +outing.likes.includes(b) - +outing.likes.includes(a)).slice(0, 4);
+}

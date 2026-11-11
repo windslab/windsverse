@@ -28,8 +28,16 @@ import BarStation from './explore-bar';
 import MemberDialog from './member/member-dialog';
 import { playerId, useGamePoints, type GameWallet } from './use-game-points';
 import { PointsPanel } from './explore-points';
-import { FriendsPanel, StoryCard, useFriends, type NewStory } from './explore-regulars';
-import { REGULARS, pickGuest, storiesOpen } from '@/lib/regulars';
+import { FriendsPanel, InviteCard, StoryCard, useFriends, type NewStory } from './explore-regulars';
+import {
+  OUTINGS,
+  REGULARS,
+  outingFriends,
+  pickGuest,
+  regularNamed,
+  storiesOpen,
+  type Outing,
+} from '@/lib/regulars';
 
 export type ExploreApi = {
   setManual: (on: boolean) => void;
@@ -53,6 +61,12 @@ export type ExploreApi = {
   marker: (key: string | null) => void;
   /** How many cups are on Luna's tray (1–3). */
   trayCups: (count: number) => void;
+  /** Friends out with Luna, placed and posed by the game ([] = none). */
+  companions: (
+    list: { name: string; male: boolean; position: THREE.Vector3; heading: number; sit: boolean }[],
+  ) => void;
+  /** Put Luna somewhere at once. */
+  teleport: (point: THREE.Vector3) => void;
   /** A free seat within reach, then sit / stand. */
   seatNear: () => { id: string; position: THREE.Vector3 } | null;
   sit: (id: string) => boolean;
@@ -302,6 +316,100 @@ export default function ExploreMode({
   useEffect(() => {
     towerNoteRef.current = `Terkunci · dengarkan semua cerita teman-teman dulu (${knownFriends}/${REGULARS.length} ♥ penuh)`;
   }, [knownFriends]);
+  // Outings: at the right game hour a friend Luna knows may invite her along (once a game day
+  // each). Joining takes her there, sitting among the friends while they chat; standing up, or
+  // the outing running its course, ends it, and each friend there counts it as time together.
+  const [invite, setInvite] = useState<{ outing: Outing; friends: string[] } | null>(null),
+    [outing, setOuting] = useState<{ outing: Outing; friends: string[]; since: number } | null>(
+      null,
+    );
+  const outingDay = useRef({ day: 0, last: -1, asked: new Set<string>() });
+  useEffect(() => {
+    const d = outingDay.current;
+    if (minutes < d.last) {
+      d.day++;
+      d.asked.clear();
+    }
+    d.last = minutes;
+    if (invite || outing || panel || photoOpen) return;
+    const known = REGULARS.filter((r) => (friends.served[r.name] || 0) > 0).map((r) => r.name);
+    const due = OUTINGS.find(
+      (o) => Math.floor(minutes / 60) === o.hour && !d.asked.has(o.id) && known.length,
+    );
+    if (!due) return;
+    d.asked.add(due.id);
+    if (Math.random() < 0.3) return;
+    setInvite({ outing: due, friends: outingFriends(due, known) });
+  }, [minutes, invite, outing, panel, photoOpen, friends.served]);
+  const joinOuting = () => {
+    if (!invite) return;
+    const { outing: o, friends: who } = invite;
+    setInvite(null);
+    const spot = api.restSpots.find((r) => r.name === o.place);
+    if (!spot) return;
+    api.teleport(spot.position);
+    api.settle(o.place);
+    // Friends side by side with Luna (facing the same way), or round the campfire.
+    const right = new THREE.Vector3(Math.cos(spot.heading), 0, -Math.sin(spot.heading));
+    const logs = api.restSpots.filter((r) => r.name.startsWith('campLog') && r.name !== o.place);
+    api.companions(
+      who.map((name, i) => {
+        const log = o.id === 'camp' ? logs[i] : undefined;
+        const offset = (i % 2 ? -1 : 1) * (0.85 + Math.floor(i / 2) * 0.8);
+        return {
+          name,
+          male: regularNamed(name)?.male ?? true,
+          position: log
+            ? log.position.clone()
+            : o.id === 'camp'
+              ? spot.position
+                  .clone()
+                  .addScaledVector(right, offset * 1.6)
+                  .setY(spot.position.y - 0.36)
+              : spot.position.clone().addScaledVector(right, offset),
+          heading: log ? log.heading : spot.heading,
+          sit: o.id !== 'camp' || !!log,
+        };
+      }),
+    );
+    setPlace({
+      name: o.id === 'camp' ? 'Berkemah bersama' : 'Sunset bersama',
+      note: who.join(', '),
+      first: true,
+    });
+    setTimeout(() => setPlace(null), 4200);
+    setOuting({ outing: o, friends: who, since: Date.now() });
+  };
+  // While out together: a friend says something now and then; it ends when Luna gets up.
+  const friendsRef = useRef(friends);
+  useEffect(() => {
+    friendsRef.current = friends;
+  });
+  useEffect(() => {
+    if (!outing) return;
+    let said = 0;
+    const t = setInterval(() => {
+      const over = Date.now() - outing.since > 120_000;
+      if (over || (Date.now() - outing.since > 2000 && api.activity() === '')) {
+        clearInterval(t);
+        api.companions([]);
+        if (over) api.stand();
+        let opened: NewStory | null = null;
+        for (const name of outing.friends) opened = friendsRef.current.serve(name) ?? opened;
+        if (opened) setStory(opened);
+        setNote(outing.outing.done);
+        setTimeout(() => setNote(''), 3500);
+        setOuting(null);
+        return;
+      }
+      const who = outing.friends[said % outing.friends.length],
+        line = outing.outing.lines[said % outing.outing.lines.length];
+      said++;
+      setToast({ name: who, line });
+      setTimeout(() => setToast(null), 5200);
+    }, 7000);
+    return () => clearInterval(t);
+  }, [outing, api]);
   // The very first visit starts upstairs: Luna sitting on the floor, reading a book.
   useEffect(() => {
     try {
@@ -1007,6 +1115,13 @@ export default function ExploreMode({
         <FriendsPanel served={friends.served} onClose={() => setFriendsOpen(false)} />
       )}
       {story && !photoOpen && <StoryCard story={story} onClose={() => setStory(null)} />}
+      {invite && !story && !photoOpen && !panel && (
+        <InviteCard
+          text={invite.outing.invite(invite.friends[0])}
+          onYes={joinOuting}
+          onNo={() => setInvite(null)}
+        />
+      )}
       {toast && (
         <div className={styles.toast} role="status">
           <strong>{toast.name} ♡</strong>

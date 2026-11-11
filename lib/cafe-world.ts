@@ -748,7 +748,110 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     sea.position.set(islandCentre.x, seaLevel, islandCentre.z);
     group.add(sea);
   }
-  // Pier: from the beach behind the café straight out to sea.
+  // Waves washing the beach all round the island: a band draped over the shore (sand to shallow
+  // sea) where foam rolls up the sand, lingers, and slides back, leaving the sand darker and wet.
+  {
+    const RAYS = 540,
+      ACROSS = [-4, -2.5, -1.2, 0, 1.5, 3, 5],
+      cu = 0,
+      cw = islandMid;
+    const positions: number[] = [],
+      across: number[] = [],
+      along: number[] = [],
+      index: number[] = [];
+    for (let i = 0; i <= RAYS; i++) {
+      const a = (i / RAYS) * Math.PI * 2,
+        du = Math.cos(a),
+        dw = Math.sin(a);
+      // Out from the island's middle to where the ground meets the water.
+      let r = 40;
+      const ground = (d: number) => {
+        const p = at(cu + du * d, cw + dw * d);
+        return baseHeight(p.x, p.z);
+      };
+      // The coast, not the river or the lake (their beds dip below the sea's level too).
+      const coastal = (d: number) => {
+        const p = at(cu + du * d, cw + dw * d);
+        return seaOut(p.x, p.z) > SEA - 14;
+      };
+      while (r < 520 && (ground(r) > seaLevel || !coastal(r))) r += 2;
+      let lo = r - 2,
+        hi = r;
+      for (let k = 0; k < 8; k++) {
+        const mid = (lo + hi) / 2;
+        if (ground(mid) > seaLevel) lo = mid;
+        else hi = mid;
+      }
+      r = (lo + hi) / 2;
+      ACROSS.forEach((o, j) => {
+        const p = at(cu + du * (r + o), cw + dw * (r + o));
+        positions.push(p.x, Math.max(height(p.x, p.z), seaLevel) + 0.035, p.z);
+        across.push(j / (ACROSS.length - 1));
+        along.push(i / RAYS);
+        if (i > 0 && j > 0) {
+          const n = ACROSS.length,
+            q = (i - 1) * n + j - 1;
+          index.push(q, q + n, q + 1, q + 1, q + n, q + n + 1);
+        }
+      });
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    g.setAttribute('across', new THREE.Float32BufferAttribute(across, 1));
+    g.setAttribute('along', new THREE.Float32BufferAttribute(along, 1));
+    g.setIndex(index);
+    geometries.push(g);
+    const m = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      uniforms: { time: windTime },
+      vertexShader: `
+        attribute float across, along;
+        varying float vAcross, vAlong;
+        void main() {
+          vAcross = across;
+          vAlong = along;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: `
+        uniform float time;
+        varying float vAcross, vAlong;
+        void main() {
+          // Each stretch of beach has its own rhythm, so the waves arrive unevenly.
+          float s = vAlong * 6.2832;
+          float offset = sin(s * 7.0) * 0.35 + sin(s * 23.0 + 1.3) * 0.15;
+          float t = time * 0.13 + offset;
+          float cycle = fract(t);
+          float surge = 0.18 + 0.1 * sin(floor(t) * 2.7 + s * 5.0);
+          // Up the sand quickly, a pause, then sliding back out.
+          float reach = cycle < 0.45
+            ? mix(0.62, surge, smoothstep(0.0, 0.45, cycle))
+            : mix(surge, 0.62, smoothstep(0.55, 1.0, cycle));
+          float crest = 1.0 - smoothstep(0.0, 0.05, abs(vAcross - reach));
+          float sheet = smoothstep(reach - 0.01, reach + 0.08, vAcross) * (1.0 - smoothstep(0.55, 0.8, vAcross));
+          // The sand stays darker and wet a little above where the last wave reached.
+          float wet = smoothstep(surge - 0.12, surge, vAcross) * (1.0 - smoothstep(0.5, 0.62, vAcross));
+          float far = smoothstep(0.62, 1.0, vAcross);
+          // Small foam lines further out, rolling in.
+          float swell = smoothstep(0.85, 1.0, sin((vAcross * 9.0 + time * 1.1 + offset * 3.0))) * far * 0.5;
+          vec3 colour = mix(vec3(0.5, 0.42, 0.29), vec3(0.6, 0.85, 0.9), clamp(sheet + crest, 0.0, 1.0));
+          colour = mix(colour, vec3(1.0), clamp(crest + swell, 0.0, 1.0));
+          float alpha = max(max(wet * 0.38, sheet * 0.6), max(crest * 0.95, swell));
+          alpha *= 1.0 - smoothstep(0.92, 1.0, vAcross);
+          gl_FragColor = vec4(colour, alpha);
+        }`,
+    });
+    materials.push(m);
+    const shore = new THREE.Mesh(g, m);
+    shore.name = 'World_Shore_Waves';
+    shore.renderOrder = 2;
+    group.add(shore);
+  }
+  // Pier: from the beach behind the café straight out to sea, ending in a T: a wide crossing deck
+  // with railings round it, where the boat ties up.
   const pierAlong = 14,
     pierFrom = road.origin
       .clone()
@@ -756,7 +859,10 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       .addScaledVector(away, SEA - 3),
     pierLength = 20,
     pierHalf = 0.9,
-    pierDeck = groundY + 0.12;
+    pierDeck = groundY + 0.12,
+    /** The T's crossing deck: half its length across and its depth out to sea. */
+    teeHalf = 7,
+    teeDepth = 2.6;
   {
     const parts: THREE.BufferGeometry[] = [],
       posts: THREE.BufferGeometry[] = [],
@@ -766,20 +872,48 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       plank.translate((noise(k, 91) - 0.5) * 0.06, pierDeck - 0.03, k * 0.32 + 0.16);
       parts.push(plank.toNonIndexed());
     }
-    for (let k = 0; k <= pierLength / 2.5; k++)
-      for (const side of [-1, 1]) {
-        const post = new THREE.CylinderGeometry(0.08, 0.09, 3.6, 7);
-        post.translate(side * (pierHalf - 0.05), pierDeck - 1.7, k * 2.5);
-        posts.push(post.toNonIndexed());
-        const rail = new THREE.CylinderGeometry(0.035, 0.035, 0.85, 5);
-        rail.translate(side * (pierHalf - 0.05), pierDeck + 0.42, k * 2.5);
-        posts.push(rail.toNonIndexed());
-      }
-    for (const side of [-1, 1]) {
-      const bar = new THREE.BoxGeometry(0.05, 0.05, pierLength);
-      bar.translate(side * (pierHalf - 0.05), pierDeck + 0.82, pierLength / 2);
-      posts.push(bar.toNonIndexed());
+    // The T: planks running across, from one end of the crossing deck to the other.
+    for (let k = 0; k < (teeHalf * 2) / 0.32; k++) {
+      const plank = new THREE.BoxGeometry(0.28, 0.06, teeDepth + (k % 3) * 0.04);
+      plank.translate(
+        -teeHalf + k * 0.32 + 0.16,
+        pierDeck - 0.03,
+        pierLength + teeDepth / 2 + (noise(k, 97) - 0.5) * 0.05,
+      );
+      parts.push(plank.toNonIndexed());
     }
+    const post = (x: number, z: number) => {
+      const g = new THREE.CylinderGeometry(0.08, 0.09, 3.6, 7);
+      g.translate(x, pierDeck - 1.7, z);
+      posts.push(g.toNonIndexed());
+      const rail = new THREE.CylinderGeometry(0.035, 0.035, 0.85, 5);
+      rail.translate(x, pierDeck + 0.42, z);
+      posts.push(rail.toNonIndexed());
+    };
+    const bar = (x0: number, z0: number, x1: number, z1: number) => {
+      const g = new THREE.BoxGeometry(0.05, 0.05, Math.hypot(x1 - x0, z1 - z0));
+      g.rotateY(Math.atan2(x1 - x0, z1 - z0));
+      g.translate((x0 + x1) / 2, pierDeck + 0.82, (z0 + z1) / 2);
+      posts.push(g.toNonIndexed());
+    };
+    const edge = pierHalf - 0.05,
+      near = pierLength + 0.05,
+      far = pierLength + teeDepth - 0.05,
+      end = teeHalf - 0.05;
+    // Along the walkway, up to where it opens onto the T.
+    for (let k = 0; k <= pierLength / 2.5; k++)
+      for (const side of [-1, 1]) post(side * edge, k * 2.5);
+    for (const side of [-1, 1]) {
+      bar(side * edge, 0, side * edge, near);
+      // Round the T: its shore side (either side of the walkway), the ends and the sea side.
+      for (let x = edge; x <= end + 0.01; x += 2.3) post(side * x, near);
+      post(side * end, near);
+      post(side * end, far);
+      bar(side * edge, near, side * end, near);
+      bar(side * end, near, side * end, far);
+    }
+    for (let x = -end; x <= end + 0.01; x += 2.3) post(x, far);
+    bar(-end, far, end, far);
     const build = (list: THREE.BufferGeometry[], color: string) => {
       const geometry = mergeGeometries(list)!;
       list.forEach((g) => g.dispose());
@@ -833,12 +967,13 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     part(new THREE.CylinderGeometry(0.04, 0.05, 2.2, 6), wood, 0, 1.15, 0.5);
     part(new THREE.BoxGeometry(0.02, 0.3, 0.45), red, 0, 2.05, 0.73);
   }
+  // Moored along the sea side of the T's crossing deck.
   const boatAt = pierFrom
     .clone()
-    .addScaledVector(away, pierLength - 3)
-    .addScaledVector(new THREE.Vector3(-away.z, 0, away.x), 2.1);
+    .addScaledVector(away, pierLength + teeDepth + 1.1)
+    .addScaledVector(new THREE.Vector3(-away.z, 0, away.x), 3.6);
   boat.position.set(boatAt.x, seaLevel + 0.36, boatAt.z);
-  boat.rotation.y = Math.atan2(away.x, away.z) + 0.15;
+  boat.rotation.y = Math.atan2(away.x, away.z) + Math.PI / 2 + 0.08;
   group.add(boat);
   /** Gentle motion for the boat (call each frame). */
   const updateWorld = (time: number) => {
@@ -2526,7 +2661,9 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
         pz = z - pierFrom.z,
         out = px * away.x + pz * away.z,
         side = Math.abs(px * -away.z + pz * away.x);
-      if (out > -0.2 && out < pierLength && side < pierHalf - 0.15) return pierDeck;
+      if (out > -0.2 && out < pierLength + 0.2 && side < pierHalf - 0.15) return pierDeck;
+      if (out >= pierLength && out < pierLength + teeDepth - 0.15 && side < teeHalf - 0.15)
+        return pierDeck;
     }
     if (seaOut(x, z) > SEA - 14 && height(x, z) < seaLevel + 0.1) return null;
     // Footbridge deck (planks 1.5 wide, rails at ±0.7).
@@ -2935,7 +3072,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       out.pier = {
         position: pierFrom
           .clone()
-          .addScaledVector(away, pierLength - 0.12)
+          .addScaledVector(away, pierLength + teeDepth - 0.12)
           .setY(pierDeck),
         heading: Math.atan2(away.x, away.z),
         lie: false,
@@ -2959,7 +3096,12 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
         pz = z - pierFrom.z,
         out = px * away.x + pz * away.z,
         side = Math.abs(px * -away.z + pz * away.x);
-      if (out > -3 && out < pierLength + 4 && side < pierHalf + 3) return 'dermaga';
+      if (
+        out > -3 &&
+        out < pierLength + teeDepth + 3 &&
+        (side < pierHalf + 3 || (out > pierLength - 2 && side < teeHalf + 3))
+      )
+        return 'dermaga';
       const dx = Math.max(bounds.min.x - x, 0, x - bounds.max.x),
         dz = Math.max(bounds.min.z - z, 0, z - bounds.max.z);
       if (Math.hypot(dx, dz) < 1.5) return 'kafe';
@@ -2994,6 +3136,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
           out = px * away.x + pz * away.z,
           side = Math.abs(px * -away.z + pz * away.x);
         if (out > -0.2 && out < pierLength && side < pierHalf) return 'wood';
+        if (out >= pierLength && out < pierLength + teeDepth && side < teeHalf) return 'wood';
       }
       const rx = x - bridgeNear.x,
         rz = z - bridgeNear.z,

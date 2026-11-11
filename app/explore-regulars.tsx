@@ -106,3 +106,27 @@ export function FriendsPanel({ served, onClose }: { served: Served; onClose: () 
     </aside>
   );
 }
+
+/** A friend asking Luna to come along on an outing. */
+export function InviteCard({
+  text,
+  onYes,
+  onNo,
+}: {
+  text: string;
+  onYes: () => void;
+  onNo: () => void;
+}) {
+  return (
+    <div className={styles.story} role="dialog" aria-label="Ajakan teman">
+      <small>Ajakan jalan-jalan</small>
+      <p>{text}</p>
+      <div className={styles.inviteButtons}>
+        <button onClick={onYes}>ikut</button>
+        <button onClick={onNo} data-quiet>
+          lain kali
+        </button>
+      </div>
+    </div>
+  );
+}

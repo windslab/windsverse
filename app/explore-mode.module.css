@@ -635,3 +635,13 @@
   margin: 0;
   opacity: 0.7;
 }
+.inviteButtons {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+.story .inviteButtons button[data-quiet] {
+  background: transparent;
+  color: #f6efe4;
+  border: 1px solid #f6efe455;
+}

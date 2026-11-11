@@ -1938,6 +1938,8 @@ export default function CafeScene({
               },
               marker: (key) => crew.setMarker(key),
               trayCups: (count) => crew.setTrayCups(count),
+              companions: (list) => crew.setCompanions(list),
+              teleport: (point) => crew.teleport(point),
               jump: () => crew.jump(),
               seatNear: () => crew.seatNear(),
               sit: (id) => crew.sit(id),

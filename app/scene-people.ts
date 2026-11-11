@@ -335,6 +335,36 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
   // Barista + MAX_SCENE_GUESTS (lib/cafe-visitors.ts) guests.
   const people = Array.from({ length: 9 }, (_, i) => person(i));
   type Person = (typeof people)[number];
+  // Explore mode: friends out with Luna (the sunset at the pier, a night at the camp), posed where
+  // the game puts them. Made with everyone else, so they share the café's look.
+  const companions = Array.from({ length: 4 }, (_, i) => person(9 + i));
+  companions.forEach((c) => {
+    c.visual.visible = false;
+    c.shadow.visible = false;
+  });
+  let companionPlan: {
+    name: string;
+    male: boolean;
+    position: THREE.Vector3;
+    heading: number;
+    sit: boolean;
+  }[] = [];
+  function updateCompanions(reduced: boolean) {
+    companions.forEach((c, i) => {
+      const plan = companionPlan[i];
+      c.visual.visible = c.shadow.visible = !!plan && !!c.guest;
+      if (!plan || !c.guest) return;
+      c.visual.position.set(
+        plan.position.x,
+        plan.position.y - (plan.sit ? c.guest.hip() - 0.05 * scale : 0),
+        plan.position.z,
+      );
+      c.visual.rotation.y = plan.heading;
+      c.guest.update(age + i * 1.7, 0, plan.sit ? 'sitting' : 'idle', reduced);
+      c.shadow.position.set(plan.position.x, plan.position.y + 0.004 * scale, plan.position.z);
+      c.drink.visible = c.serving.visible = false;
+    });
+  }
   const retired = new Set<string>();
   const barista = people[0];
   // Explore mode: the player drives Luna; the game decides her pose and serves guests itself.
@@ -1358,6 +1388,28 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
       running = on;
     },
     /** Arrow over a guest (key), or none. */
+    /** Friends out with Luna: up to four, each where and how the game places them ([] = none). */
+    setCompanions(
+      list: {
+        name: string;
+        male: boolean;
+        position: THREE.Vector3;
+        heading: number;
+        sit: boolean;
+      }[],
+    ) {
+      companionPlan = list.slice(0, companions.length);
+      companionPlan.forEach((plan, i) =>
+        companions[i].guest?.setLook(lookFor(plan.name, plan.male)),
+      );
+    },
+    /** Explore mode: put Luna somewhere at once (an outing with friends). */
+    teleport(point: THREE.Vector3) {
+      if (barista.phase === 'sitting') standUp();
+      manualRoute = [];
+      chore.until = 0;
+      barista.position.copy(point);
+    },
     /** How many cups Luna's tray carries (1–3), set side by side. */
     setTrayCups(count: number) {
       const n = THREE.MathUtils.clamp(Math.round(count), 1, 3),
@@ -1502,6 +1554,7 @@ export function placeCafePeople(cafe: THREE.Object3D, paths: CafePaths, luna?: T
     update(delta: number, reduced: boolean) {
       const dt = Math.min(delta, 0.05);
       age += dt;
+      updateCompanions(reduced);
       chooseTask();
       if (manual) {
         // Walk where the stick points, staying on the café's walkable floors (no walls, no void).
