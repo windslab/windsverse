@@ -9,7 +9,6 @@ import {
   WIDE_FOV,
   clampWideFov,
   clampMountAltitude,
-  MIN_MOUNT_ALT,
   focusBlur,
   type SkyOptics,
   type SkyObjectOption,
@@ -245,8 +244,10 @@ export default function SkyViewer(props: {
       atmosphere.geometry,
       atmosphere.material,
     );
-    const minimumAltitude = () =>
-      latest.current.optics.wide ? landscape.minimumAltitude(az, fov) : MIN_MOUNT_ALT;
+    // Sky objects stay within reach even below the horizon: the telescope can point all the way
+    // down, and the ground turns see-through while looking there (or at an object below it).
+    const minimumAltitude = () => -89.9;
+    let selectedBelow = false;
     const clampAltitude = (value: number) => clampMountAltitude(value, minimumAltitude());
     const solar = createSolarEffects();
     scene.add(solar.mesh);
@@ -1022,6 +1023,11 @@ export default function SkyViewer(props: {
             reportInfo(selected);
           }
           landscape.update(az, alt, dt, !!latest.current.optics.wide, reduced);
+          {
+            const want = alt < 1.5 || selectedBelow ? 1 : 0,
+              now = landscape.seeThrough();
+            landscape.setSeeThrough(reduced ? want : now + (want - now) * (1 - Math.exp(-dt * 4)));
+          }
           // Reapply after zoom, azimuth and parallax changes so the bottom rim never
           // exposes the extended ground beyond the original foreground image.
           alt = clampAltitude(alt);
@@ -1119,6 +1125,7 @@ export default function SkyViewer(props: {
               if (visible && latest.current.optics.wide) {
                 const v = selectedPosition.clone().normalize(),
                   a = (Math.atan2(v.x, -v.z) / D + 360) % 360;
+                selectedBelow = v.y < 0;
                 visible = !landscape.occludes(a, Math.asin(v.y) / D);
               }
               if (visible) {

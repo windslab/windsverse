@@ -2695,6 +2695,8 @@ export default function CafeScene({
           }
           world?.setTowerNight(lamps);
           world?.update(t);
+          // Flowers and grass far from the camera are not drawn.
+          world?.cull(camera.position);
           // Sounds of the world around the camera (when sound is on).
           if (ambienceRef.current && soundRef.current) {
             if (t - lastEarCheck > 0.3) {
@@ -2741,6 +2743,8 @@ export default function CafeScene({
           }
           if (people) {
             cat?.update(t, delta, reduced, people.baristaPosition());
+            // The cat, too, only when the camera is anywhere near.
+            if (cat) cat.root.visible = cat.position.distanceToSquared(camera.position) < 60 * 60;
             // Rain with no roof over Luna's head: up goes her umbrella.
             if (t - lastRoofCheck > 0.25) {
               lastRoofCheck = t;
@@ -2778,7 +2782,15 @@ export default function CafeScene({
                 sk.daylight;
             // Insects and birds take shelter from the rain.
             const dry = 1 - wx.rain;
-            critters?.update(t, delta, sk.night * dry, morning * dry, reduced, sk.daylight * dry);
+            critters?.update(
+              t,
+              delta,
+              sk.night * dry,
+              morning * dry,
+              reduced,
+              sk.daylight * dry,
+              camera.position,
+            );
           }
           bulbs.forEach((bulb) => {
             bulb.emissive.set('#ffd6a4');
@@ -3262,7 +3274,8 @@ export default function CafeScene({
                 THREE.MathUtils.smoothstep(taxi.s, taxi.stopS - 32, taxi.stopS - 26) *
                 (1 - THREE.MathUtils.smoothstep(taxi.s, taxi.stopS + 34, taxi.stopS + 44));
               setVehicleFade(taxi.model, fade);
-              taxi.model.visible = fade > 0.001;
+              taxi.model.visible =
+                fade > 0.001 && taxi.model.position.distanceToSquared(camera.position) < 110 * 110;
               (taxi.model.userData.lamp as THREE.MeshBasicMaterial).opacity =
                 (night ? 1 : 0.38) * fade;
               const glow = taxi.model.userData.roadGlow as THREE.Mesh;
@@ -3348,11 +3361,13 @@ export default function CafeScene({
                 (1 - THREE.MathUtils.smoothstep(car.s, lane.length - 18, lane.length));
               car.model.position.copy(lane.start).addScaledVector(lane.direction, car.s);
               setVehicleFade(car.model, fade);
-              car.model.visible = fade > 0.001;
+              // Cars far from the camera (the road runs the whole island) are not drawn.
+              car.model.visible =
+                fade > 0.001 && car.model.position.distanceToSquared(camera.position) < 110 * 110;
               (car.model.userData.lamp as THREE.MeshBasicMaterial).opacity =
                 (night ? 1 : 0.38) * fade;
               const roadGlow = car.model.userData.roadGlow as THREE.Mesh;
-              roadGlow.visible = night && fade > 0.001;
+              roadGlow.visible = night && car.model.visible;
               (roadGlow.material as THREE.MeshBasicMaterial).opacity = night ? 0.7 * fade : 0;
               const distance = car.model.position.distanceTo(listener);
               if (distance < nearestDistance) {

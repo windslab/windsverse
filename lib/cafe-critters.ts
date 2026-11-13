@@ -42,19 +42,24 @@ export function createCritters(
       attribute float seed;
       uniform float time, scale;
       varying float blink;
+      varying float near;
       void main() {
         blink = pow(max(0.0, sin(time * (0.9 + fract(seed) * 0.8) + seed * 6.28)), 3.0);
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        // Far from the camera they are not drawn at all.
+        near = 1.0 - smoothstep(45.0, 60.0, -mv.z);
+        if (near <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; return; }
         gl_PointSize = min(18.0, (2.5 + 4.5 * blink) * scale * (6.0 / max(1.0, -mv.z)) + 1.5);
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `
       uniform float visibility;
       varying float blink;
+      varying float near;
       void main() {
         float d = length(gl_PointCoord - 0.5) * 2.0;
         if (d > 1.0) discard;
-        float a = exp(-d * d * 3.5) * (0.25 + 0.75 * blink) * visibility;
+        float a = exp(-d * d * 3.5) * (0.25 + 0.75 * blink) * visibility * near;
         gl_FragColor = vec4(vec3(0.85, 1.0, 0.45), a);
       }`,
   });
@@ -175,6 +180,8 @@ export function createCritters(
       morning: number,
       reduced: boolean,
       daylight = 1 - night,
+      /** The camera: butterflies far from it are not drawn. */
+      eye?: THREE.Vector3,
     ) {
       // Birds: one flock at a time, every minute or two, only by day.
       if (!flight.active && time > flight.next && daylight > 0.3 && !reduced) {
@@ -236,7 +243,8 @@ export function createCritters(
         if (!reduced && rand() < dt * 0.4) flyHome[Math.floor(rand() * FLIES)] = pickSpot();
       }
       for (const b of butterflies) {
-        b.body.visible = morning > 0.05;
+        b.body.visible =
+          morning > 0.05 && (!eye || b.body.position.distanceToSquared(eye) < 50 * 50);
         if (!b.body.visible) continue;
         b.body.scale.setScalar(Math.min(1, morning * 1.5));
         if (!reduced) b.t += dt * b.speed;

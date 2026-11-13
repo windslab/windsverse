@@ -14,7 +14,6 @@ import {
   WIDE_FOV,
   MIN_WIDE_FOV,
   MAX_WIDE_FOV,
-  MIN_MOUNT_ALT,
   MAX_MOUNT_ALT,
   clampWideFov,
   magnification,
@@ -179,7 +178,7 @@ function Eyepiece({ onReturnToCafe }: { onReturnToCafe?: () => void }) {
       az: 0,
       alt: 45,
       fov: fieldOfView(DEFAULT_OPTICS),
-      minAltitude: MIN_MOUNT_ALT,
+      minAltitude: -89.9,
     }),
     [optics, setOptics] = useState<SkyOptics>(DEFAULT_OPTICS),
     [objects, setObjects] = useState<SkyObjectOption[]>([]),
@@ -556,7 +555,7 @@ function Eyepiece({ onReturnToCafe }: { onReturnToCafe?: () => void }) {
                 onClick={() => {
                   stopJog();
                   setInfo(null);
-                  send({ kind: 'direction', az: 0, alt: -90 });
+                  send({ kind: 'direction', az: 0, alt: 4 });
                 }}
               >
                 Lihat panorama horizon
@@ -773,13 +772,11 @@ function Eyepiece({ onReturnToCafe }: { onReturnToCafe?: () => void }) {
                 ))}
               </dl>
               <small className={info.altitude < 0 ? 'sky-below-horizon' : ''}>
-                {info.altitude < view.minAltitude
-                  ? 'Objek berada di bawah batas pandang eyepiece saat ini.'
-                  : optics.wide && info.obscured
-                    ? 'Objek berada di balik ground atau siluet panorama.'
-                    : info.altitude < 0
-                      ? 'Sedang di bawah horizon Pangkep; ditampilkan dalam mode peta.'
-                      : 'Sedang di atas horizon Pangkep.'}
+                {optics.wide && info.obscured
+                  ? 'Objek berada di balik ground atau siluet panorama.'
+                  : info.altitude < 0
+                    ? 'Sedang di bawah horizon Pangkep; tanah dibuat tembus pandang supaya tetap terlihat.'
+                    : 'Sedang di atas horizon Pangkep.'}
                 {optics.wide && (
                   <span className="scope-selected-credit">
                     Panorama:{' '}
