@@ -18,6 +18,8 @@ export function createSkyLandscape() {
     targetObserver = new THREE.Vector3();
   let disposed = false;
   const geometry = new THREE.SphereGeometry(89, 64, 32);
+  /** 0–1: the ground turned see-through, so sky objects below the horizon can still be seen. */
+  const seeThrough = { value: 0 };
   const lighting = {
     daylight: { value: 1 },
     warmth: { value: 0 },
@@ -129,11 +131,12 @@ export function createSkyLandscape() {
         baseline: { value: baseline / sourceHeight },
         ground: { value: groundColor },
         farLayer: { value: distance > 100 ? 1 : 0 },
+        seeThrough,
         ...lighting,
       },
       vertexShader:
         'varying vec3 horizontal;void main(){horizontal=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
-      fragmentShader: `uniform sampler2D map;uniform vec3 observer;uniform float distance;uniform float baseline;uniform vec3 ground;uniform float farLayer;varying vec3 horizontal;
+      fragmentShader: `uniform sampler2D map;uniform vec3 observer;uniform float distance;uniform float baseline;uniform vec3 ground;uniform float farLayer;uniform float seeThrough;varying vec3 horizontal;
   ${lightingShader}
   void main(){vec3 d=normalize(horizontal);float b=dot(observer,d);float t=-b+sqrt(max(0.,b*b+distance*distance-dot(observer,observer)));vec3 p=normalize(observer+t*d);float altitude=degrees(asin(clamp(p.y,-1.,1.)));float v=1.-baseline+altitude/(${sourceHeight.toFixed(1)}/${sourceWidth.toFixed(1)}*360.);if(v>1.)discard;float u=fract(atan(p.x,-p.z)/6.28318530718+.29);
    float heat=daylight*heatMotion*pow(sunFacing(d),4.)*exp(-pow(altitude/24.,2.));
@@ -141,7 +144,7 @@ export function createSkyLandscape() {
    vec4 color=texture2D(map,vec2(u,max(v,.002))+shimmer);
    float seam=1.-smoothstep(0.,.012,min(u,1.-u));vec4 edge=.5*(texture2D(map,vec2(.001,max(v,.002)))+texture2D(map,vec2(.999,max(v,.002))));color=mix(color,edge,seam);
    if(v<0.){color.rgb=mix(color.rgb,ground,smoothstep(0.,.12,-v));color.a=1.;}
-   if(color.a<.01)discard;gl_FragColor=vec4(lightPanorama(color.rgb,d,farLayer),color.a);
+   if(color.a<.01)discard;gl_FragColor=vec4(lightPanorama(color.rgb,d,farLayer),color.a*(1.-.82*seeThrough));
   }`,
     });
     const mesh = new THREE.Mesh(geometry, material);
@@ -240,7 +243,12 @@ export function createSkyLandscape() {
     minimumAltitude: (az: number, fov: number) => minimumWideAltitude(fov, az, observer),
     elevationAt: (az: number) => Math.max(foreground.elevationAt(az), background.elevationAt(az)),
     occludes: (az: number, alt: number) =>
-      foreground.occludes(az, alt) || background.occludes(az, alt),
+      seeThrough.value < 0.5 && (foreground.occludes(az, alt) || background.occludes(az, alt)),
+    /** Fade the ground out (1) or back in (0), eased by the caller. */
+    setSeeThrough: (value: number) => {
+      seeThrough.value = value;
+    },
+    seeThrough: () => seeThrough.value,
     /** True when a direction lands on the Winds Space building in the foreground illustration. */
     hitsCafe: (az: number, alt: number) => {
       const u = foreground.imageAt(az, alt);

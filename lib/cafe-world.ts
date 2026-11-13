@@ -125,6 +125,37 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     };
     m.customProgramCacheKey = () => key() + '-island';
   };
+  // Small things scattered over the island (flowers, grass) are split into patches: a patch out
+  // of view or far from the camera is not drawn at all (see cull).
+  const PATCH = 40,
+    PATCH_VIEW = 75;
+  const patches: { mesh: THREE.InstancedMesh; centre: THREE.Vector3; radius: number }[] = [];
+  const patchedInstances = (
+    geometry: THREE.BufferGeometry,
+    material: THREE.Material,
+    spots: THREE.Matrix4[],
+    name: string,
+  ) => {
+    const cells = new Map<string, THREE.Matrix4[]>(),
+      at = new THREE.Vector3();
+    for (const m of spots) {
+      at.setFromMatrixPosition(m);
+      const key = Math.floor(at.x / PATCH) + ',' + Math.floor(at.z / PATCH),
+        list = cells.get(key) ?? [];
+      list.push(m);
+      cells.set(key, list);
+    }
+    for (const list of cells.values()) {
+      const mesh = new THREE.InstancedMesh(geometry, material, list.length);
+      mesh.name = name;
+      list.forEach((m, i) => mesh.setMatrixAt(i, m));
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+      group.add(mesh);
+      const sphere = mesh.boundingSphere!;
+      patches.push({ mesh, centre: sphere.center.clone(), radius: sphere.radius });
+    }
+  };
   const { bounds, groundY } = layout;
   const center = bounds.getCenter(new THREE.Vector3());
   const road = layout.road ?? {
@@ -3028,12 +3059,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
       [bloom, bloomSpots, 'World_Dandelion_Blooms'],
     ] as const) {
       if (!spots.length) continue;
-      const flowers = new THREE.InstancedMesh(geometry, dandelionMaterial, spots.length);
-      flowers.name = name;
-      spots.forEach((spot, i) => flowers.setMatrixAt(i, spot));
-      flowers.instanceMatrix.needsUpdate = true;
-      flowers.computeBoundingSphere();
-      group.add(flowers);
+      patchedInstances(geometry, dandelionMaterial, spots, name);
     }
   }
   // --- Wild plants on the mountain: lavender, sunflowers, tall grass (ilalang), small pink and
@@ -3257,12 +3283,7 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
             .clone(),
         );
       }
-      const mesh = new THREE.InstancedMesh(kind.geometry, swayMaterial, spots.length);
-      spots.forEach((spot, i) => mesh.setMatrixAt(i, spot));
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.computeBoundingSphere();
-      mesh.name = kind.name;
-      group.add(mesh);
+      patchedInstances(kind.geometry, swayMaterial, spots, kind.name);
     });
   }
   // --- Mountain-foot mist: thin, slow-drifting haze lying along the foot of the mountains, hugging
@@ -3613,6 +3634,10 @@ export function createCafeWorld(layout: WorldLayout, windTime: { value: number }
     update(time: number) {
       updateWorld(time);
       updateSeeds(time);
+    },
+    /** Hide the flower and grass patches far from the camera (call every few frames). */
+    cull(eye: THREE.Vector3) {
+      for (const p of patches) p.mesh.visible = p.centre.distanceTo(eye) - p.radius < PATCH_VIEW;
     },
     dispose() {
       geometries.forEach((g) => g.dispose());

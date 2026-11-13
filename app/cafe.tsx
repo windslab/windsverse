@@ -310,6 +310,8 @@ export default function Cafe({ name }: { name: string }) {
     [memberFree, setMemberFree] = useState<MemberFree>(null),
     [audit, setAudit] = useState<any[]>([]);
   const revision = useRef(0),
+    /** The data version on screen ('' until the first full load). */
+    version = useRef(''),
     mutation = useRef(false),
     pending = useRef<any>(null),
     initialLoad = useRef(true);
@@ -370,7 +372,11 @@ export default function Cafe({ name }: { name: string }) {
     ({ harian: 'Harian', bulanan: 'Bulanan', stok: 'Stok (HPP)' })[expenseScope(e)];
   async function load() {
     try {
-      const r = await fetch('/api/cafe', { cache: 'no-store' });
+      // With the version already shown, the server only sends the café again if it changed.
+      const r = await fetch(
+        version.current ? '/api/cafe?v=' + encodeURIComponent(version.current) : '/api/cafe',
+        { cache: 'no-store' },
+      );
       const d: any = await r.json();
       if (!r.ok) {
         if (r.status === 401 || r.status === 403) {
@@ -380,8 +386,11 @@ export default function Cafe({ name }: { name: string }) {
         }
         throw Error(d.error);
       }
-      if (!mutation.current && d.revision >= revision.current) {
+      if (d.unchanged) {
+        // Nothing new: what is on screen is current.
+      } else if (!mutation.current && d.revision >= revision.current) {
         revision.current = d.revision;
+        version.current = d.version || '';
         setS(d.state);
         setEstimates(d.estimates || []);
         setActor(d.actor);

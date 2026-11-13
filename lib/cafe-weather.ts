@@ -236,9 +236,9 @@ export function createWeather(groundY: number) {
       varying float band;
       varying float rise;
       void main() {
-        band = (length(position.xy) - ${(RAINBOW * Math.tan((38.6 * Math.PI) / 180)).toFixed(2)}) / ${(
+        band = (length(position.xy) - ${(RAINBOW * Math.tan((36.8 * Math.PI) / 180)).toFixed(2)}) / ${(
           RAINBOW *
-          (Math.tan((44.2 * Math.PI) / 180) - Math.tan((38.6 * Math.PI) / 180))
+          (Math.tan((45.2 * Math.PI) / 180) - Math.tan((36.8 * Math.PI) / 180))
         ).toFixed(2)};
         rise = position.y;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -248,28 +248,29 @@ export function createWeather(groundY: number) {
       varying float band;
       varying float rise;
       vec3 spectrum(float t) {
-        // Violet inside to red outside, each colour blending softly into the next.
-        vec3 c = mix(vec3(0.52, 0.32, 0.86), vec3(0.28, 0.5, 1.0), smoothstep(0.0, 0.2, t));
-        c = mix(c, vec3(0.32, 0.82, 0.42), smoothstep(0.18, 0.4, t));
-        c = mix(c, vec3(1.0, 0.9, 0.32), smoothstep(0.38, 0.58, t));
-        c = mix(c, vec3(1.0, 0.56, 0.2), smoothstep(0.56, 0.74, t));
-        return mix(c, vec3(1.0, 0.18, 0.16), smoothstep(0.72, 0.9, t));
+        // Violet inside to red outside, vivid like a fresh rainbow, each colour blending into the next.
+        vec3 c = mix(vec3(0.58, 0.36, 0.95), vec3(0.25, 0.48, 1.0), smoothstep(0.0, 0.18, t));
+        c = mix(c, vec3(0.2, 0.86, 0.62), smoothstep(0.16, 0.36, t));
+        c = mix(c, vec3(0.6, 0.95, 0.3), smoothstep(0.34, 0.48, t));
+        c = mix(c, vec3(1.0, 0.92, 0.25), smoothstep(0.46, 0.6, t));
+        c = mix(c, vec3(1.0, 0.58, 0.18), smoothstep(0.58, 0.74, t));
+        return mix(c, vec3(1.0, 0.24, 0.22), smoothstep(0.72, 0.88, t));
       }
       void main() {
         float t = clamp(band, 0.0, 1.0);
         vec3 c = spectrum(t);
         // A soft band with no hard rims (the red edge kept a little stronger).
-        float edge = exp(-pow((t - 0.52) / 0.42, 4.0)) * (1.0 + 0.35 * smoothstep(0.7, 0.9, t));
+        float edge = exp(-pow((t - 0.52) / 0.46, 4.0)) * (1.0 + 0.25 * smoothstep(0.7, 0.9, t));
         // Both ends fade away into the air, well before they reach the ground.
-        float ends = smoothstep(0.03, 0.48, rise / ${(RAINBOW * Math.tan((44.2 * Math.PI) / 180)).toFixed(2)});
+        float ends = smoothstep(0.03, 0.48, rise / ${(RAINBOW * Math.tan((45.2 * Math.PI) / 180)).toFixed(2)});
         float a = edge * opacity * ends;
-        gl_FragColor = vec4(c, a * 0.58);
+        gl_FragColor = vec4(c, a * 0.78);
       }`,
   });
   const rainbow = new THREE.Mesh(
     new THREE.RingGeometry(
-      RAINBOW * Math.tan((38.6 * Math.PI) / 180),
-      RAINBOW * Math.tan((44.2 * Math.PI) / 180),
+      RAINBOW * Math.tan((36.8 * Math.PI) / 180),
+      RAINBOW * Math.tan((45.2 * Math.PI) / 180),
       96,
       1,
     ),
@@ -405,16 +406,17 @@ export function createWeather(groundY: number) {
       bolt.visible = state.flash > 0.05 && !reduced;
       boltMaterial.opacity = Math.min(1, state.flash * 1.3);
 
-      // Rainbow: opposite the sun, by day, while the sun is below about 48°.
+      // Rainbow: after every daytime rain, opposite the sun. A high sun would put the whole arc
+      // below the horizon, so the arc is set as if the sun were no higher than about 22°.
       const sunUp = sun ? Math.asin(THREE.MathUtils.clamp(sun.y, -1, 1)) : 0;
-      const show =
-        state.after *
-        daylight *
-        THREE.MathUtils.smoothstep(sunUp, -0.02, 0.08) *
-        (1 - THREE.MathUtils.smoothstep(sunUp, 0.7, 0.84));
+      const show = state.after * daylight * THREE.MathUtils.smoothstep(sunUp, -0.02, 0.08);
       rainbow.visible = !!sun && show > 0.01;
       if (rainbow.visible && sun) {
-        antiSun.copy(sun).negate();
+        const level = Math.min(sunUp, 0.38),
+          flat = Math.hypot(sun.x, sun.z) || 1;
+        antiSun
+          .set((sun.x / flat) * Math.cos(level), Math.sin(level), (sun.z / flat) * Math.cos(level))
+          .negate();
         rainbow.position.copy(camera.position).addScaledVector(antiSun, RAINBOW);
         rainbow.lookAt(camera.position);
         rainbowMaterial.uniforms.opacity.value = show;
