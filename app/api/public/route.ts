@@ -1,4 +1,4 @@
-import {read,checkMutation,body,commit,errorResponse} from '@/lib/store';
+import {read,checkMutation,body,commit,errorResponse,dataVersion,bumpDataVersion} from '@/lib/store';
 import {Fault} from '@/lib/engine';
 import {digest} from '@/lib/auth-crypto';
 import {sceneVisitors} from '@/lib/cafe-visitors';
@@ -9,7 +9,20 @@ import {weeklyBestSellers} from '@/lib/best-sellers';
 import {normalizeMemberCode} from '@/lib/member-code';
 import {earnGamePoint,gamePointsOn,gameWallet,markGameOpened,maskName,redeemGamePoints,GAME_DAILY_CAP} from '@/lib/game-points';
 export const dynamic='force-dynamic';
+// The public answers (menu, books, the live scene, a member's card) are kept per data version, so
+// the website's visitors polling every few seconds read one row instead of the whole café. The
+// live scene also follows the clock and who is at the till, so it is only kept a few seconds.
+const publicCache=new Map<string,{version:string;at:number;body:string}>();
 export async function GET(req:Request){try{
+ const url=new URL(req.url);
+ if(url.searchParams.get('track')!==null)return await answer(req);
+ const key=url.search,version=await dataVersion(),hit=publicCache.get(key),ttl=url.searchParams.get('scene')==='1'?4000:60_000;
+ if(hit&&version&&hit.version===version&&Date.now()-hit.at<ttl)return new Response(hit.body,{headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
+ const res=await answer(req);
+ if(res.ok&&version){if(publicCache.size>200)publicCache.clear();publicCache.set(key,{version,at:Date.now(),body:await res.clone().text()});}
+ return res;
+}catch(e){return errorResponse(e)}}
+async function answer(req:Request){try{
  const url=new URL(req.url),loaded=await read(),s=loaded.state;
  const tracking=url.searchParams.get('track');
  if(tracking!==null){
@@ -55,7 +68,9 @@ export async function GET(req:Request){try{
  }
  return Response.json({settings:s.settings.map(({name,tagline,logo,address,phone,whatsapp,mapsUrl,mapsEmbed,openTime,closeTime,closedDays})=>({name,tagline,logo,address,phone,whatsapp,mapsUrl,mapsEmbed,openTime,closeTime,closedDays})),categories:[...s.categories].sort((a,b)=>a.sortOrder-b.sortOrder||a.name.localeCompare(b.name)),products:s.products,tables:s.tables.map(({id,number,zone})=>({id,number,zone})),books:publicBooks(s),bestSellers:weeklyBestSellers(s)},{headers:{'Cache-Control':'no-store'}})
 }catch(e){return errorResponse(e)}}
-export async function POST(req:Request){try{checkMutation(req);const p=await body(req);const loaded=await read();if(!loaded.control)throw new Fault('Kafe belum disiapkan.',503);const ip=req.headers.get('cf-connecting-ip')||'local';const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(ip));const actorId='guest-'+Array.from(new Uint8Array(hash)).map(v=>v.toString(16).padStart(2,'0')).join('');const guest={id:actorId,employeeId:'',name:'Pelanggan',email:'',role:'karyawan' as const};
+export async function POST(req:Request){try{checkMutation(req);const p=await body(req);
+ // The game's calls only need the member cards and their game points, not the whole café.
+ const loaded=typeof p?.action==='string'&&p.action.startsWith('game.')?await read(['members','gamePoints']):await read();if(!loaded.control)throw new Fault('Kafe belum disiapkan.',503);const ip=req.headers.get('cf-connecting-ip')||'local';const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(ip));const actorId='guest-'+Array.from(new Uint8Array(hash)).map(v=>v.toString(16).padStart(2,'0')).join('');const guest={id:actorId,employeeId:'',name:'Pelanggan',email:'',role:'karyawan' as const};
  // Windstopia points: activities fill the player's game wallet (keyed by a random id kept on
  // their device); redeeming moves the wallet onto a member card by its code. Written outside the
  // café's revisioned records, so it never makes a staff screen reload.
@@ -81,6 +96,8 @@ export async function POST(req:Request){try{checkMutation(req);const p=await bod
    const card={code:member.code,name:maskName(member.name),room};
    if(p.confirm!==true)return Response.json({card,...await gameWallet(db,p.player)},{headers});
    const result=await redeemGamePoints(db,loaded.state,p.player,member.id);
+   // Written outside the revision: tell pollers (the member's card) something changed.
+   if(result.moved)await bumpDataVersion(db);
    return Response.json({card:{...card,room:result.room},...result},{headers});
   }
   throw new Fault('Permintaan tidak dikenali.');

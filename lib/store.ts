@@ -6,22 +6,59 @@ export function database() {
   if (!env.DB) throw new Fault('Penyimpanan belum terhubung. Coba lagi nanti.', 503);
   return env.DB.withSession('first-primary');
 }
-export async function read() {
+/**
+ * The café's data. `only` limits it to some collections (a quick read for the game's calls);
+ * everything else (camera, music, presence, game wallets) lives in the same table and is left out.
+ */
+export async function read(only: readonly (typeof kinds)[number][] = kinds) {
   const db = database();
-  const [c, r] = await db.batch([
+  const [c, r, v] = await db.batch([
     db.prepare('SELECT * FROM control WHERE id=1'),
-    // Camera (lib/photos.ts, lib/camera-config.ts) and music (lib/music.ts) rows are queried on
-    // their own and never enter the cafe state.
-    db.prepare(
-      "SELECT id,kind,data FROM records WHERE kind NOT IN ('photo','filmPreset','cameraConfig','track','musicConfig')",
-    ),
+    db
+      .prepare(`SELECT id,kind,data FROM records WHERE kind IN (${only.map(() => '?').join(',')})`)
+      .bind(...only),
+    db.prepare(`SELECT data FROM records WHERE id='${VERSION_ID}'`),
   ]);
   const state = blank();
   for (const x of r.results as any[])
     if (kinds.includes(x.kind)) state[x.kind as keyof State].push(JSON.parse(x.data));
-  const implicitCategories = !!c.results[0] && !state.categories.length;
+  const implicitCategories =
+    only.includes('categories') && !!c.results[0] && !state.categories.length;
   if (implicitCategories) state.categories = defaultCategories();
-  return { db, state, control: c.results[0] as any, implicitCategories };
+  const control = c.results[0] as any;
+  return {
+    db,
+    state,
+    control,
+    implicitCategories,
+    version: versionOf(control?.revision, (v.results[0] as any)?.data),
+  };
+}
+
+// Has anything changed? The control row's revision moves with every save; game points onto a
+// member card are written apart from it and move a small counter of their own. Pollers send the
+// version they have and get "unchanged" from a one-row read instead of the whole café.
+const VERSION_ID = 'state-version';
+const versionOf = (revision: unknown, extra: unknown) =>
+  revision === undefined || revision === null ? '' : `${revision}.${Number(extra) || 0}`;
+/** The data's current version ('' before the café is set up). */
+export async function dataVersion() {
+  const row = await database()
+    .prepare(
+      `SELECT c.revision AS revision, (SELECT data FROM records WHERE id='${VERSION_ID}') AS extra FROM control c WHERE c.id=1`,
+    )
+    .first<{ revision: number; extra: string | null }>();
+  return row ? versionOf(row.revision, row.extra) : '';
+}
+/** Marks a change written outside the revision (game points onto a member card). */
+export async function bumpDataVersion(
+  db: { prepare: (sql: string) => { run: () => Promise<unknown> } } = database(),
+) {
+  await db
+    .prepare(
+      `INSERT INTO records(id,kind,data) VALUES('${VERSION_ID}','stateVersion','1') ON CONFLICT(id) DO UPDATE SET data=CAST(data AS INTEGER)+1`,
+    )
+    .run();
 }
 export function visible(s: State, a: Actor): State {
   if (a.role === 'admin') return s;
