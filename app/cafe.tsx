@@ -3063,7 +3063,8 @@ export default function Cafe({ name }: { name: string }) {
     const rev = orders.reduce((n, o) => n + o.subtotal - o.discount, 0),
       hpp = orders.reduce((n, o) => n + o.hpp, 0);
     const expenses = s.expenses.filter((e) => e.date >= reportFrom && e.date <= reportTo),
-      // Everything recorded as spent (stock and running costs), shown, not taken off the profit.
+      // Everything recorded as spent. Stock is already in the HPP sold; running costs (power,
+      // wifi, rent and the like) come off the net profit along with wages and bonus.
       spentAll = expenses.reduce((n, e) => n + e.amount, 0),
       spentStock = expenses
         .filter((e) => e.category === 'bahan_baku')
@@ -3128,15 +3129,21 @@ export default function Cafe({ name }: { name: string }) {
             icon={Package}
           />
           <Metric
-            label="Laba bersih"
+            label="Laba"
             value={money(rev - hpp)}
             detail="Omzet dikurangi HPP terjual"
             icon={TrendingUp}
           />
           <Metric
+            label="Laba bersih"
+            value={money(rev - hpp - spentAll + spentStock - wages - bonus)}
+            detail={`Laba dikurangi biaya operasional ${money(spentAll - spentStock)}, gaji ${money(wages)} dan bonus ${money(bonus)}`}
+            icon={Banknote}
+          />
+          <Metric
             label="Pengeluaran"
             value={money(spentAll)}
-            detail={`Bahan ${money(spentStock)} · operasional ${money(spentAll - spentStock)} (tercatat, tidak dikurangkan)`}
+            detail={`Bahan ${money(spentStock)} (sudah terhitung lewat HPP) · operasional ${money(spentAll - spentStock)}`}
             icon={Receipt}
           />
           <Metric
