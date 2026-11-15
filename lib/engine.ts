@@ -1661,7 +1661,9 @@ export function apply(
       .regex(/^\d{4}-\d{2}$/)
       .parse(p.period);
     assertPeriodEditable(period);
-    assertHppComplete(period);
+    // Worked out any time from what is already in: past shifts that can close do, and shifts still
+    // open or unfinished are simply left out until they close (the payroll is worked out again
+    // then). Paying still needs every shift finished and every HPP complete (payroll.pay).
     s.shifts
       .filter(
         (sh) =>
@@ -1670,14 +1672,6 @@ export function apply(
           now >= new Date(sh.endAt),
       )
       .forEach((sh) => maybeFinalizeShift(sh));
-    assert(
-      !s.shifts.some(
-        (sh) =>
-          sh.date.startsWith(period) &&
-          (sh.status === 'open' || (sh.status === 'planned' && now >= new Date(sh.endAt))),
-      ),
-      'Lengkapi check-out karyawan dan selesaikan pesanan shift yang telah lewat.',
-    );
     assert(
       !s.payrolls.some((pr) => pr.period === period && pr.status === 'lunas'),
       'Payroll periode yang telah dibayar dikunci.',

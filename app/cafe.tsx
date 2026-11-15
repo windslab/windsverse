@@ -2829,9 +2829,9 @@ export default function Cafe({ name }: { name: string }) {
             {admin && (
               <button
                 className="button primary"
-                disabled={busy || incompleteHppOrders.some((o) => o.date.startsWith(period))}
+                disabled={busy}
                 onClick={() =>
-                  act('payroll.generate', { period }, 'Payroll dihitung dari shift yang ditutup')
+                  act('payroll.generate', { period }, 'Gaji dihitung dari shift yang sudah selesai')
                 }
               >
                 Hitung periode
@@ -2841,15 +2841,29 @@ export default function Cafe({ name }: { name: string }) {
         )}
         <div className="notice">
           Gaji mengikuti laba bersih shift sebelum gaji. Setiap staf yang hadir mendapat tier penuh.
-          Koreksi shift selesai mempertahankan tier yang tersimpan saat penutupan. HPP harus lengkap
-          sebelum payroll dihitung atau dibayar. Bonus bulanan: {settings?.bonusPercentage}% laba
-          positif setelah biaya bulanan dan gaji, dibagi menurut jumlah shift hadir.
+          Koreksi shift selesai mempertahankan tier yang tersimpan saat penutupan. Gaji bisa
+          dihitung kapan saja dari shift yang sudah selesai; hitung ulang setelah ada shift baru
+          yang selesai. Pembayaran baru bisa dicatat setelah semua shift periode ini selesai dan HPP
+          lengkap. Bonus bulanan: {settings?.bonusPercentage}% laba positif setelah biaya bulanan
+          dan gaji, dibagi menurut jumlah shift hadir.
         </div>
+        {(() => {
+          const waiting = s.shifts.filter(
+            (sh) => sh.date.startsWith(period) && sh.status === 'open',
+          ).length;
+          return waiting ? (
+            <div className="notice">
+              {waiting} shift pada periode ini belum selesai (belum check-out) dan belum ikut
+              dihitung. Tekan Hitung periode lagi setelah shift itu selesai.
+            </div>
+          ) : null;
+        })()}
         {incompleteHppOrders.some((o) => o.date.startsWith(period)) && (
           <div className="notice warning">
             Ada {incompleteHppOrders.filter((o) => o.date.startsWith(period)).length} transaksi
-            lunas yang HPP-nya belum lengkap pada periode ini. Penghitungan dan pencatatan
-            pembayaran gaji diblokir sampai HPP dilengkapi atau transaksi uji dihapus.
+            lunas yang HPP-nya belum lengkap pada periode ini. Gaji tetap bisa dihitung (laba dari
+            transaksi itu belum lengkap), tetapi pencatatan pembayaran menunggu sampai HPP
+            dilengkapi atau transaksi uji dihapus.
             {admin && (
               <button
                 className="button"

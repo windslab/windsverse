@@ -1227,3 +1227,30 @@ test('payroll estimate matches the generated payroll, and staff see only their o
   assert.ok(estimatesFor(f.s, f.staff).every((e) => e.employeeId === f.staff.employeeId));
   assert.equal(estimatesFor(f.s, owner).length, estimate.length);
 });
+
+test('payroll is worked out from finished shifts while another is still open; paying waits', () => {
+  const f = fixture();
+  finish(f, sell(f));
+  apply(f.s, f.staff, 'attendance.out', { id: f.s.attendance[0].id }, morningOut);
+  // A second shift, opened and still running (nobody checked out yet).
+  const sh = apply(f.s, owner, 'save', {
+    kind: 'shifts',
+    data: {
+      name: 'Malam',
+      startAt: '2026-10-08T20:00:00+07:00',
+      endAt: '2026-10-09T04:00:00+07:00',
+      employeeIds: [f.staff.employeeId],
+    },
+  });
+  const night = new Date('2026-10-08T21:00:00+07:00');
+  apply(f.s, owner, 'shift.open', { id: sh.id }, night);
+  apply(f.s, f.staff, 'attendance.in', { shiftId: sh.id }, night);
+  apply(f.s, owner, 'payroll.generate', { period: '2026-10' }, night);
+  assert.equal(f.s.payrolls.length, 1);
+  assert.equal(f.s.payrolls[0].shifts, 1);
+  assert.equal(f.s.payrolls[0].base, 20000);
+  assert.throws(
+    () => apply(f.s, owner, 'payroll.pay', { id: f.s.payrolls[0].id }, night),
+    /belum selesai/,
+  );
+});
