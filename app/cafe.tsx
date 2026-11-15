@@ -3135,12 +3135,6 @@ export default function Cafe({ name }: { name: string }) {
             icon={TrendingUp}
           />
           <Metric
-            label="Laba bersih"
-            value={money(rev - hpp - spentAll + spentStock - wages - bonus)}
-            detail={`Laba dikurangi biaya operasional ${money(spentAll - spentStock)}, gaji ${money(wages)} dan bonus ${money(bonus)}`}
-            icon={Banknote}
-          />
-          <Metric
             label="Pengeluaran"
             value={money(spentAll)}
             detail={`Bahan ${money(spentStock)} (sudah terhitung lewat HPP) · operasional ${money(spentAll - spentStock)}`}
@@ -3161,6 +3155,12 @@ export default function Cafe({ name }: { name: string }) {
                 : 'Hitung periode di Gaji & bonus dulu'
             }
             icon={Wallet}
+          />
+          <Metric
+            label="Laba bersih"
+            value={money(rev - hpp - spentAll + spentStock - wages - bonus)}
+            detail={`Laba dikurangi biaya operasional ${money(spentAll - spentStock)}, gaji ${money(wages)} dan bonus ${money(bonus)}`}
+            icon={Banknote}
           />
         </div>
         {incompleteHppOrders.some((o) => o.date >= reportFrom && o.date <= reportTo) && (
