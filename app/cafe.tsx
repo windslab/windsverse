@@ -13,7 +13,6 @@ import RosterPlanner from './roster-planner';
 import MemberPos, { type MemberFree } from './member-pos';
 import { memberRules, voucherValue } from '@/lib/member';
 import MemberAdmin from './member-admin';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Calculator,
@@ -2829,9 +2828,9 @@ export default function Cafe({ name }: { name: string }) {
             {admin && (
               <button
                 className="button primary"
-                disabled={busy || incompleteHppOrders.some((o) => o.date.startsWith(period))}
+                disabled={busy}
                 onClick={() =>
-                  act('payroll.generate', { period }, 'Payroll dihitung dari shift yang ditutup')
+                  act('payroll.generate', { period }, 'Gaji dihitung dari shift yang sudah selesai')
                 }
               >
                 Hitung periode
@@ -2841,15 +2840,29 @@ export default function Cafe({ name }: { name: string }) {
         )}
         <div className="notice">
           Gaji mengikuti laba bersih shift sebelum gaji. Setiap staf yang hadir mendapat tier penuh.
-          Koreksi shift selesai mempertahankan tier yang tersimpan saat penutupan. HPP harus lengkap
-          sebelum payroll dihitung atau dibayar. Bonus bulanan: {settings?.bonusPercentage}% laba
-          positif setelah biaya bulanan dan gaji, dibagi menurut jumlah shift hadir.
+          Koreksi shift selesai mempertahankan tier yang tersimpan saat penutupan. Gaji bisa
+          dihitung kapan saja dari shift yang sudah selesai; hitung ulang setelah ada shift baru
+          yang selesai. Pembayaran baru bisa dicatat setelah semua shift periode ini selesai dan HPP
+          lengkap. Bonus bulanan: {settings?.bonusPercentage}% laba positif setelah biaya bulanan
+          dan gaji, dibagi menurut jumlah shift hadir.
         </div>
+        {(() => {
+          const waiting = s.shifts.filter(
+            (sh) => sh.date.startsWith(period) && sh.status === 'open',
+          ).length;
+          return waiting ? (
+            <div className="notice">
+              {waiting} shift pada periode ini belum selesai (belum check-out) dan belum ikut
+              dihitung. Tekan Hitung periode lagi setelah shift itu selesai.
+            </div>
+          ) : null;
+        })()}
         {incompleteHppOrders.some((o) => o.date.startsWith(period)) && (
           <div className="notice warning">
             Ada {incompleteHppOrders.filter((o) => o.date.startsWith(period)).length} transaksi
-            lunas yang HPP-nya belum lengkap pada periode ini. Penghitungan dan pencatatan
-            pembayaran gaji diblokir sampai HPP dilengkapi atau transaksi uji dihapus.
+            lunas yang HPP-nya belum lengkap pada periode ini. Gaji tetap bisa dihitung (laba dari
+            transaksi itu belum lengkap), tetapi pencatatan pembayaran menunggu sampai HPP
+            dilengkapi atau transaksi uji dihapus.
             {admin && (
               <button
                 className="button"
@@ -3050,7 +3063,11 @@ export default function Cafe({ name }: { name: string }) {
     const rev = orders.reduce((n, o) => n + o.subtotal - o.discount, 0),
       hpp = orders.reduce((n, o) => n + o.hpp, 0);
     const expenses = s.expenses.filter((e) => e.date >= reportFrom && e.date <= reportTo),
-      cost = expenses.filter((e) => e.category !== 'bahan_baku').reduce((n, e) => n + e.amount, 0),
+      // Everything recorded as spent (stock and running costs), shown, not taken off the profit.
+      spentAll = expenses.reduce((n, e) => n + e.amount, 0),
+      spentStock = expenses
+        .filter((e) => e.category === 'bahan_baku')
+        .reduce((n, e) => n + e.amount, 0),
       wages = shifts.reduce(
         (n, sh) => n + (sh.snapshot?.employees || []).reduce((v: number, e: any) => v + e.wage, 0),
         0,
@@ -3058,9 +3075,11 @@ export default function Cafe({ name }: { name: string }) {
     const days = [...new Set([...shifts, ...expenses].map((x) => x.date as string))]
       .sort()
       .reverse();
-    const bonus = s.payrolls
-      .filter((pr) => pr.period >= reportFrom.slice(0, 7) && pr.period <= reportTo.slice(0, 7))
-      .reduce((n, pr) => n + pr.bonus, 0);
+    const rangePayrolls = s.payrolls.filter(
+        (pr) => pr.period >= reportFrom.slice(0, 7) && pr.period <= reportTo.slice(0, 7),
+      ),
+      payrollsInRange = rangePayrolls.length,
+      bonus = rangePayrolls.reduce((n, pr) => n + pr.bonus, 0);
     content = (
       <>
         {toolbar(
@@ -3098,9 +3117,9 @@ export default function Cafe({ name }: { name: string }) {
         )}
         <div className="metrics">
           <Metric
-            label="Omzet bersih"
+            label="Omzet"
             value={money(rev)}
-            detail="Setelah diskon, tidak termasuk pajak"
+            detail="Pendapatan kotor setelah diskon, tanpa pajak"
           />
           <Metric
             label="HPP terjual"
@@ -3109,15 +3128,31 @@ export default function Cafe({ name }: { name: string }) {
             icon={Package}
           />
           <Metric
-            label="Biaya operasional"
-            value={money(cost)}
-            detail="Termasuk biaya umum dan biaya shift"
+            label="Laba bersih"
+            value={money(rev - hpp)}
+            detail="Omzet dikurangi HPP terjual"
+            icon={TrendingUp}
+          />
+          <Metric
+            label="Pengeluaran"
+            value={money(spentAll)}
+            detail={`Bahan ${money(spentStock)} · operasional ${money(spentAll - spentStock)} (tercatat, tidak dikurangkan)`}
             icon={Receipt}
           />
           <Metric
-            label="Laba sebelum bonus"
-            value={money(rev - hpp - cost - wages)}
-            detail={'Setelah gaji shift ' + money(wages)}
+            label="Total gaji karyawan"
+            value={money(wages)}
+            detail="Dari shift yang sudah selesai"
+            icon={Users}
+          />
+          <Metric
+            label="Total bonus karyawan"
+            value={money(bonus)}
+            detail={
+              bonus || payrollsInRange
+                ? 'Dari gaji bulan yang sudah dihitung'
+                : 'Hitung periode di Gaji & bonus dulu'
+            }
             icon={Wallet}
           />
         </div>
@@ -3127,43 +3162,15 @@ export default function Cafe({ name }: { name: string }) {
             belum final; menu tersebut dicatat dengan HPP Rp0 dan stoknya tidak dipotong.
           </div>
         )}
-        <div className="notice">
-          Bonus tercatat untuk bulan dalam rentang: {money(bonus)} (angka bulanan, bukan prorata
-          harian). Pembelian bahan baku{' '}
-          {money(
-            expenses.filter((e) => e.category === 'bahan_baku').reduce((n, e) => n + e.amount, 0),
-          )}{' '}
-          dicatat terpisah agar tidak menghitung HPP dua kali.
-        </div>
-        <section className="panel">
-          <h2>Laba sebelum gaji per shift</h2>
-          <div style={{ height: 260, width: '100%' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={shifts.map((sh) => ({
-                  name: sh.date.slice(5) + ' ' + sh.name,
-                  laba: (sh.snapshot || shiftTotals(s, sh)).profit,
-                }))}
-              >
-                <CartesianGrid stroke="#293447" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: '#a5b1c3', fontSize: 12 }} />
-                <YAxis
-                  tick={{ fill: '#a5b1c3', fontSize: 12 }}
-                  tickFormatter={(v) => String(Math.round(v / 1000)) + 'rb'}
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: '#17202d',
-                    border: '1px solid #344052',
-                    borderRadius: 8,
-                  }}
-                  formatter={(v: any) => money(Number(v))}
-                />
-                <Bar dataKey="laba" name="Laba shift" fill="#c4ec81" radius={[5, 5, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </section>
+        <h2>Pembayaran diterima</h2>
+        {table(
+          ['Metode', 'Transaksi', 'Nilai termasuk pajak'],
+          ['tunai', 'qris', 'transfer', 'ewallet'].map((m) => [
+            m,
+            orders.filter((o) => o.paymentMethod === m).length,
+            money(orders.filter((o) => o.paymentMethod === m).reduce((n, o) => n + o.total, 0)),
+          ]),
+        )}
         <h2>Laporan per tanggal</h2>
         {!days.length && <Empty>Belum ada shift atau pengeluaran pada rentang ini.</Empty>}
         {days.map((date) => {
@@ -3278,15 +3285,6 @@ export default function Cafe({ name }: { name: string }) {
             </section>
           );
         })}
-        <h2>Pembayaran diterima</h2>
-        {table(
-          ['Metode', 'Transaksi', 'Nilai termasuk pajak'],
-          ['tunai', 'qris', 'transfer', 'ewallet'].map((m) => [
-            m,
-            orders.filter((o) => o.paymentMethod === m).length,
-            money(orders.filter((o) => o.paymentMethod === m).reduce((n, o) => n + o.total, 0)),
-          ]),
-        )}
       </>
     );
   }
