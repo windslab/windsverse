@@ -668,3 +668,13 @@ a.primary {
 .slide[data-locked] .mockEmpty small {
   margin-top: 64px;
 }
+.loginForm {
+  display: grid;
+  gap: 14px;
+}
+.dialog .ghost {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+}
