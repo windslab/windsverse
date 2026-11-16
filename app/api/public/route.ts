@@ -4,7 +4,7 @@ import {digest} from '@/lib/auth-crypto';
 import {sceneVisitors} from '@/lib/cafe-visitors';
 import {publicBooks} from '@/lib/public-books';
 import {businessDay} from '@/lib/model';
-import {publicCard} from '@/lib/member';
+import {normalizePhone,publicCard} from '@/lib/member';
 import {weeklyBestSellers} from '@/lib/best-sellers';
 import {normalizeMemberCode} from '@/lib/member-code';
 import {earnGamePoint,gamePointsOn,gameWallet,markGameOpened,maskName,redeemGamePoints,GAME_DAILY_CAP} from '@/lib/game-points';
@@ -70,7 +70,7 @@ async function answer(req:Request){try{
 }catch(e){return errorResponse(e)}}
 export async function POST(req:Request){try{checkMutation(req);const p=await body(req);
  // The game's calls only need the member cards and their game points, not the whole café.
- const loaded=typeof p?.action==='string'&&p.action.startsWith('game.')?await read(['members','gamePoints']):await read();if(!loaded.control)throw new Fault('Kafe belum disiapkan.',503);const ip=req.headers.get('cf-connecting-ip')||'local';const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(ip));const actorId='guest-'+Array.from(new Uint8Array(hash)).map(v=>v.toString(16).padStart(2,'0')).join('');const guest={id:actorId,employeeId:'',name:'Pelanggan',email:'',role:'karyawan' as const};
+ const loaded=typeof p?.action==='string'&&p.action.startsWith('game.')?await read(['members','gamePoints']):p?.action==='member.login'?await read(['members']):await read();if(!loaded.control)throw new Fault('Kafe belum disiapkan.',503);const ip=req.headers.get('cf-connecting-ip')||'local';const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(ip));const actorId='guest-'+Array.from(new Uint8Array(hash)).map(v=>v.toString(16).padStart(2,'0')).join('');const guest={id:actorId,employeeId:'',name:'Pelanggan',email:'',role:'karyawan' as const};
  // Windstopia points: activities fill the player's game wallet (keyed by a random id kept on
  // their device); redeeming moves the wallet onto a member card by its code. Written outside the
  // café's revisioned records, so it never makes a staff screen reload.
@@ -101,6 +101,18 @@ export async function POST(req:Request){try{checkMutation(req);const p=await bod
    return Response.json({card:{...card,room:result.room},...result},{headers});
   }
   throw new Fault('Permintaan tidak dikenali.');
+ }
+ // Opening one's own card on a new device: the card's code plus the phone number it was made
+ // with (the code alone is printed on the card, so it is not enough). A few tries per device.
+ if(p?.action==='member.login'){
+  const key='member-login:'+await digest(ip),now=Date.now();
+  const tries=await loaded.db.prepare('INSERT INTO auth_attempts(key,count,expires_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN expires_at<=? THEN 1 ELSE count+1 END,expires_at=CASE WHEN expires_at<=? THEN excluded.expires_at ELSE expires_at END RETURNING count').bind(key,now+15*60_000,now,now).first<{count:number}>();
+  if((tries?.count||0)>8)throw new Fault('Terlalu banyak percobaan. Tunggu 15 menit atau tanyakan ke kasir.',429);
+  const code=normalizeMemberCode(p.code),phone=normalizePhone(String(p.phone??''));
+  if(!code)throw new Fault('Kode kartu member tidak valid. Contoh: WSM-7KQ4.');
+  const member=loaded.state.members.find(m=>m.code===code&&m.phone===phone);
+  if(!member||member.status==='nonaktif')throw new Fault('Kode member atau nomor HP tidak cocok.',404);
+  return Response.json({token:member.token},{headers:{'Cache-Control':'no-store'}});
  }
  // Signing up for a member card from the QR form: a few per device per hour.
  if(p?.action==='member.signup'){const recent=await loaded.db.prepare("SELECT count(*) AS n FROM audit WHERE actor_id=? AND action='member.signup' AND created_at>?").bind(actorId,new Date(Date.now()-3600000).toISOString()).first<{n:number}>();if((recent?.n||0)>=3)throw new Fault('Terlalu banyak pendaftaran dari perangkat ini. Coba lagi nanti atau daftar di kasir.',429);const result=await commit(loaded,guest,'member.signup',{name:p.name,phone:p.phone,birthday:p.birthday},loaded.control.revision,crypto.randomUUID());return Response.json(result,{headers:{'Cache-Control':'no-store'}})}
