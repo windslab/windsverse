@@ -108,6 +108,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
+import NumberInput from '@/components/number-input';
 import {
   blank,
   money,
@@ -297,6 +298,10 @@ export default function Cafe({ name }: { name: string }) {
     [reportTo, setReportTo] = useState(localDate()),
     [category, setCategory] = useState('all'),
     [orderFilter, setOrderFilter] = useState('all'),
+    // The order list draws only the days that are open, a week at a time: drawing every order
+    // since the start made each tap on the list wait for thousands of cards to redraw.
+    [orderDaysShown, setOrderDaysShown] = useState(7),
+    [orderDaysOpen, setOrderDaysOpen] = useState<Record<string, boolean>>({}),
     [cart, setCart] = useState<any[]>([]),
     [discount, setDiscount] = useState(0),
     [taxEnabled, setTaxEnabled] = useState(true),
@@ -1938,18 +1943,14 @@ export default function Cafe({ name }: { name: string }) {
                     <small className="warning">HPP belum diisi · untuk uji coba</small>
                   )}
                   <div className="row between">
-                    <input
+                    <NumberInput
                       aria-label={'Jumlah ' + i.name}
-                      type="number"
                       min={1}
                       max={100}
+                      empty={1}
                       value={i.quantity}
-                      onChange={(e) =>
-                        setCart((c) =>
-                          c.map((x) =>
-                            x.id === i.id ? { ...x, quantity: Number(e.target.value) } : x,
-                          ),
-                        )
+                      onValue={(quantity) =>
+                        setCart((c) => c.map((x) => (x.id === i.id ? { ...x, quantity } : x)))
                       }
                     />
                     <span>{money(i.price * i.quantity)}</span>
@@ -1974,12 +1975,12 @@ export default function Cafe({ name }: { name: string }) {
             </div>
             <label>
               Diskon (Rp)
-              <input
-                type="number"
+              <NumberInput
                 min={0}
                 max={subtotal}
+                blankZero
                 value={discount}
-                onChange={(e) => setDiscount(Number(e.target.value))}
+                onValue={setDiscount}
               />
             </label>
             {freeValue > 0 && (
@@ -2034,6 +2035,22 @@ export default function Cafe({ name }: { name: string }) {
         </div>
       </>
     );
+  const orderDays =
+    tab === 'orders'
+      ? ordersByDate(
+          s,
+          [...s.orders]
+            .reverse()
+            .filter(
+              (o) =>
+                o.no.toLowerCase().includes(search.toLowerCase()) &&
+                (orderFilter === 'all' ||
+                  (orderFilter === 'hpp_incomplete'
+                    ? o.paid && o.status !== 'dibatalkan' && hasMissingHpp(o)
+                    : o.status === orderFilter)),
+            ),
+        )
+      : [];
   if (tab === 'orders')
     content = (
       <>
@@ -2060,198 +2077,201 @@ export default function Cafe({ name }: { name: string }) {
             />
           </div>
         </div>
-        {ordersByDate(
-          s,
-          [...s.orders]
-            .reverse()
-            .filter(
-              (o) =>
-                o.no.toLowerCase().includes(search.toLowerCase()) &&
-                (orderFilter === 'all' ||
-                  (orderFilter === 'hpp_incomplete'
-                    ? o.paid && o.status !== 'dibatalkan' && hasMissingHpp(o)
-                    : o.status === orderFilter)),
-            ),
-        ).map((day, dayIndex) => (
-          <details
-            className="order-day"
-            key={day.date}
-            open={dayIndex === 0 || !!search || orderFilter !== 'all'}
-          >
-            <summary>
-              <strong>{fmtDate(day.date)}</strong>
-              {day.date === businessDay() && <span className="badge">Hari ini</span>}
-              <small>
-                {day.count} pesanan · {money(day.total)}
-              </small>
-            </summary>
-            {day.shifts.map((group) => (
-              <section className="order-shift" key={group.shiftId}>
-                <div className="order-shift-head">
-                  <strong>{group.shift?.name || 'Umum'}</strong>
-                  <small>
-                    {group.shift &&
-                      clock(group.shift.startAt) + '–' + clock(group.shift.endAt) + ' · '}
-                    {group.orders.length} pesanan · {money(group.total)}
-                  </small>
-                </div>
-                <div className="orders-grid">
-                  {group.orders.map((o) => (
-                    <article className="panel order-card" key={o.id}>
-                      <div className="row between">
-                        <strong>{o.no}</strong>
-                        <Badge value={o.status} />
-                      </div>
+        {orderDays.slice(0, orderDaysShown).map((day, dayIndex) => {
+          const open =
+            orderDaysOpen[day.date] ?? (dayIndex === 0 || !!search || orderFilter !== 'all');
+          return (
+            <details
+              className="order-day"
+              key={day.date}
+              open={open}
+              onToggle={(e) => {
+                const now = e.currentTarget.open;
+                if (now !== open) setOrderDaysOpen((d) => ({ ...d, [day.date]: now }));
+              }}
+            >
+              <summary>
+                <strong>{fmtDate(day.date)}</strong>
+                {day.date === businessDay() && <span className="badge">Hari ini</span>}
+                <small>
+                  {day.count} pesanan · {money(day.total)}
+                </small>
+              </summary>
+              {open &&
+                day.shifts.map((group) => (
+                  <section className="order-shift" key={group.shiftId}>
+                    <div className="order-shift-head">
+                      <strong>{group.shift?.name || 'Umum'}</strong>
                       <small>
-                        {o.historicalEntry
-                          ? `${fmtDate(o.date)} (diinput ${dateTime(o.createdAt)})`
-                          : dateTime(o.createdAt)}{' '}
-                        · {shiftName(o.shiftId)} ·{' '}
-                        {o.orderType === 'takeaway'
-                          ? 'Bawa pulang'
-                          : o.tableId
-                            ? 'Meja ' + s.tables.find((t) => t.id === o.tableId)?.number
-                            : 'Makan di tempat'}
-                        {o.customerName ? ' · ' + o.customerName : ''}
+                        {group.shift &&
+                          clock(group.shift.startAt) + '–' + clock(group.shift.endAt) + ' · '}
+                        {group.orders.length} pesanan · {money(group.total)}
                       </small>
-                      {hasMissingHpp(o) && (
-                        <div className="notice warning">
-                          HPP belum diisi saat transaksi. Menu tersebut tercatat dengan HPP Rp0 dan
-                          stok bahan tidak dipotong. Lengkapi HPP sebelum menghitung atau membayar
-                          gaji.
-                        </div>
-                      )}
-                      <ul>
-                        {o.items.map((i: any, n: number) => (
-                          <li key={n}>
-                            {i.quantity}× {i.name}
-                            {i.notes && <small> · {i.notes}</small>}
-                          </li>
-                        ))}
-                      </ul>
-                      <div className="row between">
-                        <strong>{money(o.total)}</strong>
-                        <button
-                          className="icon-button"
-                          aria-label="Lihat struk"
-                          onClick={() => setReceipt(o)}
-                        >
-                          <Printer size={18} />
-                        </button>
-                      </div>
-                      <div className="row wrap">
-                        {admin && o.status !== 'dibatalkan' && hasMissingHpp(o) && (
-                          <button
-                            className="button primary"
-                            disabled={
-                              busy ||
-                              s.payrolls.some(
-                                (pr) => pr.period === o.date.slice(0, 7) && pr.status === 'lunas',
-                              )
-                            }
-                            onClick={() => completeHpp(o)}
-                          >
-                            <ChefHat size={15} />
-                            Lengkapi HPP
-                          </button>
-                        )}
-                        {admin && o.status !== 'dibatalkan' && (
-                          <button
-                            className="button"
-                            disabled={busy}
-                            onClick={() => correctOrder(o)}
-                          >
-                            <Pencil size={15} />
-                            Koreksi
-                          </button>
-                        )}
-                        {admin && (
-                          <button
-                            className="button danger"
-                            disabled={busy}
-                            onClick={() => deleteOrder(o)}
-                          >
-                            <Trash2 size={15} />
-                            Hapus transaksi
-                          </button>
-                        )}
-                        {o.status === 'menunggu_pembayaran' && (
-                          <button
-                            className="button primary"
-                            disabled={busy}
-                            onClick={() => payOrder(o)}
-                          >
-                            Terima pembayaran
-                          </button>
-                        )}
-                        {(
-                          {
-                            diproses: 'sedang_dibuat',
-                            sedang_dibuat: 'siap_disajikan',
-                            siap_disajikan: 'selesai',
-                          } as any
-                        )[o.status] && (
-                          <button
-                            className="button primary"
-                            disabled={busy}
-                            onClick={() =>
-                              act('order.status', {
-                                id: o.id,
-                                status: (
-                                  {
-                                    diproses: 'sedang_dibuat',
-                                    sedang_dibuat: 'siap_disajikan',
-                                    siap_disajikan: 'selesai',
-                                  } as any
-                                )[o.status],
-                              })
-                            }
-                          >
-                            {
-                              (
+                    </div>
+                    <div className="orders-grid">
+                      {group.orders.map((o) => (
+                        <article className="panel order-card" key={o.id}>
+                          <div className="row between">
+                            <strong>{o.no}</strong>
+                            <Badge value={o.status} />
+                          </div>
+                          <small>
+                            {o.historicalEntry
+                              ? `${fmtDate(o.date)} (diinput ${dateTime(o.createdAt)})`
+                              : dateTime(o.createdAt)}{' '}
+                            · {shiftName(o.shiftId)} ·{' '}
+                            {o.orderType === 'takeaway'
+                              ? 'Bawa pulang'
+                              : o.tableId
+                                ? 'Meja ' + s.tables.find((t) => t.id === o.tableId)?.number
+                                : 'Makan di tempat'}
+                            {o.customerName ? ' · ' + o.customerName : ''}
+                          </small>
+                          {hasMissingHpp(o) && (
+                            <div className="notice warning">
+                              HPP belum diisi saat transaksi. Menu tersebut tercatat dengan HPP Rp0
+                              dan stok bahan tidak dipotong. Lengkapi HPP sebelum menghitung atau
+                              membayar gaji.
+                            </div>
+                          )}
+                          <ul>
+                            {o.items.map((i: any, n: number) => (
+                              <li key={n}>
+                                {i.quantity}× {i.name}
+                                {i.notes && <small> · {i.notes}</small>}
+                              </li>
+                            ))}
+                          </ul>
+                          <div className="row between">
+                            <strong>{money(o.total)}</strong>
+                            <button
+                              className="icon-button"
+                              aria-label="Lihat struk"
+                              onClick={() => setReceipt(o)}
+                            >
+                              <Printer size={18} />
+                            </button>
+                          </div>
+                          <div className="row wrap">
+                            {admin && o.status !== 'dibatalkan' && hasMissingHpp(o) && (
+                              <button
+                                className="button primary"
+                                disabled={
+                                  busy ||
+                                  s.payrolls.some(
+                                    (pr) =>
+                                      pr.period === o.date.slice(0, 7) && pr.status === 'lunas',
+                                  )
+                                }
+                                onClick={() => completeHpp(o)}
+                              >
+                                <ChefHat size={15} />
+                                Lengkapi HPP
+                              </button>
+                            )}
+                            {admin && o.status !== 'dibatalkan' && (
+                              <button
+                                className="button"
+                                disabled={busy}
+                                onClick={() => correctOrder(o)}
+                              >
+                                <Pencil size={15} />
+                                Koreksi
+                              </button>
+                            )}
+                            {admin && (
+                              <button
+                                className="button danger"
+                                disabled={busy}
+                                onClick={() => deleteOrder(o)}
+                              >
+                                <Trash2 size={15} />
+                                Hapus transaksi
+                              </button>
+                            )}
+                            {o.status === 'menunggu_pembayaran' && (
+                              <button
+                                className="button primary"
+                                disabled={busy}
+                                onClick={() => payOrder(o)}
+                              >
+                                Terima pembayaran
+                              </button>
+                            )}
+                            {(
+                              {
+                                diproses: 'sedang_dibuat',
+                                sedang_dibuat: 'siap_disajikan',
+                                siap_disajikan: 'selesai',
+                              } as any
+                            )[o.status] && (
+                              <button
+                                className="button primary"
+                                disabled={busy}
+                                onClick={() =>
+                                  act('order.status', {
+                                    id: o.id,
+                                    status: (
+                                      {
+                                        diproses: 'sedang_dibuat',
+                                        sedang_dibuat: 'siap_disajikan',
+                                        siap_disajikan: 'selesai',
+                                      } as any
+                                    )[o.status],
+                                  })
+                                }
+                              >
                                 {
-                                  diproses: 'Mulai buat',
-                                  sedang_dibuat: 'Siap disajikan',
-                                  siap_disajikan: 'Selesaikan',
-                                } as any
-                              )[o.status]
-                            }
-                          </button>
-                        )}
-                        {admin && ['menunggu_pembayaran', 'diproses'].includes(o.status) && (
-                          <button
-                            className="button danger"
-                            onClick={() =>
-                              setModal({
-                                title: 'Batalkan pesanan',
-                                description: o.paid
-                                  ? 'Lakukan pengembalian uang secara manual sebelum mengonfirmasi. Aplikasi tidak memproses refund bank.'
-                                  : 'Stok pesanan akan dikembalikan.',
-                                fields: [
-                                  { key: 'reason', label: 'Alasan pembatalan', required: true },
-                                  {
-                                    key: 'refundRecorded',
-                                    label: 'Pembayaran telah dikembalikan (jika sudah dibayar)',
-                                    type: 'boolean',
-                                  },
-                                ],
-                                initial: {},
-                                submit: (v: any) =>
-                                  act('order.status', { id: o.id, status: 'dibatalkan', ...v }),
-                              })
-                            }
-                          >
-                            Batalkan
-                          </button>
-                        )}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            ))}
-          </details>
-        ))}
+                                  (
+                                    {
+                                      diproses: 'Mulai buat',
+                                      sedang_dibuat: 'Siap disajikan',
+                                      siap_disajikan: 'Selesaikan',
+                                    } as any
+                                  )[o.status]
+                                }
+                              </button>
+                            )}
+                            {admin && ['menunggu_pembayaran', 'diproses'].includes(o.status) && (
+                              <button
+                                className="button danger"
+                                onClick={() =>
+                                  setModal({
+                                    title: 'Batalkan pesanan',
+                                    description: o.paid
+                                      ? 'Lakukan pengembalian uang secara manual sebelum mengonfirmasi. Aplikasi tidak memproses refund bank.'
+                                      : 'Stok pesanan akan dikembalikan.',
+                                    fields: [
+                                      { key: 'reason', label: 'Alasan pembatalan', required: true },
+                                      {
+                                        key: 'refundRecorded',
+                                        label: 'Pembayaran telah dikembalikan (jika sudah dibayar)',
+                                        type: 'boolean',
+                                      },
+                                    ],
+                                    initial: {},
+                                    submit: (v: any) =>
+                                      act('order.status', { id: o.id, status: 'dibatalkan', ...v }),
+                                  })
+                                }
+                              >
+                                Batalkan
+                              </button>
+                            )}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+            </details>
+          );
+        })}
+        {orderDays.length > orderDaysShown && (
+          <button className="button" type="button" onClick={() => setOrderDaysShown((n) => n + 7)}>
+            Tampilkan 7 hari sebelumnya ({orderDays.length - orderDaysShown} hari lagi)
+          </button>
+        )}
         {!s.orders.length && <Empty>Pesanan dari kasir akan tampil di sini.</Empty>}
       </>
     );
@@ -4233,19 +4253,14 @@ function RecipeBuilder({
             />
             <label>
               Jumlah pemakaian
-              <input
+              <NumberInput
                 aria-label={'Jumlah bahan ' + (index + 1)}
-                type="number"
                 min="0.001"
                 step="0.001"
                 required
                 value={item.amount}
-                onChange={(e) =>
-                  onChange(
-                    value.map((row, i) =>
-                      i === index ? { ...row, amount: Number(e.target.value) } : row,
-                    ),
-                  )
+                onValue={(amount) =>
+                  onChange(value.map((row, i) => (i === index ? { ...row, amount } : row)))
                 }
               />
               <small>{ingredient?.unit || 'Pilih bahan'}</small>
@@ -4463,33 +4478,36 @@ function Editor({
                 </div>
                 {(v[f.key] || []).map((r: any, i: number) => (
                   <div className="tier-editor" key={i}>
-                    {['min', 'max', 'wage'].map((k) => (
-                      <input
-                        key={k}
-                        aria-label={'Tier ' + (i + 1) + ' ' + k}
-                        type="number"
-                        min={0}
-                        required={k !== 'max'}
-                        placeholder={k === 'max' ? 'Tanpa batas' : ''}
-                        value={r[k] ?? ''}
-                        onChange={(e) =>
-                          change(
-                            f.key,
-                            v[f.key].map((x: any, j: number) =>
-                              i === j
-                                ? {
-                                    ...x,
-                                    [k]:
-                                      e.target.value === '' && k === 'max'
-                                        ? null
-                                        : Number(e.target.value),
-                                  }
-                                : x,
-                            ),
-                          )
-                        }
-                      />
-                    ))}
+                    {['min', 'max', 'wage'].map((k) => {
+                      const set = (n: number | null) =>
+                        change(
+                          f.key,
+                          v[f.key].map((x: any, j: number) => (i === j ? { ...x, [k]: n } : x)),
+                        );
+                      // "Sampai" may stay empty (no upper limit); the others are numbers.
+                      return k === 'max' ? (
+                        <input
+                          key={k}
+                          aria-label={'Tier ' + (i + 1) + ' ' + k}
+                          type="number"
+                          min={0}
+                          placeholder="Tanpa batas"
+                          value={r[k] ?? ''}
+                          onChange={(e) =>
+                            set(e.target.value === '' ? null : Number(e.target.value))
+                          }
+                        />
+                      ) : (
+                        <NumberInput
+                          key={k}
+                          aria-label={'Tier ' + (i + 1) + ' ' + k}
+                          min={0}
+                          required
+                          value={r[k] ?? 0}
+                          onValue={set}
+                        />
+                      );
+                    })}
                     <button
                       type="button"
                       className="icon-button"
