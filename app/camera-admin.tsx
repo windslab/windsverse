@@ -3,6 +3,7 @@
 // and every guest photo with "show on Memoirs" and delete.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import NumberInput from '@/components/number-input';
 import { Eye, EyeOff, Pencil, Plus, Trash2, Tv, Upload } from 'lucide-react';
 import {
   FILMS,
@@ -221,12 +222,12 @@ export default function CameraAdmin() {
           <div className="camera-admin-config">
             <label>
               Jepretan per perangkat per hari
-              <input
-                type="number"
+              <NumberInput
                 min={1}
                 max={60}
+                empty={1}
                 value={config.rollSize}
-                onChange={(e) => setConfig({ ...config, rollSize: Number(e.target.value) || 1 })}
+                onValue={(n) => setConfig({ ...config, rollSize: n || 1 })}
               />
             </label>
             <fieldset>

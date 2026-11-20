@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import { Box, CupSoda, Download, Gift, Printer, Ticket, Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import NumberInput from '@/components/number-input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { localDate, money, type Row, type State } from '@/lib/model';
 import {
@@ -454,7 +455,7 @@ function Rewards({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
       <div className="row">
         <label>
           Tahun koleksi
-          <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} />
+          <NumberInput value={year} empty={thisYear} onValue={setYear} />
         </label>
         {!rewards.length && year === thisYear && (
           <button
@@ -660,65 +661,58 @@ function Rules({ s, busy, act }: { s: State; busy: boolean; act: Act }) {
       <div className="member-form">
         <label>
           Harga minimal minuman untuk dapat stamp (Rp)
-          <input
-            type="number"
+          <NumberInput
             min={0}
             value={rules.minDrinkPrice}
-            onChange={(e) => setRules({ ...rules, minDrinkPrice: Number(e.target.value) })}
+            onValue={(n) => setRules({ ...rules, minDrinkPrice: n })}
           />
         </label>
         <label>
           Harga minimal makanan untuk dapat stamp (Rp)
-          <input
-            type="number"
+          <NumberInput
             min={0}
             value={rules.minFoodPrice}
-            onChange={(e) => setRules({ ...rules, minFoodPrice: Number(e.target.value) })}
+            onValue={(n) => setRules({ ...rules, minFoodPrice: n })}
           />
         </label>
         <label>
           Rupiah per 1 poin (menu tanpa poin khusus)
-          <input
-            type="number"
+          <NumberInput
             min={100}
             value={rules.rupiahPerPoint}
-            onChange={(e) => setRules({ ...rules, rupiahPerPoint: Number(e.target.value) })}
+            onValue={(n) => setRules({ ...rules, rupiahPerPoint: n })}
           />
         </label>
         <label>
           Potongan stamp ke-5 (Rp)
-          <input
-            type="number"
+          <NumberInput
             min={0}
             value={rules.voucherDiscount}
-            onChange={(e) => setRules({ ...rules, voucherDiscount: Number(e.target.value) })}
+            onValue={(n) => setRules({ ...rules, voucherDiscount: n })}
           />
         </label>
         <label>
           Batas harga minuman gratis stamp ke-10 (Rp)
-          <input
-            type="number"
+          <NumberInput
             min={0}
             value={rules.freeDrinkMax}
-            onChange={(e) => setRules({ ...rules, freeDrinkMax: Number(e.target.value) })}
+            onValue={(n) => setRules({ ...rules, freeDrinkMax: n })}
           />
         </label>
         <label>
           Hadiah stamp hangus setelah (bulan)
-          <input
-            type="number"
+          <NumberInput
             min={1}
             value={rules.voucherMonths}
-            onChange={(e) => setRules({ ...rules, voucherMonths: Number(e.target.value) })}
+            onValue={(n) => setRules({ ...rules, voucherMonths: n })}
           />
         </label>
         <label>
           Poin hangus bila tidak ada transaksi selama (bulan)
-          <input
-            type="number"
+          <NumberInput
             min={1}
             value={rules.pointsExpireMonths}
-            onChange={(e) => setRules({ ...rules, pointsExpireMonths: Number(e.target.value) })}
+            onValue={(n) => setRules({ ...rules, pointsExpireMonths: n })}
           />
         </label>
       </div>
