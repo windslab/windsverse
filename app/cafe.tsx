@@ -390,6 +390,40 @@ export default function Cafe({ name }: { name: string }) {
     if (background) startTransition(apply);
     else apply();
   }
+  // A daily tap on the till gets back only the records it changed (the server read just the
+  // recent café): put those into what is shown, instead of a whole café.
+  function patch(d: any) {
+    const pt = d.patch;
+    if (typeof d.revision !== 'number' || d.revision < revision.current) return;
+    revision.current = d.revision;
+    version.current = d.version || '';
+    const removed = new Set<string>(pt.removed || []);
+    const written = (pt.written || []) as { kind: keyof State; record: Row }[];
+    setS((prev) => {
+      const next = { ...prev } as any;
+      const touched = new Set<keyof State>(written.map((w) => w.kind));
+      if (removed.size)
+        for (const k of Object.keys(prev) as (keyof State)[])
+          if ((prev[k] as Row[]).some((r) => removed.has(r.id))) touched.add(k);
+      for (const k of touched) {
+        const list = (prev[k] as Row[]).filter((r) => !removed.has(r.id));
+        for (const w of written)
+          if (w.kind === k) {
+            const at = list.findIndex((r) => r.id === w.record.id);
+            if (at < 0) list.push(w.record);
+            else list[at] = w.record;
+          }
+        next[k] = list;
+      }
+      return next;
+    });
+    const from = String(pt.estimatesFrom || '');
+    if (from)
+      setEstimates((prev) => [
+        ...prev.filter((e) => e.period + '-01' < from),
+        ...((pt.estimates || []) as Estimate[]),
+      ]);
+  }
   async function load() {
     try {
       // With the version already shown, the server only sends the café again if it changed.
@@ -487,7 +521,8 @@ export default function Cafe({ name }: { name: string }) {
       pending.current = null;
       mutation.current = false;
       // The answer carries the saved café: show it straight away, without asking again.
-      if (d.state) show(d);
+      if (d.patch) patch(d);
+      else if (d.state) show(d);
       else await load();
       if (success) toast.success(success);
       return d.result || true;
