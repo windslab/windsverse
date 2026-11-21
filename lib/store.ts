@@ -10,14 +10,17 @@ export function database() {
  * The café's data. `only` limits it to some collections (a quick read for the game's calls);
  * everything else (camera, music, presence, game wallets) lives in the same table and is left out.
  */
-export async function read(only: readonly (typeof kinds)[number][] = kinds) {
+export async function read(only: readonly (typeof kinds)[number][] = kinds, key?: string) {
   const db = database();
-  const [c, r, v] = await db.batch([
+  // A save's request ID is looked up in the same trip, so commit need not ask again.
+  const checkKey = typeof key === 'string' && /^[a-f0-9-]{36}$/.test(key);
+  const [c, r, v, k] = await db.batch([
     db.prepare('SELECT * FROM control WHERE id=1'),
     db
       .prepare(`SELECT id,kind,data FROM records WHERE kind IN (${only.map(() => '?').join(',')})`)
       .bind(...only),
     db.prepare(`SELECT data FROM records WHERE id='${VERSION_ID}'`),
+    ...(checkKey ? [db.prepare('SELECT actor_id,action FROM audit WHERE id=?').bind(key)] : []),
   ]);
   const state = blank();
   for (const x of r.results as any[])
@@ -32,6 +35,9 @@ export async function read(only: readonly (typeof kinds)[number][] = kinds) {
     control,
     implicitCategories,
     version: versionOf(control?.revision, (v.results[0] as any)?.data),
+    /** For the key given: its earlier save (null if none); undefined when no key was checked. */
+    prior: checkKey ? ((k.results[0] as any) ?? null) : undefined,
+    priorKey: checkKey ? key : undefined,
   };
 }
 
@@ -116,10 +122,10 @@ export async function commit(
 ) {
   const { db, state, control, implicitCategories } = loaded;
   if (!/^[a-f0-9-]{36}$/.test(key || '')) throw new Fault('ID permintaan tidak valid.');
-  const prev = await db
-    .prepare('SELECT actor_id,action FROM audit WHERE id=?')
-    .bind(key)
-    .first<any>();
+  const prev =
+    loaded.priorKey === key
+      ? loaded.prior
+      : await db.prepare('SELECT actor_id,action FROM audit WHERE id=?').bind(key).first<any>();
   if (prev) {
     if (prev.actor_id !== a.id || prev.action !== action)
       throw new Fault('ID permintaan sudah digunakan.', 409);

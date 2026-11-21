@@ -13,7 +13,7 @@ import RosterPlanner from './roster-planner';
 import MemberPos, { type MemberFree } from './member-pos';
 import { memberRules, voucherValue } from '@/lib/member';
 import MemberAdmin from './member-admin';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { startTransition, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Calculator,
   QrCode,
@@ -374,6 +374,22 @@ export default function Cafe({ name }: { name: string }) {
   const shiftName = (id: string) => s.shifts.find((sh) => sh.id === id)?.name || 'Umum';
   const expenseScopeName = (e: Row) =>
     ({ harian: 'Harian', bulanan: 'Bulanan', stok: 'Stok (HPP)' })[expenseScope(e)];
+  // Puts a café the server sent on screen. Drawing a whole café takes a slow tablet a moment, so
+  // a change from another device (the poll) is drawn as a transition: a tap meanwhile is answered
+  // first instead of waiting for it. After one's own save it is drawn at once, with the button.
+  function show(d: any, background = false) {
+    if (!d?.state || typeof d.revision !== 'number' || d.revision < revision.current) return;
+    revision.current = d.revision;
+    version.current = d.version || '';
+    const apply = () => {
+      setS(d.state);
+      setEstimates(d.estimates || []);
+      setActor(d.actor);
+      setSetup(d.setup);
+    };
+    if (background) startTransition(apply);
+    else apply();
+  }
   async function load() {
     try {
       // With the version already shown, the server only sends the café again if it changed.
@@ -392,14 +408,7 @@ export default function Cafe({ name }: { name: string }) {
       }
       if (d.unchanged) {
         // Nothing new: what is on screen is current.
-      } else if (!mutation.current && d.revision >= revision.current) {
-        revision.current = d.revision;
-        version.current = d.version || '';
-        setS(d.state);
-        setEstimates(d.estimates || []);
-        setActor(d.actor);
-        setSetup(d.setup);
-      }
+      } else if (!mutation.current) show(d, !initialLoad.current);
       setError('');
       setSynced(new Date().toLocaleTimeString('id-ID', { timeZone: CAFE_TIMEZONE }));
       setLoading(false);
@@ -477,7 +486,9 @@ export default function Cafe({ name }: { name: string }) {
       }
       pending.current = null;
       mutation.current = false;
-      await load();
+      // The answer carries the saved café: show it straight away, without asking again.
+      if (d.state) show(d);
+      else await load();
       if (success) toast.success(success);
       return d.result || true;
     } catch (e: any) {
