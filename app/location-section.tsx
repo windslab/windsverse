@@ -1,5 +1,6 @@
 import { Clock, MapPin, MessageCircle, Navigation } from 'lucide-react';
 import { hoursRange, openDays, openNow } from '@/lib/hours';
+import ReviewButton from './review-button';
 
 /** wa.me wants the number in international form without symbols: 0812… becomes 62812…. */
 const waNumber = (value: string) => value.replace(/\D/g, '').replace(/^0/, '62');
@@ -51,6 +52,7 @@ export default function LocationSection({ profile }: { profile: any }) {
               Petunjuk arah
             </a>
           )}
+          <ReviewButton profile={profile} className="button landing-library-cta" />
           {wa.length >= 9 && (
             <a
               className="button landing-library-cta"

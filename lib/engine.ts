@@ -147,6 +147,13 @@ const schemas: Partial<Record<Kind, z.ZodTypeAny>> = {
     notes: optional,
   }),
   tiers: z.object({ min: amount, max: amount.nullable(), wage: amount }),
+  // How to Winds Space: rules and SOP the admin writes (lib/guide-text reads the body's format).
+  guides: z.object({
+    title: str,
+    group: z.enum(['mulai', 'operasional', 'tim', 'katalog', 'pelanggan', 'bantuan', 'aturan']),
+    body: z.string().trim().min(1, 'Isi aturan masih kosong.').max(20000),
+    sortOrder: z.number().int().min(0).max(9999).default(0),
+  }),
   books: z.object({
     title: str,
     author: str,
@@ -171,6 +178,8 @@ const schemas: Partial<Record<Kind, z.ZodTypeAny>> = {
       (v) => !v || !!mapsLink(v),
       'Link lokasi harus berupa link Google Maps.',
     ),
+    // Where guests write a Google review (g.page/r/…/review); the maps link stands in when empty.
+    reviewUrl: optional.refine((v) => !v || !!mapsLink(v), 'Link ulasan harus berupa link Google.'),
     openTime: z.union([z.literal(''), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)]).default(''),
     closeTime: z.union([z.literal(''), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)]).default(''),
     closedDays: z.array(z.enum(WEEKDAYS)).default([]),
@@ -414,6 +423,7 @@ export function apply(
       id: existing?.id || (k === 'settings' ? 'cafe' : id()),
     } as Row;
     if (k === 'ingredients') row.unitCost = ingredientUnitCost(row);
+    if (k === 'guides') Object.assign(row, { updatedAt: stamp, updatedBy: a.name });
     if (k === 'categories')
       assert(
         !s.categories.some(
@@ -735,6 +745,7 @@ export function apply(
         'notes',
         'feedback',
         'employees',
+        'guides',
       ].includes(k),
       'Data ini harus dipertahankan sebagai riwayat.',
     );
