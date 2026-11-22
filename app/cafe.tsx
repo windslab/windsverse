@@ -32,6 +32,7 @@ import {
   MessageCircle,
   IdCard,
   StickyNote,
+  GraduationCap,
   Settings,
   Grid2X2,
   Package,
@@ -108,6 +109,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
+import Guide from './guide';
 import NumberInput from '@/components/number-input';
 import {
   blank,
@@ -261,6 +263,7 @@ const nav = [
       ['ingredients', 'Bahan baku', Package],
       ['books', 'Perpustakaan', BookOpen],
       ['notes', 'Catatan tim', StickyNote],
+      ['guide', 'How to Winds Space', GraduationCap],
       ['feedback', 'Kritik & saran', MessageCircle],
       ['camera', 'Story of Winds', Aperture],
       ['music', 'Noisegasm', Radio],
@@ -3922,6 +3925,7 @@ export default function Cafe({ name }: { name: string }) {
       </>
     );
   if (tab === 'members') content = <MemberAdmin s={s} admin={!!admin} busy={busy} act={act} />;
+  if (tab === 'guide') content = <Guide s={s} admin={!!admin} busy={busy} act={act} />;
   if (tab === 'camera' && admin) content = <CameraAdmin />;
   if (tab === 'music' && admin) content = <MusicAdmin />;
   if (tab === 'settings')
@@ -4175,6 +4179,7 @@ export default function Cafe({ name }: { name: string }) {
             'payroll',
             'attendance',
             'chat',
+            'guide',
           ].includes(tab) && (
             <div className="page-search">
               <Search size={17} />
