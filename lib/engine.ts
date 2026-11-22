@@ -178,6 +178,8 @@ const schemas: Partial<Record<Kind, z.ZodTypeAny>> = {
       (v) => !v || !!mapsLink(v),
       'Link lokasi harus berupa link Google Maps.',
     ),
+    // Where guests write a Google review (g.page/r/…/review); the maps link stands in when empty.
+    reviewUrl: optional.refine((v) => !v || !!mapsLink(v), 'Link ulasan harus berupa link Google.'),
     openTime: z.union([z.literal(''), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)]).default(''),
     closeTime: z.union([z.literal(''), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)]).default(''),
     closedDays: z.array(z.enum(WEEKDAYS)).default([]),

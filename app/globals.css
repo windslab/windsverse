@@ -6386,3 +6386,19 @@ button.att-chip:disabled {
     grid-column: 1 / -1;
   }
 }
+
+/* Menu page: the guest review card that sends to Google Maps. */
+.review-panel {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: start;
+}
+.review-panel h2,
+.review-panel p {
+  margin: 0;
+}
+.review-panel .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}

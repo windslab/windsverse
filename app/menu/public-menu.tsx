@@ -1,11 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Coffee, Star } from 'lucide-react';
+import { Coffee } from 'lucide-react';
 import { money, type Row } from '@/lib/model';
 import LibraryCatalog from '../library-catalog';
 import { BrandMark } from '@/components/brand-mark';
+import ReviewButton, { reviewLink } from '../review-button';
 import { Toaster } from '@/components/ui/sonner';
-import { toast } from 'sonner';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 export default function PublicMenu() {
   const [data, setData] = useState<any>(null),
@@ -50,7 +50,7 @@ export default function PublicMenu() {
         <TabsList>
           <TabsTrigger value="menu">Menu kafe</TabsTrigger>
           <TabsTrigger value="books">Rak buku</TabsTrigger>
-          <TabsTrigger value="feedback">Kritik & saran</TabsTrigger>
+          <TabsTrigger value="review">Ulasan</TabsTrigger>
         </TabsList>
         <input
           className="search"
@@ -105,60 +105,19 @@ export default function PublicMenu() {
         <TabsContent value="books">
           <LibraryCatalog books={data?.books || []} query={q} />
         </TabsContent>
-        <TabsContent value="feedback">
-          <form
-            className="panel form-grid"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const f = e.currentTarget,
-                fd = new FormData(f);
-              try {
-                const r = await fetch('/api/public', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    customerName: fd.get('name'),
-                    phone: fd.get('phone'),
-                    rating: Number(fd.get('rating')),
-                    message: fd.get('message'),
-                  }),
-                });
-                const d: any = await r.json();
-                if (!r.ok) throw Error(d.error);
-                toast.success('Terima kasih atas masukan Anda.');
-                f.reset();
-              } catch (e: any) {
-                toast.error(e.message);
-              }
-            }}
-          >
-            <h2>Bagaimana pengalaman Anda?</h2>
-            <label>
-              Nama (opsional)
-              <input name="name" maxLength={200} />
-            </label>
-            <label>
-              Kontak (opsional)
-              <input name="phone" maxLength={100} />
-            </label>
-            <fieldset>
-              <legend>Penilaian</legend>
-              <div className="row">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <label key={n} className="row">
-                    <input type="radio" name="rating" value={n} required />
-                    {n}
-                    <Star size={14} />
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <label>
-              Masukan
-              <textarea name="message" required maxLength={2000} />
-            </label>
-            <button className="button primary">Kirim masukan</button>
-          </form>
+        <TabsContent value="review">
+          <section className="panel review-panel">
+            <h2>Suka dengan {data?.settings[0]?.name || 'Winds Space'}?</h2>
+            <p>
+              Ceritakan pengalamanmu di Google Maps. Ulasanmu membantu orang lain menemukan kami,
+              dan kami membaca setiap ulasan.
+            </p>
+            {reviewLink(data?.settings?.[0]) ? (
+              <ReviewButton profile={data?.settings?.[0]} className="button primary" />
+            ) : (
+              <p className="empty">Link ulasan belum tersedia.</p>
+            )}
+          </section>
         </TabsContent>
       </Tabs>
       <footer>

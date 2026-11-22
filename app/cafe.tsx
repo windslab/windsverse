@@ -29,9 +29,7 @@ import {
   TrendingUp,
   Coffee,
   BookOpen,
-  MessageCircle,
   IdCard,
-  StickyNote,
   GraduationCap,
   Settings,
   Grid2X2,
@@ -262,24 +260,14 @@ const nav = [
       ['recipes', 'Resep & HPP', ChefHat],
       ['ingredients', 'Bahan baku', Package],
       ['books', 'Perpustakaan', BookOpen],
-      ['notes', 'Catatan tim', StickyNote],
       ['guide', 'How to Winds Space', GraduationCap],
-      ['feedback', 'Kritik & saran', MessageCircle],
       ['camera', 'Story of Winds', Aperture],
       ['music', 'Noisegasm', Radio],
       ['settings', 'Pengaturan', Settings],
     ],
   },
 ];
-const restricted = [
-  'financials',
-  'employees',
-  'products',
-  'feedback',
-  'settings',
-  'camera',
-  'music',
-];
+const restricted = ['financials', 'employees', 'products', 'settings', 'camera', 'music'];
 export default function Cafe({ name }: { name: string }) {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [s, setS] = useState<State>(blank()),
@@ -894,6 +882,11 @@ export default function Cafe({ name }: { name: string }) {
           key: 'mapsUrl',
           label: 'Link Google Maps',
           hint: 'Buka lokasi kafe di Google Maps, tekan Bagikan, lalu tempel linknya di sini. Petanya akan tampil di halaman depan.',
+        },
+        {
+          key: 'reviewUrl',
+          label: 'Link ulasan Google (opsional)',
+          hint: 'Dari Google Bisnisku: tekan "Minta ulasan", salin linknya, lalu tempel di sini. Kalau kosong, tombol ulasan membuka link Google Maps di atas.',
         },
         { key: 'taxPercentage', label: 'Pajak (%)', type: 'number', default: 10 },
         { key: 'bonusPercentage', label: 'Bonus laba bulanan (%)', type: 'number', default: 5 },
@@ -3808,122 +3801,6 @@ export default function Cafe({ name }: { name: string }) {
       </>
     );
   }
-  if (tab === 'notes')
-    content = (
-      <>
-        {toolbar(
-          'Catatan tim',
-          undefined,
-          <button
-            className="button primary"
-            onClick={() =>
-              setModal({
-                title: 'Catatan baru',
-                fields: [
-                  { key: 'text', label: 'Isi catatan', type: 'textarea', required: true },
-                  {
-                    key: 'color',
-                    label: 'Warna',
-                    type: 'select',
-                    options: opts(['yellow', 'blue', 'green', 'pink', 'purple']),
-                    default: 'yellow',
-                  },
-                ],
-                initial: {},
-                submit: (v: any) => act('note.add', v),
-              })
-            }
-          >
-            <Plus size={16} />
-            Tambah catatan
-          </button>,
-        )}
-        <div className="notes-grid">
-          {s.notes.map((n) => (
-            <article className={'note ' + n.color} key={n.id}>
-              <p>{n.text}</p>
-              <div className="row between">
-                <small>
-                  {n.authorName} · {dateTime(n.createdAt)}
-                </small>
-                {(admin || n.authorId === actor?.employeeId) && (
-                  <button
-                    className="icon-button"
-                    aria-label="Hapus catatan"
-                    onClick={() =>
-                      setConfirm({
-                        title: 'Hapus catatan?',
-                        description: 'Catatan akan dihapus dari ruang tim.',
-                        run: () => act('note.delete', { id: n.id }),
-                      })
-                    }
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                )}
-              </div>
-            </article>
-          ))}
-        </div>
-      </>
-    );
-  if (tab === 'feedback')
-    content = (
-      <>
-        {toolbar('Kritik & saran')}
-        <div className="orders-grid">
-          {s.feedback.map((f) => (
-            <article className="panel" key={f.id}>
-              <div className="row between">
-                <strong>
-                  {f.customerName || 'Pelanggan'} · {'★'.repeat(f.rating)}
-                </strong>
-                <Badge value={f.status} />
-              </div>
-              <p>{f.message}</p>
-              <small>
-                {f.phone} · {dateTime(f.createdAt)}
-              </small>
-              {f.response && <p className="notice">Tindak lanjut: {f.response}</p>}
-              <div className="row">
-                <button
-                  className="button"
-                  onClick={() =>
-                    setModal({
-                      title: 'Tindak lanjut masukan',
-                      fields: [
-                        {
-                          key: 'status',
-                          label: 'Status',
-                          type: 'select',
-                          options: opts(['baru', 'diproses', 'selesai']),
-                        },
-                        {
-                          key: 'response',
-                          label: 'Catatan tindak lanjut internal',
-                          type: 'textarea',
-                        },
-                      ],
-                      initial: f,
-                      submit: (v: any) => act('feedback.respond', { id: f.id, ...v }),
-                    })
-                  }
-                >
-                  Tindak lanjuti
-                </button>
-                <button
-                  className="icon-button"
-                  aria-label="Hapus masukan"
-                  onClick={() => remove('feedback', f)}
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
-      </>
-    );
   if (tab === 'members') content = <MemberAdmin s={s} admin={!!admin} busy={busy} act={act} />;
   if (tab === 'guide') content = <Guide s={s} admin={!!admin} busy={busy} act={act} />;
   if (tab === 'camera' && admin) content = <CameraAdmin />;

@@ -306,13 +306,10 @@ export async function commit(
   const rows = kinds.flatMap((k) => state[k].map((r) => ({ k, r })));
   if (new Set(rows.map((x) => x.r.id)).size !== rows.length) throw new Fault('ID data berulang.');
   const now = Date.now();
-  // Guests may only leave feedback, sign up for a member card or ask for a gift on their own card
+  // Guests may only sign up for a member card or ask for a gift on their own card
   // (no staff session needed). Scheduled work runs as the system and has no session either.
   const guard =
-    a.role === 'system' ||
-    action === 'feedback.add' ||
-    action === 'member.signup' ||
-    action === 'member.request'
+    a.role === 'system' || action === 'member.signup' || action === 'member.request'
       ? db
           .prepare(
             'UPDATE control SET revision=revision+1,last_mutation=? WHERE id=1 AND revision=?',

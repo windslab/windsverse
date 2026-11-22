@@ -20,7 +20,7 @@ export const GUIDE_GROUPS: { id: GuideGroup; title: string; lead: string }[] = [
   { id: 'aturan', title: 'Aturan & SOP kafe', lead: 'Ditulis dan diperbarui oleh admin.' },
   { id: 'operasional', title: 'Operasional', lead: 'Dipakai setiap shift.' },
   { id: 'tim', title: 'Tim dan keuangan', lead: 'Jadwal, kehadiran, biaya, dan gaji.' },
-  { id: 'katalog', title: 'Katalog dan ruang tim', lead: 'Data pendukung dan catatan bersama.' },
+  { id: 'katalog', title: 'Katalog dan ruang tim', lead: 'Bahan, resep, dan perpustakaan.' },
   {
     id: 'pelanggan',
     title: 'Fitur untuk pelanggan',
@@ -64,7 +64,6 @@ export const CHAPTERS: Chapter[] = [
             ['Gaji & bonus', 'Melihat gaji sendiri'],
             ['Resep & HPP, Bahan baku', 'Modal bahan per menu (rahasia)'],
             ['Perpustakaan', 'Buku di rak kafe dan peminjaman'],
-            ['Catatan tim', 'Pesan bersama antar shift'],
             ['How to Winds Space', 'Panduan ini, termasuk aturan dari admin'],
           ],
         },
@@ -109,7 +108,7 @@ export const CHAPTERS: Chapter[] = [
       {
         flow: [
           { title: 'Masuk & cek in', sub: 'di Ringkasan' },
-          { title: 'Baca Catatan tim', sub: 'pesan shift sebelumnya' },
+          { title: 'Cek aturan baru', sub: 'di How to Winds Space' },
           { title: 'Catat pesanan', sub: 'Kasir POS' },
           { title: 'Ubah status', sub: 'sampai Selesai' },
           { title: 'Rapikan meja', sub: 'Denah meja' },
@@ -566,17 +565,6 @@ export const CHAPTERS: Chapter[] = [
     ],
   },
   {
-    id: 'catatan',
-    group: 'katalog',
-    title: 'Catatan tim',
-    lead: 'Papan pesan bersama antar shift.',
-    blocks: [
-      {
-        p: 'Tekan **Tambah catatan**, tulis isinya, pilih warna, lalu simpan. Contohnya pesan tentang bahan yang hampir habis atau peralatan yang perlu diperiksa.',
-      },
-    ],
-  },
-  {
     id: 'kafe-3d',
     group: 'pelanggan',
     title: 'Kafe 3D',
@@ -596,13 +584,13 @@ export const CHAPTERS: Chapter[] = [
     id: 'menu-lacak',
     group: 'pelanggan',
     title: 'Menu dan lacak pesanan',
-    lead: 'Pelanggan bisa melihat menu dan status pesanannya dari HP.',
+    lead: 'Pelanggan bisa melihat menu, status pesanannya, dan memberi ulasan dari HP.',
     blocks: [
       {
         ul: [
           '**Menu:** daftar menu dan harga per kategori. Hanya untuk dilihat; pemesanan tetap di kasir.',
           '**Lacak:** ketik nama pemesan atau nomor pada struk. Pencarian nama berlaku untuk pesanan lunas hari ini.',
-          '**Masukan:** pelanggan bisa memberi penilaian dan saran. Isinya langsung masuk ke pemilik.',
+          '**Ulasan:** tab Ulasan di halaman menu dan tombol di halaman depan membawa pelanggan ke Google Maps untuk menulis ulasan. Ajak pelanggan yang senang untuk memberi ulasan.',
         ],
       },
     ],
