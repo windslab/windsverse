@@ -678,3 +678,17 @@ a.primary {
   align-items: center;
   gap: 6px;
 }
+
+/* Bring a friend: the member's title. */
+.title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-weight: 500;
+}
+a.primary {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+}

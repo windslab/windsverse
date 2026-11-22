@@ -2,6 +2,7 @@ import { SYSTEM_ACTOR, staleCheckIns } from './model';
 import { Fault } from './engine';
 import { commit, read } from './store';
 import { isMemberCode } from './member-code';
+import { isInviteCode } from './referral';
 /** Runs from the Cron Trigger; quiet when nobody is left checked in from before midnight. */
 export async function midnightCheckout() {
   for (let attempt = 0; ; attempt++) {
@@ -24,11 +25,15 @@ export async function midnightCheckout() {
   }
 }
 
-/** Gives cards made before codes were random a random code; quiet once none are left. */
+/** Gives cards made before codes were random a random code, and older cards an invite code. */
 export async function recodeMembers() {
   for (let attempt = 0; ; attempt++) {
     const loaded = await read();
-    if (!loaded.control || loaded.state.members.every((m) => isMemberCode(m.code))) return false;
+    if (
+      !loaded.control ||
+      loaded.state.members.every((m) => isMemberCode(m.code) && isInviteCode(m.inviteCode))
+    )
+      return false;
     try {
       await commit(
         loaded,

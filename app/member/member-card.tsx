@@ -14,8 +14,11 @@ import {
   Lock,
   LockOpen,
   Sparkles,
+  UserPlus,
+  Award,
 } from 'lucide-react';
 import type { CardDesign } from '@/lib/member';
+import { FRIENDS_PER_DRINK, REFERRAL_MONTHLY_CAP } from '@/lib/referral';
 import MemberCard3D from './card-3d';
 import Gift3D from './gift-3d';
 import styles from './member.module.css';
@@ -56,6 +59,16 @@ export type PublicCard = {
     pointsExpireMonths: number;
   };
   design: CardDesign;
+  referral?: {
+    inviteCode: string;
+    invited: number;
+    waiting: number;
+    active: number;
+    toNextDrink: number;
+    rewardsLeftThisMonth: number;
+    title: string;
+    nextTitle: { name: string; friendsLeft: number } | null;
+  };
 };
 
 /** The card opened last on this device, for the button in the 3D café. */
@@ -188,7 +201,8 @@ export default function MemberCard({ token }: { token: string }) {
       <p className={styles.fine}>
         {card.rules.stampRule}. Stamp ke-5: potongan Rp
         {card.rules.voucherDiscount.toLocaleString('id-ID')} · stamp ke-10: minuman gratis sampai Rp
-        {card.rules.freeDrinkMax.toLocaleString('id-ID')}.
+        {card.rules.freeDrinkMax.toLocaleString('id-ID')}, langsung di transaksi yang memberi stamp
+        itu.
         {card.pointsExpireAt &&
           card.points > 0 &&
           ` Poin aman selama ada transaksi sebelum ${day(card.pointsExpireAt)}.`}
@@ -216,6 +230,8 @@ export default function MemberCard({ token }: { token: string }) {
           </ul>
         </section>
       )}
+
+      {card.referral?.inviteCode && <Invite card={card} />}
 
       <GiftCatalog card={card} token={token} onClaimed={reload} />
 
@@ -512,6 +528,72 @@ function GiftCatalog({
         Tiap hadiah bisa diklaim sekali per tahun. Poin hangus bila {card.rules.pointsExpireMonths}{' '}
         bulan tidak ada transaksi; hadiah stamp berlaku {card.rules.voucherMonths} bulan.
       </p>
+    </section>
+  );
+}
+
+/**
+ * Bring a friend: the member's invite code and link (shared on WhatsApp), the friends who
+ * counted, how many more until the next free drink and the next title.
+ */
+function Invite({ card }: { card: PublicCard }) {
+  const r = card.referral!;
+  const link =
+    (typeof location !== 'undefined' ? location.origin : 'https://windsverse.com') +
+    '/member/daftar?ajak=' +
+    r.inviteCode;
+  const message =
+    `Yuk jadi member Winds Space! Daftar lewat link ini, nanti setelah transaksi pertamamu ` +
+    `kita berdua dapat 1 stamp bonus: ${link}`;
+  return (
+    <section className={styles.block}>
+      <h2>
+        <UserPlus size={16} /> Ajak teman
+      </h2>
+      {r.title && (
+        <p className={styles.title}>
+          <Award size={16} /> {r.title}
+        </p>
+      )}
+      <p className={styles.fine}>
+        Temanmu daftar dengan kodemu <b>{r.inviteCode}</b>. Setelah transaksi pertamanya, kalian
+        berdua dapat 1 stamp bonus. Setiap {FRIENDS_PER_DRINK} teman: 1 minuman gratis untukmu.
+      </p>
+      <ul className={styles.vouchers}>
+        <li>
+          <UserPlus size={18} />
+          <span>
+            <b>{r.active} teman sudah bertransaksi</b>
+            <small>
+              {r.waiting > 0 ? `${r.waiting} teman menunggu transaksi pertama · ` : ''}
+              {r.toNextDrink} teman lagi untuk minuman gratis
+            </small>
+          </span>
+        </li>
+        {r.nextTitle && (
+          <li>
+            <Award size={18} />
+            <span>
+              <b>Gelar berikutnya: {r.nextTitle.name}</b>
+              <small>{r.nextTitle.friendsLeft} teman lagi</small>
+            </span>
+          </li>
+        )}
+      </ul>
+      {r.rewardsLeftThisMonth === 0 && (
+        <p className={styles.fine}>
+          Bonus ajakan bulan ini sudah penuh ({REFERRAL_MONTHLY_CAP} teman). Teman berikutnya tetap
+          dihitung untuk gelarmu; bonusnya mulai lagi bulan depan.
+        </p>
+      )}
+      <a
+        className={styles.primary}
+        href={'https://wa.me/?text=' + encodeURIComponent(message)}
+        target="_blank"
+        rel="noreferrer"
+      >
+        Ajak lewat WhatsApp
+      </a>
     </section>
   );
 }

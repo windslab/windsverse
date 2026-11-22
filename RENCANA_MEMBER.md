@@ -17,6 +17,26 @@ Disepakati bersama pemilik pada 1 November 2026. Tahap 1 dibangun di branch `lun
   tidak dipakai.
 - Minuman gratis yang ditukar tidak memberi stamp maupun poin; yang dihitung hanya bagian transaksi
   yang dibayar dan memenuhi syarat.
+- **Hadiah langsung (sejak 22 November 2026):** transaksi yang memberi stamp ke-5 atau ke-10 langsung
+  memakai hadiahnya di transaksi itu juga (setelah kode kartu lengkap di-scan/diketik), dan nilainya
+  masuk ke kolom Diskon kasir. Syarat stamp transaksi itu dicek dari **harga menu sebelum hadiah**,
+  jadi satu minuman yang digratiskan di stamp ke-10 tetap memberi stamp ke-10 (tanpa poin untuk
+  minuman gratisnya). Tidak berlaku untuk pesanan yang dicatat ke shift lampau; hadiah yang
+  didapat dengan cara lama tetap bisa dipakai.
+
+### Ajak teman (sejak 22 November 2026)
+
+- Setiap kartu punya **kode ajak** (`AJAK-XXXX`), terpisah dari kode kartu (kode kartu dipakai
+  untuk menukar hadiah, jadi jangan disebar). Link ajak: `windsverse.com/member/daftar?ajak=AJAK-XXXX`.
+- Teman yang daftar dengan kode itu (nomor HP baru) dihitung setelah **transaksi pertamanya yang
+  dibayar dan memenuhi syarat stamp**. Saat itu **teman dan pengajak masing-masing dapat 1 stamp
+  bonus** (tanpa poin). Bila transaksi itu dibatalkan atau dihapus, ajakan dihitung ulang.
+- Setiap **3 teman** yang dihitung: pengajak dapat **1 minuman gratis** sampai Rp20.000 (hangus 6
+  bulan, sama seperti hadiah stamp).
+- Bonus pengajak paling banyak **5 teman per bulan**; teman berikutnya bulan itu tetap dihitung
+  untuk gelar.
+- **Gelar di kartu**: 3 teman *Wind Caller*, 10 teman *Storm Bringer*, 25 teman *Legend of
+  Windstopia* (nama ada di `lib/referral.ts`).
 
 ### Poin
 
