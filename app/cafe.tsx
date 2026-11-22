@@ -392,31 +392,37 @@ export default function Cafe({ name }: { name: string }) {
   }
   // A daily tap on the till gets back only the records it changed (the server read just the
   // recent café): put those into what is shown, instead of a whole café.
-  function patch(d: any) {
+  // The 3-second check also answers with just what other devices changed (and, after game points,
+  // the cards whole): put in the same way, as a transition so a tap goes first.
+  function patch(d: any, background = false) {
     const pt = d.patch;
     if (typeof d.revision !== 'number' || d.revision < revision.current) return;
     revision.current = d.revision;
     version.current = d.version || '';
     const removed = new Set<string>(pt.removed || []);
     const written = (pt.written || []) as { kind: keyof State; record: Row }[];
-    setS((prev) => {
-      const next = { ...prev } as any;
-      const touched = new Set<keyof State>(written.map((w) => w.kind));
-      if (removed.size)
-        for (const k of Object.keys(prev) as (keyof State)[])
-          if ((prev[k] as Row[]).some((r) => removed.has(r.id))) touched.add(k);
-      for (const k of touched) {
-        const list = (prev[k] as Row[]).filter((r) => !removed.has(r.id));
-        for (const w of written)
-          if (w.kind === k) {
-            const at = list.findIndex((r) => r.id === w.record.id);
-            if (at < 0) list.push(w.record);
-            else list[at] = w.record;
-          }
-        next[k] = list;
-      }
-      return next;
-    });
+    const replace = (pt.replace || {}) as Partial<Record<keyof State, Row[]>>;
+    const update = () =>
+      setS((prev) => {
+        const next = { ...prev, ...replace } as any;
+        const touched = new Set<keyof State>(written.map((w) => w.kind));
+        if (removed.size)
+          for (const k of Object.keys(next) as (keyof State)[])
+            if ((next[k] as Row[]).some((r) => removed.has(r.id))) touched.add(k);
+        for (const k of touched) {
+          const list = (next[k] as Row[]).filter((r) => !removed.has(r.id));
+          for (const w of written)
+            if (w.kind === k) {
+              const at = list.findIndex((r) => r.id === w.record.id);
+              if (at < 0) list.push(w.record);
+              else list[at] = w.record;
+            }
+          next[k] = list;
+        }
+        return next;
+      });
+    if (background) startTransition(update);
+    else update();
     const from = String(pt.estimatesFrom || '');
     if (from)
       setEstimates((prev) => [
@@ -442,7 +448,10 @@ export default function Cafe({ name }: { name: string }) {
       }
       if (d.unchanged) {
         // Nothing new: what is on screen is current.
-      } else if (!mutation.current) show(d, !initialLoad.current);
+      } else if (mutation.current) {
+        // A save of this device is under way: its own answer brings the news.
+      } else if (d.delta) patch({ ...d, patch: d }, true);
+      else show(d, !initialLoad.current);
       setError('');
       setSynced(new Date().toLocaleTimeString('id-ID', { timeZone: CAFE_TIMEZONE }));
       setLoading(false);
@@ -2021,19 +2030,22 @@ export default function Cafe({ name }: { name: string }) {
             </div>
             <label>
               Diskon (Rp)
+              {/* A member's stamp reward is filled in here by itself; what is typed beyond it
+                  is the cashier's own discount (sent apart, the server adds the reward). */}
               <NumberInput
                 min={0}
                 max={subtotal}
                 blankZero
-                value={discount}
-                onValue={setDiscount}
+                value={allDiscount}
+                onValue={(n) => setDiscount(Math.max(0, n - freeValue))}
               />
             </label>
             {freeValue > 0 && (
-              <div className="row between">
-                <span>Minuman gratis member</span>
-                <span>−{money(freeValue)}</span>
-              </div>
+              <small className="muted">
+                Termasuk hadiah member{' '}
+                {memberFree?.productId ? `minuman gratis (${freeDrink?.name})` : 'potongan stamp'}:{' '}
+                {money(freeValue)}
+              </small>
             )}
             <label className="row">
               <Checkbox checked={taxEnabled} onCheckedChange={(v) => setTaxEnabled(v === true)} />

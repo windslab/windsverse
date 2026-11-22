@@ -1,5 +1,13 @@
 import { env } from 'cloudflare:workers';
-import { blank, defaultCategories, kinds, publicOrder, type State, type Actor } from './model';
+import {
+  blank,
+  defaultCategories,
+  kinds,
+  publicOrder,
+  type Row,
+  type State,
+  type Actor,
+} from './model';
 import { Fault, apply } from './engine';
 import { stateChanges, stateMap } from './audit';
 export function database() {
@@ -100,6 +108,94 @@ export const RECENT_ACTIONS = ['order.create', 'order.pay', 'order.status'];
 const VERSION_ID = 'state-version';
 const versionOf = (revision: unknown, extra: unknown) =>
   revision === undefined || revision === null ? '' : `${revision}.${Number(extra) || 0}`;
+/**
+ * What changed since the version a device shows, for its 3-second check: the records saves wrote
+ * since then (read as they are now; gone ones listed as removed), each save found in the audit.
+ * Null when the whole café should be sent instead: an unknown or far-off version, a gap in the
+ * audit, a big change (a restore), or a change to shifts, expenses, settings, employees or
+ * categories, which move payroll estimates and what staff may see.
+ */
+export async function readDelta(since: string, a: Actor) {
+  const [sinceRev, sinceExtra] = since.split('.').map(Number);
+  if (!Number.isInteger(sinceRev) || !Number.isInteger(sinceExtra) || sinceRev < 1) return null;
+  const db = database();
+  // The latest saves (read through the created_at index, not the whole audit), those after the
+  // version the device has, and the records they touched.
+  const saves = `WITH a AS (SELECT id FROM (SELECT id,detail FROM audit ORDER BY created_at DESC LIMIT ${DELTA_SAVES}) WHERE CASE WHEN json_valid(detail) THEN json_extract(detail,'$.revision') END>?1), ch AS (SELECT DISTINCT record_id FROM audit_changes WHERE audit_id IN (SELECT id FROM a))`;
+  const changed = 'SELECT record_id FROM ch';
+  // One batch, so the version, the audit and the records all describe the same moment.
+  const [c, v, n, r, sh, ids] = await db.batch([
+    db.prepare('SELECT revision FROM control WHERE id=1'),
+    db.prepare(`SELECT data FROM records WHERE id='${VERSION_ID}'`),
+    db
+      .prepare(`${saves} SELECT (SELECT count(*) FROM a) AS n, (SELECT count(*) FROM ch) AS ids`)
+      .bind(sinceRev),
+    db
+      .prepare(
+        `${saves} SELECT id,kind,data FROM records WHERE id IN (${changed}) LIMIT ${DELTA_MAX + 1}`,
+      )
+      .bind(sinceRev),
+    // The shifts of changed orders: whether staff may see an order depends on its shift.
+    db
+      .prepare(
+        `${saves} SELECT id,kind,data FROM records WHERE kind='shifts' AND id IN (SELECT json_extract(data,'$.shiftId') FROM records WHERE kind='orders' AND id IN (${changed}))`,
+      )
+      .bind(sinceRev),
+    db.prepare(`${saves} ${changed} LIMIT ${DELTA_MAX + 1}`).bind(sinceRev),
+  ]);
+  const revision = (c.results[0] as any)?.revision;
+  const extra = Number((v.results[0] as any)?.data) || 0;
+  const count = n.results[0] as any;
+  if (
+    typeof revision !== 'number' ||
+    sinceRev > revision ||
+    revision - sinceRev > DELTA_SAVES - 10 ||
+    extra < sinceExtra
+  )
+    return null;
+  // Every save since then must be in the audit, and not too many records touched.
+  if (count.n !== revision - sinceRev || count.ids > DELTA_MAX) return null;
+  type Raw = { id: string; kind: string; data: string };
+  const rows = r.results as Raw[];
+  if (rows.some((x) => DELTA_FULL.includes(x.kind))) return null;
+  // Game points onto a card are written outside the audit: send the cards and points whole.
+  const replace: string[] = extra !== sinceExtra ? ['members', 'gamePoints'] : [];
+  const whole = replace.length
+    ? ((
+        await db
+          .prepare(`SELECT id,kind,data FROM records WHERE kind IN ('members','gamePoints')`)
+          .all()
+      ).results as Raw[])
+    : [];
+  const mini = blank() as unknown as Record<string, Row[]>;
+  const put = (x: Raw) => {
+    if ((kinds as readonly string[]).includes(x.kind)) mini[x.kind].push(JSON.parse(x.data));
+  };
+  rows.filter((x) => !replace.includes(x.kind)).forEach(put);
+  whole.forEach(put);
+  for (const x of sh.results as Raw[])
+    if (!mini.shifts.some((y) => y.id === x.id)) mini.shifts.push(JSON.parse(x.data));
+  const shown = visible(mini as unknown as State, a) as unknown as Record<string, Row[]>;
+  const written = rows.flatMap((x) => {
+    if (replace.includes(x.kind)) return [];
+    const record = shown[x.kind]?.find((y) => y.id === x.id);
+    return record ? [{ kind: x.kind, record }] : [];
+  });
+  const kept = new Set([...written.map((w) => w.record.id), ...whole.map((w) => w.id)]);
+  return {
+    revision,
+    version: versionOf(revision, extra),
+    written,
+    // Gone since then, or not for this person's eyes.
+    removed: (ids.results as { record_id: string }[])
+      .map((x) => x.record_id)
+      .filter((id) => !kept.has(id)),
+    replace: Object.fromEntries(replace.map((k) => [k, shown[k]])),
+  };
+}
+const DELTA_MAX = 300;
+const DELTA_SAVES = 60;
+const DELTA_FULL = ['shifts', 'expenses', 'settings', 'employees', 'categories', 'tiers'];
 /** The data's current version ('' before the café is set up). */
 export async function dataVersion() {
   const row = await database()

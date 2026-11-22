@@ -10,6 +10,7 @@ import {
   commit,
   errorResponse,
   dataVersion,
+  readDelta,
 } from '@/lib/store';
 import { estimatesFor } from '@/lib/payroll-estimate';
 import { settingsMap } from '@/lib/settings-map';
@@ -31,6 +32,13 @@ export async function GET(req: Request) {
       if (version && version === since)
         return Response.json(
           { unchanged: true, version },
+          { headers: { 'Cache-Control': 'no-store' } },
+        );
+      // Something changed: just those records when it is safe, else the whole café below.
+      const delta = version && since ? await readDelta(since, actor) : null;
+      if (delta)
+        return Response.json(
+          { delta: true, actor, setup: false, ...delta },
           { headers: { 'Cache-Control': 'no-store' } },
         );
     }
