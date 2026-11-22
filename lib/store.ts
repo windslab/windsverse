@@ -89,6 +89,7 @@ const RECENT_WHOLE = [
   'memberRewards',
   'memberClaims',
   'gamePoints',
+  'referrals',
 ] as const;
 const RECENT_CUT = `cut AS (SELECT MIN(d) AS d FROM (
   SELECT ?1 AS d

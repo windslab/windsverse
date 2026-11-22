@@ -5,6 +5,8 @@ import {
   memberRules,
   normalizePhone,
   orderEarnings,
+  orderTime,
+  upcomingReward,
   validPhone,
   voucherFits,
   voucherValue,
@@ -37,6 +39,13 @@ import {
 import { mapsLink } from './maps';
 import { WEEKDAYS } from './hours';
 import { isMemberCode, newMemberCode, normalizeMemberCode } from './member-code';
+import {
+  isInviteCode,
+  newInviteCode,
+  normalizeInviteCode,
+  referralMonth,
+  REFERRAL_MONTHLY_CAP,
+} from './referral';
 const str = z.string().trim().min(1).max(200),
   optional = z.string().trim().max(2000).default('');
 const amount = z.number().int().min(0).max(1_000_000_000);
@@ -1044,9 +1053,19 @@ export function apply(
         ? 'Nomor ini sudah terdaftar. Tanyakan ke kasir untuk membuka kartu membermu.'
         : 'Nomor HP ini sudah terdaftar sebagai member.',
     );
+    // Signed up with a friend's invite code: written down as their friend (counts later).
+    const typed = String(input.inviteCode ?? '').trim();
+    const inviter = typed
+      ? s.members.find((m) => m.inviteCode === normalizeInviteCode(typed))
+      : undefined;
+    assert(
+      !typed || (!!inviter && inviter.status !== 'nonaktif'),
+      'Kode ajak teman tidak ditemukan. Periksa lagi, atau kosongkan.',
+    );
     const member = {
       id: id(),
       code: newMemberCode(s.members.map((m) => m.code)),
+      inviteCode: newInviteCode(s.members.map((m) => m.inviteCode).filter(Boolean)),
       ...fields,
       token: newToken(),
       status,
@@ -1056,7 +1075,50 @@ export function apply(
       activatedAt: status === 'aktif' ? stamp : null,
     };
     s.members.push(member);
+    if (inviter)
+      s.referrals.push({
+        id: id(),
+        inviterId: inviter.id,
+        inviteeId: member.id,
+        createdAt: stamp,
+        activatedAt: null,
+        orderId: '',
+        rewarded: false,
+      });
     return member;
+  };
+  /**
+   * A brought-in member counts from their first paid order that earns a stamp; both then get a
+   * bonus stamp, the inviter only within the monthly cap. Worked out again whenever that member's
+   * orders change, so a cancelled or deleted first order takes it back (or moves it).
+   */
+  const refreshReferral = (memberId: string) => {
+    const r = memberId && s.referrals.find((x) => x.inviteeId === memberId);
+    if (!r) return;
+    const first = s.orders
+      .filter((o) => o.memberId === memberId && o.paid && o.status !== 'dibatalkan')
+      .sort((x, y) => orderTime(x).localeCompare(orderTime(y)))
+      .find((o) => orderEarnings(s, o).qualifies);
+    if (!first) {
+      Object.assign(r, { activatedAt: null, orderId: '', rewarded: false });
+      return;
+    }
+    if (r.activatedAt && r.orderId === first.id) return;
+    const at = orderTime(first);
+    const month = referralMonth(at);
+    const taken = s.referrals.filter(
+      (x) =>
+        x.id !== r.id &&
+        x.inviterId === r.inviterId &&
+        x.rewarded &&
+        x.activatedAt &&
+        referralMonth(x.activatedAt) === month,
+    ).length;
+    Object.assign(r, {
+      activatedAt: at,
+      orderId: first.id,
+      rewarded: r.activatedAt ? r.rewarded : taken < REFERRAL_MONTHLY_CAP,
+    });
   };
   /** A member who signed up on their own becomes active with their first qualifying order. */
   const activateMember = (o: Row) => {
@@ -1081,6 +1143,10 @@ export function apply(
     assert(a.role === 'system', 'Hanya sistem yang mengganti kode kartu lama.');
     for (const m of s.members)
       if (!isMemberCode(m.code)) m.code = newMemberCode(s.members.map((x) => x.code));
+    // Cards from before bring-a-friend get their invite code.
+    for (const m of s.members)
+      if (!isInviteCode(m.inviteCode))
+        m.inviteCode = newInviteCode(s.members.map((x) => x.inviteCode).filter(Boolean));
     return;
   }
   if (action === 'member.update') {
@@ -1339,7 +1405,13 @@ export function apply(
     // A member, and maybe one of their free drinks (its price comes off as a discount).
     let memberId = '',
       memberFree:
-        | { voucherId: string; type: VoucherType; productId: string; value: number }
+        | {
+            voucherId: string;
+            type: VoucherType;
+            productId: string;
+            value: number;
+            immediate?: boolean;
+          }
         | undefined;
     if (p.memberId) {
       const m = find(s, 'members', p.memberId);
@@ -1353,10 +1425,34 @@ export function apply(
           normalizeMemberCode(p.memberFree.code) === m.code,
           'Untuk memakai hadiah, masukkan atau scan kode kartu member lengkap.',
         );
-        const voucher = memberCard(s, m, now).vouchers.find(
-          (v) => v.id === p.memberFree.voucherId && v.status === 'tersedia',
+        // A reward already on the card, or the stamp 5 / 10 reward this live order earns itself.
+        const upcoming = historical
+          ? null
+          : upcomingReward(
+              s,
+              m,
+              items.map((i) => ({ productId: i.productId, quantity: i.quantity, price: i.price })),
+              sh.date,
+              now,
+            );
+        const voucher =
+          upcoming?.id === p.memberFree.voucherId
+            ? { id: upcoming!.id, type: upcoming!.type, immediate: true }
+            : memberCard(s, m, now).vouchers.find(
+                (v) => v.id === p.memberFree.voucherId && v.status === 'tersedia',
+              );
+        // Also not when an order still waiting for payment already holds it.
+        assert(
+          voucher &&
+            !s.orders.some(
+              (o) =>
+                o.memberId === m.id &&
+                o.status !== 'dibatalkan' &&
+                o.memberFree?.voucherId === p.memberFree.voucherId,
+            ),
+          'Hadiah stamp ini sudah dipakai atau hangus.',
         );
-        assert(voucher, 'Hadiah stamp ini sudah dipakai atau hangus.');
+        const immediate = 'immediate' in voucher! ? { immediate: true } : {};
         const rules = memberRules(s);
         if (voucher!.type === 'potongan')
           memberFree = {
@@ -1364,6 +1460,7 @@ export function apply(
             type: voucher!.type,
             productId: '',
             value: voucherValue(rules, subtotal),
+            ...immediate,
           };
         else {
           const item = items.find((i) => i.productId === p.memberFree.productId);
@@ -1377,6 +1474,7 @@ export function apply(
             type: voucher!.type,
             productId: item!.productId,
             value: voucherValue(rules, subtotal, item!.price),
+            ...immediate,
           };
         }
       }
@@ -1444,6 +1542,7 @@ export function apply(
     };
     s.orders.push(order);
     activateMember(order);
+    refreshReferral(memberId);
     if (pastPlanned) maybeFinalizeShift(sh);
     if (pastOpen) tryFinalize(sh);
     if (historical) refreshClosedShift(sh);
@@ -1465,6 +1564,7 @@ export function apply(
       change: cash - o.total,
     });
     activateMember(o);
+    refreshReferral(o.memberId);
     return;
   }
   if (action === 'order.hpp.correct') {
@@ -1568,6 +1668,7 @@ export function apply(
     )
       find(s, 'tables', o.tableId).status = 'dibersihkan';
     s.orders = s.orders.filter((x) => x.id !== o.id);
+    refreshReferral(o.memberId);
     void reason;
     refreshClosedShift(sh);
     return;
@@ -1603,6 +1704,7 @@ export function apply(
       assert(transitions[o.status] === p.status && o.paid, 'Perubahan status pesanan tidak valid.');
     o.status = p.status;
     o.sceneStatusAt = stamp;
+    if (p.status === 'dibatalkan') refreshReferral(o.memberId);
     if (p.status === 'selesai') o.sceneFinishedAt = stamp;
     if (
       o.tableId &&

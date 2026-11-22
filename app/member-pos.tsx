@@ -12,6 +12,7 @@ import {
   normalizePhone,
   orderEarnings,
   stampRule,
+  upcomingReward,
   voucherFits,
   voucherValue,
   STAMPS_PER_CARD,
@@ -27,6 +28,8 @@ export default function MemberPos({
   memberFree,
   cart,
   discount,
+  live,
+  day,
   onMember,
   onFree,
   act,
@@ -37,13 +40,17 @@ export default function MemberPos({
   memberFree: MemberFree;
   cart: Row[];
   discount: number;
+  /** A live order (not one entered for a past shift): only these use a stamp reward at once. */
+  live: boolean;
+  /** The café day the order lands on. */
+  day: string;
   onMember: (id: string, name: string) => void;
   onFree: (free: MemberFree) => void;
   act: (action: string, payload: Record<string, unknown>, success?: string) => Promise<unknown>;
 }) {
   const [query, setQuery] = useState(''),
     [signup, setSignup] = useState(false),
-    [form, setForm] = useState({ name: '', phone: '', birthday: '' }),
+    [form, setForm] = useState({ name: '', phone: '', birthday: '', inviteCode: '' }),
     // The member whose whole card code was entered, and what is being typed to check it.
     [verified, setVerified] = useState(''),
     [codeInput, setCodeInput] = useState('');
@@ -52,6 +59,25 @@ export default function MemberPos({
   const card = useMemo(() => (member ? memberCard(s, member) : null), [s, member]);
   // Rewards the cashier took off by hand ("batal pakai"): not put back on by themselves.
   const [declined, setDeclined] = useState<string[]>([]);
+  // The stamp 5 or 10 this very order earns: its reward comes off this order (it goes first).
+  const upcoming =
+    live && member && card && cart.length
+      ? upcomingReward(
+          s,
+          member,
+          cart.map((i) => ({ productId: i.id, quantity: i.quantity, price: i.price })),
+          day,
+        )
+      : null;
+  const offers = [
+    ...(upcoming
+      ? [{ id: upcoming.id, type: upcoming.type, slot: upcoming.slot, expiresAt: '', now: true }]
+      : []),
+    ...(card?.vouchers ?? [])
+      .filter((v) => v.status === 'tersedia')
+      .sort((a, b) => a.expiresAt.localeCompare(b.expiresAt))
+      .map((v) => ({ id: v.id, type: v.type, slot: 0, expiresAt: v.expiresAt, now: false })),
+  ];
   // A stamp reward (Rp5.000 off at stamp 5, a drink at stamp 10) is used by itself once the
   // whole card code is in: the one expiring first that fits this order, a free drink on the
   // dearest drink in the cart. Its value shows in the Diskon box. A drink taken out of the cart
@@ -59,9 +85,7 @@ export default function MemberPos({
   const autoFree = ((): MemberFree => {
     if (!member || !card || member.status !== 'aktif' || verified !== member.id || !cart.length)
       return null;
-    const open = card.vouchers
-      .filter((v) => v.status === 'tersedia' && !declined.includes(member.id + ':' + v.id))
-      .sort((a, b) => a.expiresAt.localeCompare(b.expiresAt));
+    const open = offers.filter((v) => !declined.includes(member.id + ':' + v.id));
     for (const v of open) {
       if (v.type === 'potongan') return { voucherId: v.id, productId: '', code: member.code };
       const drink = cart
@@ -80,7 +104,7 @@ export default function MemberPos({
   const autoKey = JSON.stringify(autoFree);
   const keepChosen =
     !!memberFree &&
-    card?.vouchers.some((v) => v.id === memberFree.voucherId && v.status === 'tersedia') &&
+    offers.some((v) => v.id === memberFree.voucherId) &&
     (!memberFree.productId || cart.some((i) => i.id === memberFree.productId));
   useEffect(() => {
     if (!keepChosen && freeKey !== autoKey) onFree(autoFree);
@@ -99,8 +123,9 @@ export default function MemberPos({
       )
       .slice(0, 6);
   }, [query, s.members]);
+  const upcomingId = upcoming?.id ?? '';
   // What this order will earn, worked out the same way the card does.
-  const preview = useMemo(() => {
+  const preview = (() => {
     if (!member || !cart.length) return null;
     const freeItem = memberFree?.productId ? cart.find((i) => i.id === memberFree.productId) : null;
     const items = cart.map((i) => ({ productId: i.id, quantity: i.quantity, price: i.price }));
@@ -119,11 +144,15 @@ export default function MemberPos({
               : 0
             : voucherValue(rules, subtotal)),
       memberFree: freeItem
-        ? { productId: freeItem.id, value: voucherValue(rules, subtotal, freeItem.price) }
+        ? {
+            productId: freeItem.id,
+            value: voucherValue(rules, subtotal, freeItem.price),
+            immediate: memberFree?.voucherId === upcomingId,
+          }
         : undefined,
     };
     return orderEarnings(s, order, rules);
-  }, [member, cart, memberFree, discount, s, rules]);
+  })();
 
   if (!member)
     return (
@@ -191,6 +220,13 @@ export default function MemberPos({
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
             />
+            <input
+              placeholder="Kode ajak teman (opsional, AJAK-…)"
+              value={form.inviteCode}
+              maxLength={12}
+              autoComplete="off"
+              onChange={(e) => setForm({ ...form, inviteCode: e.target.value.toUpperCase() })}
+            />
             <label>
               Tanggal lahir (opsional)
               <input
@@ -211,7 +247,7 @@ export default function MemberPos({
                   if (result && result.id) {
                     onMember(result.id, form.name);
                     setVerified(result.id);
-                    setForm({ name: '', phone: '', birthday: '' });
+                    setForm({ name: '', phone: '', birthday: '', inviteCode: '' });
                     setSignup(false);
                   }
                 }}
@@ -227,7 +263,6 @@ export default function MemberPos({
       </div>
     );
 
-  const vouchers = card!.vouchers.filter((v) => v.status === 'tersedia');
   const pendingClaims = card!.claims.filter((c) => claimStatus(c) === 'menunggu');
   const codeOk = verified === member.id;
   const stamps = card!.current.stamps.length;
@@ -273,7 +308,7 @@ export default function MemberPos({
             <span>{card!.points.toLocaleString('id-ID')} poin</span>
             <span>{card!.fullCards} kartu penuh</span>
           </div>
-          {!codeOk && (vouchers.length > 0 || pendingClaims.length > 0) && (
+          {!codeOk && (offers.length > 0 || pendingClaims.length > 0) && (
             <label className="member-code-check">
               Untuk memakai hadiah, scan QR atau ketik kode kartu lengkap dari HP member
               <input
@@ -290,7 +325,7 @@ export default function MemberPos({
               )}
             </label>
           )}
-          {vouchers.map((v) => {
+          {offers.map((v) => {
             const fitting = cart.filter((i) =>
               voucherFits(
                 s.products.find((p) => p.id === i.id),
@@ -303,6 +338,8 @@ export default function MemberPos({
               <div key={v.id} className="member-voucher" data-using={using || undefined}>
                 {v.type === 'potongan' ? <Ticket size={15} /> : <CupSoda size={15} />}
                 <span>
+                  {v.now && <b>Stamp ke-{v.slot} dari pesanan ini: </b>}
+                  {v.id.startsWith('r') && <b>Bonus ajak teman: </b>}
                   {v.type === 'potongan'
                     ? `Potongan ${money(rules.voucherDiscount)}`
                     : `Minuman gratis s/d ${money(rules.freeDrinkMax)}`}

@@ -16,6 +16,7 @@ import { estimatesFor } from '@/lib/payroll-estimate';
 import { settingsMap } from '@/lib/settings-map';
 import { recodeMembers } from '@/lib/midnight';
 import { isMemberCode } from '@/lib/member-code';
+import { isInviteCode } from '@/lib/referral';
 export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
@@ -44,7 +45,10 @@ export async function GET(req: Request) {
     }
     let loaded = await read();
     // Cards from before random codes get theirs the first time staff open the app.
-    if (loaded.state.members.some((m) => !isMemberCode(m.code)) && (await recodeMembers()))
+    if (
+      loaded.state.members.some((m) => !isMemberCode(m.code) || !isInviteCode(m.inviteCode)) &&
+      (await recodeMembers())
+    )
       loaded = await read();
     const extra =
       actor.role === 'admin' && url.searchParams.get('audit') === '1'

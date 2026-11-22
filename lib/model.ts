@@ -22,6 +22,7 @@ export const kinds = [
   'memberRewards',
   'memberClaims',
   'gamePoints',
+  'referrals',
 ] as const;
 /** Collections added later: an older backup without them restores them as empty. */
 export const laterKinds = new Set<string>([

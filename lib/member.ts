@@ -3,6 +3,7 @@
 // orders and gift claims, so cancelling or correcting an order adjusts the card by itself.
 import { businessDay, localDate, type Row, type State } from './model';
 import { GAME_DAILY_CAP, gameEvents, gamePointsOn } from './game-points';
+import { referralDrinks, referralStamps, referralSummary } from './referral';
 
 export type MemberRules = {
   /** A stamp needs at least one paid drink at this price or more… */
@@ -124,7 +125,7 @@ const addMonths = (iso: string, months: number) => {
   d.setUTCMonth(d.getUTCMonth() + months);
   return d.toISOString();
 };
-const orderTime = (o: Row) => (o.paidAt || o.createdAt) as string;
+export const orderTime = (o: Row) => (o.paidAt || o.createdAt) as string;
 /** The stamp 10 reward is good for any drink. */
 export const voucherFits = (product: Row | undefined, rules: MemberRules) =>
   !!product && rules.drinkCategories.includes(product.category);
@@ -142,7 +143,9 @@ export function orderEarnings(s: State, o: Row, rules = memberRules(s)) {
   let qualifies = false,
     points = 0;
   // The stamp 5 discount has no product: it lowers the points like any other discount.
-  const free = o.memberFree as { productId: string; value: number } | undefined;
+  const free = o.memberFree as
+    | { productId: string; value: number; immediate?: boolean }
+    | undefined;
   let freeLeft = free?.productId ? 1 : 0;
   for (const item of o.items as Row[]) {
     const product = s.products.find((p) => p.id === item.productId);
@@ -151,14 +154,17 @@ export function orderEarnings(s: State, o: Row, rules = memberRules(s)) {
       units -= 1;
       freeLeft = 0;
     }
-    if (units <= 0) continue;
+    // A reward this very order earned (stamp 5 or 10 used at once) does not take its stamp
+    // away: the order is judged at its menu prices, before the reward.
+    const judged = free?.immediate ? (item.quantity as number) : units;
+    if (judged <= 0) continue;
     if (
       product &&
       ((rules.drinkCategories.includes(product.category) && item.price >= rules.minDrinkPrice) ||
         (rules.foodCategories.includes(product.category) && item.price >= rules.minFoodPrice))
     )
       qualifies = true;
-    points += productPoints(product ?? { id: '', price: item.price }, rules) * units;
+    if (units > 0) points += productPoints(product ?? { id: '', price: item.price }, rules) * units;
   }
   if (!qualifies) return { qualifies: false, points: 0 };
   const freeValue = free?.productId ? free.value : 0,
@@ -183,7 +189,13 @@ export function memberCard(s: State, member: Row, now = new Date()) {
   const orders = s.orders
     .filter((o) => o.memberId === member.id && o.paid && o.status !== 'dibatalkan')
     .sort((a, b) => orderTime(a).localeCompare(orderTime(b)));
-  const stamps: { at: string; points: number; orderNo: string; orderId: string }[] = [];
+  const stamps: {
+    at: string;
+    points: number;
+    orderNo: string;
+    orderId: string;
+    bonus?: boolean;
+  }[] = [];
   // One stamp per café day, so splitting a bill earns nothing extra; every order keeps its points.
   const earnings: { at: string; points: number }[] = [],
     stampDays = new Set<string>();
@@ -197,6 +209,11 @@ export function memberCard(s: State, member: Row, now = new Date()) {
     stampDays.add(orderDay);
     stamps.push({ at, points: e.points, orderNo: o.no, orderId: o.id });
   }
+  // Bonus stamps for bringing a friend or being brought (no points), after an order of the same
+  // moment so the order's own stamp keeps its place.
+  for (const b of referralStamps(s, member.id))
+    stamps.push({ at: b.at, points: 0, orderNo: '', orderId: '', bonus: true });
+  stamps.sort((a, b) => a.at.localeCompare(b.at) || Number(!!a.bonus) - Number(!!b.bonus));
   // Cards and free drinks.
   const cards: { no: number; completedAt: string | null; stamps: typeof stamps }[] = [];
   const vouchers: Voucher[] = [];
@@ -221,6 +238,22 @@ export function memberCard(s: State, member: Row, now = new Date()) {
       });
     }
   });
+  // A free drink for every third friend brought in.
+  for (const d of referralDrinks(s, member.id)) {
+    const expiresAt = addMonths(d.earnedAt, rules.voucherMonths);
+    vouchers.push({
+      id: d.id,
+      type: 'minuman',
+      card: 0,
+      earnedAt: d.earnedAt,
+      expiresAt,
+      status: orders.some((o) => o.memberFree?.voucherId === d.id)
+        ? 'terpakai'
+        : expiresAt < nowIso
+          ? 'hangus'
+          : 'tersedia',
+    });
+  }
   if (!cards.length || cards.at(-1)!.completedAt)
     cards.push({ no: cards.length + 1, completedAt: null, stamps: [] });
   // Points: earned with each stamp, spent on gifts; all lost after a long quiet spell.
@@ -297,6 +330,44 @@ export function memberCard(s: State, member: Row, now = new Date()) {
     year,
     rewards,
     claims,
+    referral: referralSummary(s, member, now),
+  };
+}
+
+/**
+ * The stamp 5 or 10 reward this order would earn, to be used on it at once: when it is a live
+ * order (not one entered for a past shift), no stamp was earned on its day yet, it earns a stamp
+ * at its menu prices and that stamp is the 5th or 10th of a card. Null otherwise.
+ */
+export function upcomingReward(
+  s: State,
+  member: Row,
+  items: { productId: string; quantity: number; price: number }[],
+  day: string,
+  now = new Date(),
+) {
+  const card = memberCard(s, member, now);
+  if (card.stampDays.includes(day)) return null;
+  const subtotal = items.reduce((v, i) => v + i.price * i.quantity, 0);
+  const e = orderEarnings(s, { id: 'upcoming', items, subtotal, discount: 0 }, card.rules);
+  if (!e.qualifies) return null;
+  const n = card.stampCount;
+  const slot = (n % STAMPS_PER_CARD) + 1;
+  const reward = REWARD_AT.find((r) => r.slot === slot);
+  if (!reward) return null;
+  const id = `c${Math.floor(n / STAMPS_PER_CARD) + 1}-${slot}`;
+  // Held by an order still waiting for payment: not twice.
+  if (
+    s.orders.some(
+      (o) =>
+        o.memberId === member.id && o.status !== 'dibatalkan' && o.memberFree?.voucherId === id,
+    )
+  )
+    return null;
+  return {
+    id,
+    type: reward.type,
+    slot,
   };
 }
 
@@ -313,7 +384,11 @@ export function publicCard(s: State, member: Row, now = new Date()) {
     stampCount: card.stampCount,
     current: {
       no: card.current.no,
-      stamps: card.current.stamps.map((st) => ({ at: st.at, points: st.points })),
+      stamps: card.current.stamps.map((st) => ({
+        at: st.at,
+        points: st.points,
+        bonus: !!st.bonus,
+      })),
     },
     fullCards: card.fullCards,
     vouchers: card.vouchers.filter((v) => v.status === 'tersedia'),
@@ -328,6 +403,7 @@ export function publicCard(s: State, member: Row, now = new Date()) {
       points: c.points,
       status: claimStatus(c),
     })),
+    referral: card.referral,
     design: cardDesign(s),
     rules: {
       minDrinkPrice: card.rules.minDrinkPrice,

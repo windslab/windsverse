@@ -1942,6 +1942,8 @@ export default function Cafe({ name }: { name: string }) {
               memberFree={memberFree}
               cart={cart}
               discount={discount}
+              live={!!selectedOrderShift && !isPastForOrder(selectedOrderShift)}
+              day={selectedOrderShift?.date || localDate()}
               act={act}
               onMember={(id, name) => {
                 setMemberId(id);
