@@ -2,7 +2,7 @@
 // The member box in the till (Kasir POS): find a member by phone, code or name, sign up a new one,
 // see their card at a glance, use a free drink, and see what this order will earn. Gifts need the
 // card's whole code (typed or scanned from the member's own card), not just a name or number.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CupSoda, Gift, Ticket, UserPlus, X } from 'lucide-react';
 import { businessDay, money, type Row, type State } from '@/lib/model';
 import {
@@ -50,6 +50,42 @@ export default function MemberPos({
   const rules = memberRules(s);
   const member = s.members.find((m) => m.id === memberId);
   const card = useMemo(() => (member ? memberCard(s, member) : null), [s, member]);
+  // Rewards the cashier took off by hand ("batal pakai"): not put back on by themselves.
+  const [declined, setDeclined] = useState<string[]>([]);
+  // A stamp reward (Rp5.000 off at stamp 5, a drink at stamp 10) is used by itself once the
+  // whole card code is in: the one expiring first that fits this order, a free drink on the
+  // dearest drink in the cart. Its value shows in the Diskon box. A drink taken out of the cart
+  // moves the reward to another, or to nothing.
+  const autoFree = ((): MemberFree => {
+    if (!member || !card || member.status !== 'aktif' || verified !== member.id || !cart.length)
+      return null;
+    const open = card.vouchers
+      .filter((v) => v.status === 'tersedia' && !declined.includes(member.id + ':' + v.id))
+      .sort((a, b) => a.expiresAt.localeCompare(b.expiresAt));
+    for (const v of open) {
+      if (v.type === 'potongan') return { voucherId: v.id, productId: '', code: member.code };
+      const drink = cart
+        .filter((i) =>
+          voucherFits(
+            s.products.find((p) => p.id === i.id),
+            rules,
+          ),
+        )
+        .sort((a, b) => b.price - a.price)[0];
+      if (drink) return { voucherId: v.id, productId: drink.id, code: member.code };
+    }
+    return null;
+  })();
+  const freeKey = JSON.stringify(memberFree);
+  const autoKey = JSON.stringify(autoFree);
+  const keepChosen =
+    !!memberFree &&
+    card?.vouchers.some((v) => v.id === memberFree.voucherId && v.status === 'tersedia') &&
+    (!memberFree.productId || cart.some((i) => i.id === memberFree.productId));
+  useEffect(() => {
+    if (!keepChosen && freeKey !== autoKey) onFree(autoFree);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keepChosen, freeKey, autoKey]);
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (q.length < 2) return [];
@@ -272,7 +308,14 @@ export default function MemberPos({
                     : `Minuman gratis s/d ${money(rules.freeDrinkMax)}`}
                 </span>
                 {using ? (
-                  <button type="button" className="button" onClick={() => onFree(null)}>
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() => {
+                      setDeclined((d) => [...d, member.id + ':' + v.id]);
+                      onFree(null);
+                    }}
+                  >
                     batal pakai
                   </button>
                 ) : v.type === 'potongan' ? (
@@ -280,7 +323,10 @@ export default function MemberPos({
                     type="button"
                     className="button"
                     disabled={unavailable || !cart.length}
-                    onClick={() => onFree({ voucherId: v.id, productId: '', code: member.code })}
+                    onClick={() => {
+                      setDeclined((d) => d.filter((x) => x !== member.id + ':' + v.id));
+                      onFree({ voucherId: v.id, productId: '', code: member.code });
+                    }}
                   >
                     pakai
                   </button>
@@ -289,10 +335,11 @@ export default function MemberPos({
                     aria-label="Pakai minuman gratis untuk"
                     value=""
                     disabled={unavailable}
-                    onChange={(e) =>
-                      e.target.value &&
-                      onFree({ voucherId: v.id, productId: e.target.value, code: member.code })
-                    }
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      setDeclined((d) => d.filter((x) => x !== member.id + ':' + v.id));
+                      onFree({ voucherId: v.id, productId: e.target.value, code: member.code });
+                    }}
                   >
                     <option value="">pakai untuk…</option>
                     {fitting.map((i) => (
