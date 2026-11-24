@@ -1,12 +1,5 @@
 import { env } from 'cloudflare:workers';
-import {
-  blank,
-  defaultCategories,
-  kinds,
-  type Row,
-  type State,
-  type Actor,
-} from './model';
+import { blank, defaultCategories, kinds, type Row, type State, type Actor } from './model';
 import { Fault, apply } from './engine';
 import { stateChanges, stateMap } from './audit';
 export function database() {
