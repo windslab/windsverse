@@ -13,7 +13,7 @@ import RosterPlanner from './roster-planner';
 import MemberPos, { type MemberFree } from './member-pos';
 import { memberRules, voucherValue } from '@/lib/member';
 import MemberAdmin from './member-admin';
-import { startTransition, useEffect, useRef, useState, type ReactNode } from 'react';
+import { startTransition, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Calculator,
   QrCode,
@@ -270,7 +270,7 @@ const nav = [
 const restricted = ['financials', 'employees', 'products', 'settings', 'camera', 'music'];
 export default function Cafe({ name }: { name: string }) {
   const [accounts, setAccounts] = useState<any[]>([]);
-  const [s, setS] = useState<State>(blank()),
+  const [shown, setS] = useState<State>(blank()),
     [estimates, setEstimates] = useState<Estimate[]>([]),
     [actor, setActor] = useState<Actor | null>(null),
     [setup, setSetup] = useState(false),
@@ -304,6 +304,15 @@ export default function Cafe({ name }: { name: string }) {
     [memberId, setMemberId] = useState(''),
     [memberFree, setMemberFree] = useState<MemberFree>(null),
     [audit, setAudit] = useState<any[]>([]);
+  // Staff also receive the orders a member's card is counted from (marked memberOnly, from other
+  // shifts): only the member panels use them; everywhere else they are left out.
+  const s = useMemo(
+    () =>
+      shown.orders.some((o) => o.memberOnly)
+        ? { ...shown, orders: shown.orders.filter((o) => !o.memberOnly) }
+        : shown,
+    [shown],
+  );
   const revision = useRef(0),
     /** The data version on screen ('' until the first full load). */
     version = useRef(''),
@@ -1932,7 +1941,7 @@ export default function Cafe({ name }: { name: string }) {
               </small>
             )}
             <MemberPos
-              s={s}
+              s={shown}
               busy={busy}
               memberId={memberId}
               memberFree={memberFree}
@@ -3801,7 +3810,7 @@ export default function Cafe({ name }: { name: string }) {
       </>
     );
   }
-  if (tab === 'members') content = <MemberAdmin s={s} admin={!!admin} busy={busy} act={act} />;
+  if (tab === 'members') content = <MemberAdmin s={shown} admin={!!admin} busy={busy} act={act} />;
   if (tab === 'guide') content = <Guide s={s} admin={!!admin} busy={busy} act={act} />;
   if (tab === 'camera' && admin) content = <CameraAdmin />;
   if (tab === 'music' && admin) content = <MusicAdmin />;
