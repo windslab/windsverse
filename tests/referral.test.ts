@@ -208,3 +208,31 @@ test('referrals: a free drink for every third friend, at most five rewarded frie
     'terpakai',
   );
 });
+
+test('staff see every member card as the admin does, without other shifts in their order list', async () => {
+  const { visible } = await import('../lib/visible');
+  const f = fixture();
+  const m = f.join('Fajar', '081200000009');
+  const staffActor: Actor = {
+    id: 'employee:fayza',
+    employeeId: 'fayza',
+    name: 'Fayza',
+    email: '',
+    role: 'karyawan',
+  };
+  // Seven visits on shifts Fayza did not work, one of them with a stamp reward used.
+  for (let i = 0; i < 7; i++) f.sell([[f.coffee, 1]], m.id);
+  f.shift.status = 'closed';
+  const seen = visible(f.s, staffActor);
+  assert.equal(seen.orders.filter((o) => !o.memberOnly).length, 0);
+  const asAdmin = memberCard(f.s, f.member(m.id));
+  const asStaff = memberCard(seen, seen.members.find((x) => x.id === m.id)!);
+  assert.equal(asStaff.stampCount, asAdmin.stampCount);
+  assert.equal(asStaff.points, asAdmin.points);
+  assert.deepEqual(asStaff.vouchers, asAdmin.vouchers);
+  // Only what the card needs: no totals, payment or cashier.
+  const o = seen.orders[0];
+  assert.equal(o.total, undefined);
+  assert.equal(o.paymentMethod, undefined);
+  assert.equal(o.cashierId, undefined);
+});

@@ -1,13 +1,5 @@
 import { env } from 'cloudflare:workers';
-import {
-  blank,
-  defaultCategories,
-  kinds,
-  publicOrder,
-  type Row,
-  type State,
-  type Actor,
-} from './model';
+import { blank, defaultCategories, kinds, type Row, type State, type Actor } from './model';
 import { Fault, apply } from './engine';
 import { stateChanges, stateMap } from './audit';
 export function database() {
@@ -216,35 +208,8 @@ export async function bumpDataVersion(
     )
     .run();
 }
-export function visible(s: State, a: Actor): State {
-  if (a.role === 'admin') return s;
-  const v = structuredClone(s);
-  v.employees = v.employees.map((e) => ({
-    id: e.id,
-    name: e.name,
-    role: e.role,
-    status: e.status,
-  }));
-  v.attendance = v.attendance.filter((x) => x.employeeId === a.employeeId);
-  v.payrolls = v.payrolls.filter((x) => x.employeeId === a.employeeId);
-  v.tiers = [];
-  v.feedback = [];
-  v.orders = v.orders
-    .filter((o) =>
-      s.shifts.some(
-        (sh) =>
-          sh.id === o.shiftId && (sh.status === 'open' || sh.employeeIds.includes(a.employeeId)),
-      ),
-    )
-    .map(publicOrder);
-  v.shifts = v.shifts.map((sh) => ({
-    ...sh,
-    snapshot: sh.snapshot
-      ? { employees: sh.snapshot.employees.filter((e: any) => e.employeeId === a.employeeId) }
-      : undefined,
-  }));
-  return v;
-}
+export { visible, memberOrder } from './visible';
+import { visible } from './visible';
 export function checkMutation(req: Request) {
   const origin = req.headers.get('origin');
   if (origin !== new URL(req.url).origin || req.headers.get('sec-fetch-site') === 'cross-site')
